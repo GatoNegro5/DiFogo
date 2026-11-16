@@ -22,6 +22,8 @@ import '../../core/livedj_next.dart';
 import '../../core/queue_bpm.dart';
 import '../../core/track_name_clean.dart';
 import '../curator_inbox_dialog.dart';
+import '../vibe_hub_view.dart';
+import '../../providers/vibe_hub_provider.dart';
 
 /// Texto del buscador de la cola (solo filtra la vista; la cola real no cambia).
 final liveDjQueueSearchProvider = StateProvider<String>((ref) => '');
@@ -83,10 +85,16 @@ class LiveDjWorkspace extends ConsumerWidget {
           if (!compact) ...<Widget>[
             Expanded(
               flex: 5,
-              child: Material(
-                color: GatoMixTheme.bgPanel,
-                child: LibraryTreePanel(provider: liveDjDirectoryProvider),
-              ),
+              // 3.1.54: Smart Vibe (Hub) por defecto; el modo clasico vuelve
+              // al arbol de carpetas.
+              child: ref.watch(liveDjClassicFolderViewProvider)
+                  ? Material(
+                      color: GatoMixTheme.bgPanel,
+                      child: LibraryTreePanel(
+                        provider: liveDjDirectoryProvider,
+                      ),
+                    )
+                  : const VibeHubView(),
             ),
             const VerticalDivider(width: 1, color: Colors.white10),
           ],
@@ -1505,6 +1513,8 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  // 3.1.54: conmutador Smart Vibe / Modo Clasico.
+                  LiveDjViewToggleButton(mobile: liveDjIsMobile()),
                   // 3.1.53: bandeja del curador (Smart Discovery).
                   const CuratorInboxButton(),
                   IconButton(
