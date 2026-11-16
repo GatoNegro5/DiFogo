@@ -1889,6 +1889,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
   /// Duración decodificada. Ni TLEN ni libmpv deciden la barra ni el disparo.
   Future<Duration> _trueDuration(String? path, Duration mpv) async {
     if (path == null) return Duration.zero;
+    // 3.1.46 (Hueco 2): TBPM en memoria para knownBpm (TrackTags.peek),
+    // aunque no haya .gatomix.json ni (N BPM) en el nombre.
+    unawaited(TrackTags.load(path));
     try {
       int? ms = _exactDurCache[path];
       if (ms == null || ms <= 0) {

@@ -1595,6 +1595,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         if (warmPeer != null && warmPeer != _warmedPath) {
           _warmedPath = warmPeer;
           unawaited(AdaptiveEq.prefetch(warmPeer));
+          // 3.1.46 (Hueco 1): TBPM de la siguiente en memoria antes de
+          // planificar; knownBpm lo toma por TrackTags.peek sin nombre ni JSON.
+          unawaited(TrackTags.load(warmPeer));
         }
 
         // No se arma durante un cruce: el deck "standby" es el que aún suena
