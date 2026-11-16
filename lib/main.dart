@@ -37,6 +37,7 @@ import 'core/headless_args.dart';
 import 'ui/headless_master_page.dart';
 import 'ui/headless_karaoke_page.dart';
 import 'ui/startup_vibe_dialog.dart';
+import 'providers/curator_provider.dart';
 
 // ==========================================
 // ENRUTADOR DE ESTADO (SPA - Single Page App)
@@ -408,7 +409,12 @@ class _MainWorkspaceState extends ConsumerState<MainWorkspace> {
     // 3.1.52: Smart Vibe al arrancar (una vez por arranque).
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      unawaited(showStartupVibeFlow(context, ref));
+      // 3.1.53: tras elegir genero arranca el worker diario del curador.
+      unawaited(
+        showStartupVibeFlow(context, ref).then((_) {
+          if (mounted) ref.read(curatorProvider.notifier).startDailyWorker();
+        }),
+      );
     });
   }
 

@@ -21,6 +21,7 @@ import '../../core/audio/cue_preview.dart';
 import '../../core/livedj_next.dart';
 import '../../core/queue_bpm.dart';
 import '../../core/track_name_clean.dart';
+import '../curator_inbox_dialog.dart';
 
 /// Texto del buscador de la cola (solo filtra la vista; la cola real no cambia).
 final liveDjQueueSearchProvider = StateProvider<String>((ref) => '');
@@ -1504,6 +1505,8 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  // 3.1.53: bandeja del curador (Smart Discovery).
+                  const CuratorInboxButton(),
                   IconButton(
                     icon: const Icon(
                       Icons.delete_sweep,
