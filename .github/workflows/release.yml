@@ -56,12 +56,12 @@ jobs:
           - os: windows-latest
             target: windows
             build_cmd: flutter build windows --release
-            asset_name: GatoMix-Installer.exe
+            asset_name: DiFogo-Installer.exe
             rust_targets: x86_64-pc-windows-msvc
           - os: macos-latest
             target: macos
             build_cmd: flutter build macos --release
-            asset_name: GatoMix-MacOS.zip
+            asset_name: DiFogo-MacOS.zip
             rust_targets: x86_64-apple-darwin, aarch64-apple-darwin
 
     runs-on: ${{ matrix.os }}
@@ -170,7 +170,7 @@ jobs:
 
       - name: Zip MacOS Build
         if: matrix.target == 'macos'
-        run: ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/*.app GatoMix-MacOS.zip
+        run: ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/*.app DiFogo-MacOS.zip
 
       - name: Upload Artifacts to Job
         uses: actions/upload-artifact@v4
@@ -178,8 +178,8 @@ jobs:
           name: ${{ matrix.asset_name }}
           path: |
             ${{ matrix.target == 'apk' && 'build/app/outputs/flutter-apk/app-release.apk' || '' }}
-            ${{ matrix.target == 'windows' && 'GatoMix-Installer.exe' || '' }}
-            ${{ matrix.target == 'macos' && 'GatoMix-MacOS.zip' || '' }}
+            ${{ matrix.target == 'windows' && 'DiFogo-Installer.exe' || '' }}
+            ${{ matrix.target == 'macos' && 'DiFogo-MacOS.zip' || '' }}
 
   release:
     name: Create GitHub Release
@@ -197,11 +197,11 @@ jobs:
       - name: Deploy to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          name: GatoMix ${{ github.ref_name }}
+          name: DiFogo ${{ github.ref_name }}
           files: |
             artifacts/app-release.apk
-            artifacts/GatoMix-Installer.exe
-            artifacts/GatoMix-MacOS.zip
+            artifacts/DiFogo-Installer.exe
+            artifacts/DiFogo-MacOS.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -257,7 +257,7 @@ jobs:
       - name: Publish gatomix-tv.apk
         uses: softprops/action-gh-release@v2
         with:
-          name: GatoMix ${{ github.ref_name }}
+          name: DiFogo ${{ github.ref_name }}
           files: gatomix-tv.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -337,7 +337,7 @@ jobs:
       - name: Publish DjIphone.ipa
         uses: softprops/action-gh-release@v2
         with:
-          name: GatoMix ${{ github.ref_name }}
+          name: DiFogo ${{ github.ref_name }}
           files: DjIphone.ipa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
