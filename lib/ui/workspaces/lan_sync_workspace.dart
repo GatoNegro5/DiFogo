@@ -961,7 +961,7 @@ class _LanSyncWorkspaceState extends ConsumerState<LanSyncWorkspace>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>GatoMix Karaoke</title>
+  <title>DiFogo Karaoke</title>
   <style>
     :root { --bg: #0a0a0a; --neon: #39ff14; --dark: #1a1a1a; --text: #fff; --subtext: #888; }
     body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 20px; }

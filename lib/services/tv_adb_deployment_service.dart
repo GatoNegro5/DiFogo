@@ -464,7 +464,7 @@ class TvAdbDeploymentService {
             );
 
       if (project != null && _requiresBuild(project, apk)) {
-        onProgress('Compilando GatoMix Karaoke…');
+        onProgress('Compilando DiFogo Karaoke…');
         final build = await Process.start(
           Platform.isWindows ? 'flutter.bat' : 'flutter',
           ['build', 'apk', '--release'],
@@ -505,7 +505,7 @@ class TvAdbDeploymentService {
       }
     }
 
-    onProgress('Abriendo GatoMix Karaoke en la TV…');
+    onProgress('Abriendo DiFogo Karaoke en la TV…');
     await launchApp(endpoint);
     onProgress(
       alreadyInstalled
@@ -569,7 +569,7 @@ class TvAdbDeploymentService {
     final dir = Directory('${_appDataDir()}${Platform.pathSeparator}tv');
     dir.createSync(recursive: true);
     final apk = File('${dir.path}${Platform.pathSeparator}gatomix-tv.apk');
-    onProgress('Descargando GatoMix Karaoke (APK)…');
+    onProgress('Descargando DiFogo Karaoke (APK)…');
     await downloadFileRobust(
       'https://github.com/GatoNegro5/GatoMix/releases/latest/download/gatomix-tv.apk',
       apk.path,
@@ -598,7 +598,7 @@ class TvAdbDeploymentService {
       }
     }
     throw StateError(
-      'No se encontró gatomix_tv/. Ejecuta desde el repositorio de GatoMix.',
+      'No se encontró gatomix_tv/. Ejecuta desde la carpeta del repositorio.',
     );
   }
 }

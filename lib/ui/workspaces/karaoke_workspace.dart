@@ -1638,7 +1638,7 @@ class _TvDeploymentDialogState extends State<TvDeploymentDialog> {
                           ),
                         ),
                         Text(
-                          'Compila, instala y abre GatoMix Karaoke',
+                          'Compila, instala y abre DiFogo Karaoke',
                           style: TextStyle(color: Colors.white54),
                         ),
                       ],
