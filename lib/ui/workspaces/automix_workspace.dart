@@ -16,6 +16,7 @@ import '../../providers/automix_provider.dart';
 import '../mobile/music_picker_screen.dart';
 import '../widgets/approx_lyric_icon.dart';
 import '../widgets/hover_marquee_text.dart';
+import '../widgets/theater_lyrics_view.dart';
 import '../../providers/pipeline_provider.dart';
 import '../../providers/theme_provider.dart';
 
@@ -1162,6 +1163,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
   final ScrollController _lyricsListController = ScrollController();
   bool _lyricPickArmed = false;
   int _anchorMode = 1;
+  double _wheelExtent = 0;
 
   @override
   void dispose() {
@@ -1449,63 +1451,95 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                         );
                       },
                     )
-                  : ListWheelScrollView(
-                      controller: _lyricsController,
-                      itemExtent: compact ? 20.0 : 32.0,
-                      diameterRatio: 10.0,
-                      perspective: 0.0001,
-                      physics: const NeverScrollableScrollPhysics(),
-                      children: List.generate(lyrics.length, (index) {
-                        return Consumer(
-                          builder: (context, ref, _) {
-                            final activeIdx = ref.watch(
-                              automixProvider.select((s) => s.activeLyricIndex),
+                  : LayoutBuilder(
+                      builder: (context, box) {
+                        // Movil: 3 lineas siempre (anterior, activa, siguiente).
+                        final double extent = compact
+                            ? lyricWheelExtent(box.maxHeight)
+                            : 32.0;
+                        if (compact && (extent - _wheelExtent).abs() > 0.5) {
+                          final bool had = _wheelExtent > 0;
+                          _wheelExtent = extent;
+                          if (had) {
+                            WidgetsBinding.instance.addPostFrameCallback((_) {
+                              if (!mounted) return;
+                              final int idx = ref
+                                  .read(automixProvider)
+                                  .activeLyricIndex;
+                              _followCylinder(
+                                idx < 0 ? 0 : idx,
+                                animate: false,
+                              );
+                            });
+                          }
+                        }
+                        return ListWheelScrollView(
+                          controller: _lyricsController,
+                          itemExtent: extent,
+                          diameterRatio: 10.0,
+                          perspective: 0.0001,
+                          physics: const NeverScrollableScrollPhysics(),
+                          children: List.generate(lyrics.length, (index) {
+                            return Consumer(
+                              builder: (context, ref, _) {
+                                final activeIdx = ref.watch(
+                                  automixProvider.select(
+                                    (s) => s.activeLyricIndex,
+                                  ),
+                                );
+                                final highlightIdx = activeIdx;
+                                final isCurrent = index == highlightIdx;
+                                final isNext = index == highlightIdx + 1;
+                                final isPassed = index < highlightIdx;
+
+                                Color textColor;
+                                double fontSize;
+                                FontWeight fontWeight;
+
+                                if (isCurrent) {
+                                  textColor = const Color(0xFF39FF14);
+                                  fontSize = compact
+                                      ? (extent * 0.75).clamp(10.0, 14.0)
+                                      : 24;
+                                  fontWeight = FontWeight.bold;
+                                } else if (highlightIdx < 0 && index == 0) {
+                                  textColor = Colors.white;
+                                  fontSize = compact
+                                      ? (extent * 0.75).clamp(10.0, 14.0)
+                                      : 24;
+                                  fontWeight = FontWeight.bold;
+                                } else if (isNext) {
+                                  textColor = Colors.white.withValues(
+                                    alpha: 0.95,
+                                  );
+                                  fontSize = compact ? 11 : 14;
+                                  fontWeight = FontWeight.w600;
+                                } else {
+                                  textColor = Colors.white38;
+                                  fontSize = compact ? 10 : 12;
+                                  fontWeight = FontWeight.normal;
+                                }
+
+                                return Center(
+                                  child: Text(
+                                    lyrics[index].text.toString(),
+                                    style: TextStyle(
+                                      color: textColor,
+                                      fontSize: fontSize,
+                                      fontWeight: fontWeight,
+                                      fontStyle: isPassed
+                                          ? FontStyle.italic
+                                          : FontStyle.normal,
+                                    ),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.visible,
+                                  ),
+                                );
+                              },
                             );
-                            final highlightIdx = activeIdx;
-                            final isCurrent = index == highlightIdx;
-                            final isNext = index == highlightIdx + 1;
-                            final isPassed = index < highlightIdx;
-
-                            Color textColor;
-                            double fontSize;
-                            FontWeight fontWeight;
-
-                            if (isCurrent) {
-                              textColor = const Color(0xFF39FF14);
-                              fontSize = compact ? 14 : 24;
-                              fontWeight = FontWeight.bold;
-                            } else if (highlightIdx < 0 && index == 0) {
-                              textColor = Colors.white;
-                              fontSize = compact ? 14 : 24;
-                              fontWeight = FontWeight.bold;
-                            } else if (isNext) {
-                              textColor = Colors.white.withValues(alpha: 0.95);
-                              fontSize = compact ? 11 : 14;
-                              fontWeight = FontWeight.w600;
-                            } else {
-                              textColor = Colors.white38;
-                              fontSize = compact ? 10 : 12;
-                              fontWeight = FontWeight.normal;
-                            }
-
-                            return Center(
-                              child: Text(
-                                lyrics[index].text.toString(),
-                                style: TextStyle(
-                                  color: textColor,
-                                  fontSize: fontSize,
-                                  fontWeight: fontWeight,
-                                  fontStyle: isPassed
-                                      ? FontStyle.italic
-                                      : FontStyle.normal,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.visible,
-                              ),
-                            );
-                          },
+                          }),
                         );
-                      }),
+                      },
                     ),
             ),
           ),
@@ -2308,36 +2342,10 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
                             automixProvider.select((s) => s.activeLyricIndex),
                           );
 
-                          return ListView.builder(
-                            physics: const BouncingScrollPhysics(),
-                            itemCount: lyrics.length,
-                            itemBuilder: (context, index) {
-                              final isCurrent = index == activeIdx;
-                              final isPassed = index < activeIdx;
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 8.0,
-                                ),
-                                child: Text(
-                                  lyrics[index].text,
-                                  textAlign: TextAlign.center,
-                                  style: TextStyle(
-                                    color: isCurrent
-                                        ? const Color(0xFF39FF14)
-                                        : (isPassed
-                                              ? Colors.white38
-                                              : Colors.white),
-                                    fontSize: isCurrent ? 24 : 16,
-                                    fontWeight: isCurrent
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                    fontStyle: isPassed
-                                        ? FontStyle.italic
-                                        : FontStyle.normal,
-                                  ),
-                                ),
-                              );
-                            },
+                          return TheaterLyricsView(
+                            lines: [for (final l in lyrics) l.text],
+                            activeIndex: activeIdx,
+                            compact: automixIsMobile(),
                           );
                         },
                       ),
@@ -2614,7 +2622,9 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
         ),
         Expanded(
           child: Padding(
-            padding: EdgeInsets.all(isMobileLandscape ? 2.0 : 10.0),
+            padding: EdgeInsets.all(
+              isMobileLandscape || automixIsMobile() ? 2.0 : 10.0,
+            ),
             child: Stack(
               fit: StackFit.expand,
               children: [
