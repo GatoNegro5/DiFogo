@@ -1,5 +1,9 @@
+import 'dart:io';
+
 import 'audio_path.dart';
 import 'bpm_range.dart';
+import 'gatomix_store.dart';
+import 'phrase_grid.dart';
 import '../services/track_tags.dart';
 
 /// 3.1.43: BPM para pintar en listas y titulos, solo en memoria (cero disco
@@ -15,9 +19,53 @@ double displayBpmFor(String path, Map<String, double> cache) {
   final double tag = TrackTags.peek(path)?.bpm ?? 0;
   final double? fromTag = tag > 0 ? fixBpmRange(tag) : null;
   if (fromTag != null) return fromTag;
+  // 3.1.44: perfil de frases ya medido en memoria (pistas en decks que el
+  // medidor no toca); sin abrir el archivo.
+  final double grid = PhraseGridMemory.peek(path)?.bpm ?? 0;
+  final double? fromGrid = grid > 0 ? fixBpmRange(grid) : null;
+  if (fromGrid != null) return fromGrid;
   final RegExpMatch? m = _nameBpm.firstMatch(_base(path));
   if (m == null) return 0;
   return fixBpmRange(double.parse(m.group(1)!)) ?? 0;
+}
+
+/// 3.1.44: `djMetadata` (num o `{bpm, key}`) a mapa ruta -> BPM.
+Map<String, double> bpmMapFromMetadata(Map<String, dynamic> meta) {
+  final Map<String, double> out = <String, double>{};
+  meta.forEach((String key, dynamic value) {
+    if (value is num) {
+      out[key] = value.toDouble();
+    } else if (value is Map && value['bpm'] is num) {
+      out[key] = (value['bpm'] as num).toDouble();
+    }
+  });
+  return out;
+}
+
+/// 3.1.44: carpetas (sin repetir, ordenadas) de las rutas dadas, una por
+/// linea; clave estable para no releer si no cambian.
+String bpmDirsKey(Iterable<String?> paths) {
+  final Set<String> dirs = <String>{};
+  for (final String? p in paths) {
+    if (p == null || p.isEmpty) continue;
+    dirs.add(File(p).parent.path);
+  }
+  final List<String> sorted = dirs.toList()..sort();
+  return sorted.join('\n');
+}
+
+/// 3.1.44: une el BPM del `.gatomix.json` de cada carpeta (el store ya
+/// cachea el documento en memoria).
+Map<String, double> folderBpmCache(Iterable<String> dirs) {
+  final Map<String, double> out = <String, double>{};
+  final Set<String> seen = <String>{};
+  for (final String d in dirs) {
+    if (d.isEmpty || !seen.add(d)) continue;
+    try {
+      out.addAll(bpmMapFromMetadata(readDjMetadata(d)));
+    } catch (_) {}
+  }
+  return out;
 }
 
 final RegExp _nameBpm = RegExp(

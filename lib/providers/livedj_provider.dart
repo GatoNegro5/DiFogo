@@ -22,6 +22,7 @@ import '../core/livedj_order.dart';
 import '../core/dna_mix.dart';
 import '../core/phrase_grid.dart';
 import '../core/queue_bpm.dart';
+import '../core/display_bpm.dart';
 import 'automix_provider.dart' show bpmCacheProvider;
 import 'directory_provider.dart';
 import '../core/stored_grid.dart';
@@ -1166,6 +1167,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       if (dir.isNotEmpty) {
         unawaited(ref.read(bpmCacheProvider.notifier).loadCache(dir));
       }
+      ref.invalidate(liveDjBpmCacheProvider);
     } catch (_) {}
   }
 
@@ -3588,6 +3590,24 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     }
   }
 }
+
+/// 3.1.44: BPM del `.gatomix.json` de la carpeta abierta en Live DJ y de las
+/// carpetas de su pista actual y cola, sin depender de la carpeta de Automix.
+/// Solo se rehace si cambia ese conjunto de carpetas (o tras medir).
+final liveDjBpmCacheProvider = Provider<Map<String, double>>((ref) {
+  final String folder = ref.watch(
+    liveDjDirectoryProvider.select((DirectoryState d) => d.currentPath),
+  );
+  final String dirs = ref.watch(
+    liveDjProvider.select(
+      (LiveDjState s) => bpmDirsKey(<String?>[
+        s.currentTrackPath,
+        for (final File f in s.queue) f.path,
+      ]),
+    ),
+  );
+  return folderBpmCache(<String>[folder, ...dirs.split('\n')]);
+});
 
 final liveDjProvider = NotifierProvider<LiveDjNotifier, LiveDjState>(
   LiveDjNotifier.new,
