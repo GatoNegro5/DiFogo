@@ -2031,7 +2031,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
         _sessionWasPlaying = state.isPlaying;
       }
 
-      if ((posMs - _lastSavedPositionMs).abs() > 15000) {
+      // 3.1.49: mismo umbral que Live DJ (5 s).
+      if (sessionPositionShouldSave(posMs, _lastSavedPositionMs)) {
         _lastSavedPositionMs = posMs;
         _saveSnapshot();
       }

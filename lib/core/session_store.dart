@@ -87,15 +87,38 @@ class SessionStore {
 
 /// ¿Hace falta volver a escribir la sesión por este movimiento del reloj?
 ///
-/// Un avance de más de 15 s, o un seek real hacia atrás. Un glitch a 0
+/// Un avance de más de 5 s (3.1.49; antes 15 s), o un seek real hacia atrás. Un glitch a 0
 /// (el reloj de media_kit a veces intercala `Duration.zero`) no cuenta:
 /// si contara, cada tick reescribiría el JSON con fsync y el procesador
 /// se queda caliente.
 bool sessionPositionShouldSave(int posMs, int lastSavedMs) {
   final int delta = posMs - lastSavedMs;
-  if (delta > 15000) return true;
+  if (delta > 5000) return true;
   if (delta < -2000 && posMs > 500) return true;
   return false;
+}
+
+/// 3.1.49: ruta de `_ui_route.json` (0..7, las 8 del router) o null.
+int? sessionUiRouteFromJson(Object? data) {
+  if (data is! Map) return null;
+  final Object? route = data['route'];
+  if (route is int && route >= 0 && route < 8) return route;
+  return null;
+}
+
+/// 3.1.49: al reabrir, el deck se carga y se posiciona siempre; solo suena
+/// solo si estaba sonando y el modulo guardado es el suyo (un motor a la vez).
+bool sessionRestoreAutoPlay({
+  required bool wasPlaying,
+  required int? savedRoute,
+  required int moduleRoute,
+}) => wasPlaying && savedRoute == moduleRoute;
+
+/// 3.1.49: segundo exacto al que vuelve la pista restaurada (0 = inicio).
+int sessionResumeSeekMs(int? savedMs, int durationMs) {
+  if (savedMs == null || savedMs <= 0) return 0;
+  if (durationMs > 0 && savedMs >= durationMs) return 0;
+  return savedMs;
 }
 
 /// ¿Este tick del reloj repinta la vista (un `notifyListeners`)?
@@ -140,11 +163,9 @@ List<String> resolveSessionPaths(
       listDir ??
       (String dir) {
         try {
-          return Directory(dir)
-              .listSync()
-              .whereType<File>()
-              .map((f) => f.path)
-              .toList();
+          return Directory(
+            dir,
+          ).listSync().whereType<File>().map((f) => f.path).toList();
         } catch (_) {
           return const <String>[];
         }

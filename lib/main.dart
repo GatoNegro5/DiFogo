@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
@@ -143,11 +144,7 @@ Future<void> main([List<String> args = const []]) async {
 
     final String? karaokeFolder = parseKaraokeFolderArg(args);
     if (karaokeFolder != null) {
-      runApp(
-        ProviderScope(
-          child: HeadlessKaraokeApp(folder: karaokeFolder),
-        ),
-      );
+      runApp(ProviderScope(child: HeadlessKaraokeApp(folder: karaokeFolder)));
       return;
     }
 
@@ -227,6 +224,7 @@ class _MobileAudioLifecycle extends ConsumerStatefulWidget {
 class _MobileAudioLifecycleState extends ConsumerState<_MobileAudioLifecycle>
     with WidgetsBindingObserver {
   late final AudioInterruptionGuard _focusGuard;
+  late final AppLifecycleListener _exitListener;
 
   @override
   void initState() {
@@ -237,10 +235,13 @@ class _MobileAudioLifecycleState extends ConsumerState<_MobileAudioLifecycle>
     _focusGuard = AudioInterruptionGuard(ref);
     unawaited(_focusGuard.start());
     ref.read(lyricRetryQueueProvider).start();
+    // 3.1.49: cerrar la ventana (Windows/macOS) guarda el segundo exacto.
+    _exitListener = AppLifecycleListener(onExitRequested: _onExitRequested);
   }
 
   @override
   void dispose() {
+    _exitListener.dispose();
     _focusGuard.dispose();
     if (identical(globalAudioHandler.onAppDismissed, _silenceEngines)) {
       globalAudioHandler.onAppDismissed = null;
@@ -270,24 +271,36 @@ class _MobileAudioLifecycleState extends ConsumerState<_MobileAudioLifecycle>
     } catch (_) {}
   }
 
+  /// 3.1.49: ruta y las 2 sesiones (Automix y Live DJ), en las 4 plataformas.
+  Future<void> _persistAll() async {
+    try {
+      ref.read(routerProvider.notifier).persistRoute();
+    } catch (_) {}
+    try {
+      await ref.read(automixProvider.notifier).persistSession();
+    } catch (_) {}
+    try {
+      await ref.read(liveDjProvider.notifier).persistSession();
+    } catch (_) {}
+  }
+
+  Future<AppExitResponse> _onExitRequested() async {
+    try {
+      await _persistAll().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    return AppExitResponse.exit;
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 3.1.49: inactive/hidden/paused/detached guardan en Win, Mac, Android
+    // e iPhone (antes solo paused/hidden en movil).
+    if (state != AppLifecycleState.resumed) {
+      unawaited(_persistAll());
+    }
     if (!Platform.isAndroid && !Platform.isIOS) return;
     if (state != AppLifecycleState.resumed) {
       globalAudioHandler.noteAppBackgrounded();
-    }
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.hidden) {
-      try {
-        ref.read(routerProvider.notifier).persistRoute();
-      } catch (_) {}
-      try {
-        ref.read(automixProvider.notifier).persistSession();
-      } catch (_) {}
-      try {
-        ref.read(liveDjProvider.notifier).persistSession();
-      } catch (_) {}
-      return;
     }
   }
 

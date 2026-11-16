@@ -832,9 +832,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         '${File(session).parent.path}${Platform.pathSeparator}_ui_route.json',
       );
       if (!file.existsSync()) return null;
-      final data = jsonDecode(file.readAsStringSync());
-      final route = data['route'];
-      if (route is int && route >= 0 && route < 7) return route;
+      // 3.1.49: las 8 rutas del router (antes < 7).
+      return sessionUiRouteFromJson(jsonDecode(file.readAsStringSync()));
     } catch (_) {}
     return null;
   }
@@ -1224,7 +1223,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       }
 
       _freezePersist = false;
-      if (currentTrackPath != null && _readSavedUiRoute() == 5) {
+      // 3.1.49: el deck se carga y se posiciona aunque la ruta guardada no
+      // sea Live DJ (5); solo suena solo si estaba sonando en Live DJ.
+      if (currentTrackPath != null) {
         _drift.begin(_extractBpm(currentTrackPath), 1.0);
         try {
           await _activePlayer.setRate(1.0);
@@ -1243,7 +1244,11 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           _sessionPositionMs = positionMs;
         }
         final wasPlaying = data['wasPlaying'] as bool? ?? false;
-        if (wasPlaying) {
+        if (sessionRestoreAutoPlay(
+          wasPlaying: wasPlaying,
+          savedRoute: _readSavedUiRoute(),
+          moduleRoute: 5,
+        )) {
           await _activePlayer.play();
         }
       }
@@ -1819,6 +1824,23 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         // 3.1.33 (Hueco C): suena ya nivelada; espera el perfil hasta 300 ms.
         await _activePlayer.open(Media(path), play: false);
         ref.read(liveDjEqualizerProvider.notifier).adapt(_activePlayer, path);
+        // 3.1.49: deck vacio con posicion de la sesion: vuelve al segundo
+        // exacto antes de sonar (nunca arranca en 0).
+        if (_sessionPositionMs > 0) {
+          try {
+            await _activePlayer.stream.duration
+                .firstWhere((d) => d.inMilliseconds > 0)
+                .timeout(const Duration(seconds: 2));
+          } catch (_) {}
+          final int seekMs = sessionResumeSeekMs(
+            _sessionPositionMs,
+            _activePlayer.state.duration.inMilliseconds,
+          );
+          if (seekMs > 0) {
+            await _activePlayer.seek(Duration(milliseconds: seekMs));
+          }
+          _sessionPositionMs = 0;
+        }
         await AdaptiveEq.awaitProfile(path);
         await _activePlayer.play();
         _attachListeners(_activePlayer);
