@@ -6,8 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio_path.dart';
-import '../../core/bpm_range.dart';
 import '../../core/brand_paths.dart';
+import '../../core/display_bpm.dart';
 import '../../core/lab_quarantine.dart';
 import '../../core/track_name_clean.dart';
 import '../../djiphone/iphone_library.dart';
@@ -391,28 +391,8 @@ class FolderContentPanel extends ConsumerWidget {
       if (next != previous) ref.read(bpmCacheProvider.notifier).loadCache(next);
     });
 
-    double getTrackBpm(String filename) {
-      double? raw;
-      if (bpmCache.containsKey(filename)) {
-        raw = bpmCache[filename];
-      } else {
-        final String slash = filename.replaceAll('\\', '/');
-        for (final MapEntry<String, double> entry in bpmCache.entries) {
-          final String key = entry.key.replaceAll('\\', '/');
-          if (key == slash || key.endsWith('/$slash')) {
-            raw = entry.value;
-            break;
-          }
-        }
-      }
-      if (raw != null && raw > 0) return fixBpmRange(raw) ?? 0.0;
-      final match = RegExp(
-        r'(?:\b|_|-)(\d{2,3}(?:\.\d+)?)\s*bpm\b',
-        caseSensitive: false,
-      ).firstMatch(filename);
-      if (match == null) return 0.0;
-      return fixBpmRange(double.parse(match.group(1)!)) ?? 0.0;
-    }
+    // 3.1.43: ruta completa; cache de carpeta, BPM recordado y nombre.
+    double getTrackBpm(String path) => displayBpmFor(path, bpmCache);
 
     return Column(
       children: [
@@ -482,8 +462,7 @@ class FolderContentPanel extends ConsumerWidget {
                   itemCount: folderFiles.length,
                   itemBuilder: (context, index) {
                     final file = folderFiles[index];
-                    final fileName = file.uri.pathSegments.last;
-                    final bpm = getTrackBpm(fileName);
+                    final bpm = getTrackBpm(file.path);
 
                     return Material(
                       color: Colors.transparent,
@@ -809,28 +788,8 @@ class AutomixPanel extends ConsumerWidget {
           !sameAudioPath(file.path, currentTrackPath),
     );
 
-    double getTrackBpm(String filename) {
-      double? raw;
-      if (bpmCache.containsKey(filename)) {
-        raw = bpmCache[filename];
-      } else {
-        final String slash = filename.replaceAll('\\', '/');
-        for (final MapEntry<String, double> entry in bpmCache.entries) {
-          final String key = entry.key.replaceAll('\\', '/');
-          if (key == slash || key.endsWith('/$slash')) {
-            raw = entry.value;
-            break;
-          }
-        }
-      }
-      if (raw != null && raw > 0) return fixBpmRange(raw) ?? 0.0;
-      final match = RegExp(
-        r'(?:\b|_|-)(\d{2,3}(?:\.\d+)?)\s*bpm\b',
-        caseSensitive: false,
-      ).firstMatch(filename);
-      if (match == null) return 0.0;
-      return fixBpmRange(double.parse(match.group(1)!)) ?? 0.0;
-    }
+    // 3.1.43: ruta completa; cache de carpeta, BPM recordado y nombre.
+    double getTrackBpm(String path) => displayBpmFor(path, bpmCache);
 
     if (mixStrategy == MixStrategy.random) {
       final rank = <String, int>{
@@ -849,15 +808,11 @@ class AutomixPanel extends ConsumerWidget {
       );
     } else if (sortMode == TrackSortMode.bpmDesc) {
       displayFiles.sort(
-        (a, b) => getTrackBpm(
-          b.uri.pathSegments.last,
-        ).compareTo(getTrackBpm(a.uri.pathSegments.last)),
+        (a, b) => getTrackBpm(b.path).compareTo(getTrackBpm(a.path)),
       );
     } else if (sortMode == TrackSortMode.bpmAsc) {
       displayFiles.sort(
-        (a, b) => getTrackBpm(
-          a.uri.pathSegments.last,
-        ).compareTo(getTrackBpm(b.uri.pathSegments.last)),
+        (a, b) => getTrackBpm(a.path).compareTo(getTrackBpm(b.path)),
       );
     }
 
@@ -1093,9 +1048,8 @@ class AutomixPanel extends ConsumerWidget {
                   itemCount: displayFiles.length,
                   itemBuilder: (context, index) {
                     final file = displayFiles[index];
-                    final fileName = file.uri.pathSegments.last;
                     final isPlayingThisTrack = currentTrackPath == file.path;
-                    final bpm = getTrackBpm(fileName);
+                    final bpm = getTrackBpm(file.path);
 
                     return Material(
                       color: isPlayingThisTrack

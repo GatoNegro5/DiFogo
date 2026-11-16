@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio_path.dart';
+import '../../core/display_bpm.dart';
+import '../../providers/automix_provider.dart' show bpmCacheProvider;
 import '../../providers/theme_provider.dart';
 import '../../providers/directory_provider.dart';
 import '../../providers/livedj_provider.dart';
@@ -196,6 +198,8 @@ class LiveDjFolderPanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final dirState = ref.watch(liveDjDirectoryProvider);
+    // 3.1.43: BPM en memoria (cache, TrackTags, nombre); se repinta al medir.
+    final bpmCache = ref.watch(bpmCacheProvider);
     // 3.1.40: los `_K` (karaoke, solo TV) no se listan en la carpeta.
     final folderFiles = dirState.files
         .where((f) => !isKaraokeAudioPath(f.path))
@@ -288,7 +292,10 @@ class LiveDjFolderPanel extends ConsumerWidget {
                             const SizedBox(width: 4),
                             Expanded(
                               child: HoverMarqueeText(
-                                formatTrackTitle(file.path),
+                                formatTrackTitle(
+                                  file.path,
+                                  bpm: displayBpmFor(file.path, bpmCache),
+                                ),
                                 style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 12,
@@ -370,8 +377,12 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(liveDjProvider);
+    final bpmCache = ref.watch(bpmCacheProvider);
     final pos = state.position;
     final dur = state.duration;
+    final String? currentFull =
+        state.currentTrackPath ??
+        (state.queue.isNotEmpty ? state.queue.first.path : null);
     final currentName =
         (state.currentTrackPath ??
                 (state.queue.isNotEmpty ? state.queue.first.path : null))
@@ -562,7 +573,12 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                   ),
                   SizedBox(height: compact ? 2 : 5),
                   HoverMarqueeText(
-                    formatTrackTitle(currentName),
+                    formatTrackTitle(
+                      currentName,
+                      bpm: currentFull == null
+                          ? 0
+                          : displayBpmFor(currentFull, bpmCache),
+                    ),
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -1417,6 +1433,7 @@ class LiveDjCartridgePanel extends ConsumerWidget {
       liveDjProvider.select((s) => s.radioUpcoming),
     );
     final queue = ref.watch(liveDjProvider.select((s) => s.queue));
+    final bpmCache = ref.watch(bpmCacheProvider);
     final List<String> shown = liveDjSidePaths(
       radioOn: radioOn,
       queuePaths: <String>[for (final File f in queue) f.path],
@@ -1583,7 +1600,10 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                           ],
                         ),
                         title: HoverMarqueeText(
-                          formatTrackTitle(path),
+                          formatTrackTitle(
+                            path,
+                            bpm: displayBpmFor(path, bpmCache),
+                          ),
                           style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 12,

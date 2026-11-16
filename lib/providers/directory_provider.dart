@@ -165,12 +165,18 @@ class DirectoryNotifier extends Notifier<DirectoryState> {
       }
       GatomixStore.migrate(path);
 
+      // 3.1.43: un `.lrc` no se borra si su audio solo difiere en ` (N BPM)`
+      // o `_K` (renombres del BPM o del karaoke).
+      final Set<String> audioCores = <String>{
+        for (final String b in validAudioBases) lrcAudioCore(b),
+      };
       for (final lrc in lrcFiles) {
         final baseName = lrc.path.replaceAll(
           RegExp(r'\.lrc$', caseSensitive: false),
           '',
         );
-        if (!validAudioBases.contains(baseName)) {
+        if (!validAudioBases.contains(baseName) &&
+            !audioCores.contains(lrcAudioCore(baseName))) {
           try {
             await lrc.delete();
           } catch (_) {}
@@ -195,6 +201,20 @@ class DirectoryNotifier extends Notifier<DirectoryState> {
       state = state.copyWith(isProcessing: false, files: []);
     }
   }
+}
+
+/// 3.1.43: base comparable de audio/letra sin ` (N BPM)` ni `_K` al final,
+/// en minusculas (Windows/Mac no distinguen mayusculas).
+String lrcAudioCore(String base) {
+  var s = base;
+  for (var i = 0; i < 2; i++) {
+    s = s.replaceFirst(RegExp(r'_k$', caseSensitive: false), '');
+    s = s.replaceFirst(
+      RegExp(r'\s*\(\d{2,3}(?:[.,]\d+)?\s*bpm\)$', caseSensitive: false),
+      '',
+    );
+  }
+  return s.trimRight().toLowerCase();
 }
 
 final directoryProvider = NotifierProvider<DirectoryNotifier, DirectoryState>(
