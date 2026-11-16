@@ -289,7 +289,7 @@ class _LibraryTreePanelState extends ConsumerState<LibraryTreePanel> {
         tilePadding: EdgeInsets.only(left: 15.0 + (depth * 15.0), right: 10.0),
         leading: const Icon(
           Icons.folder_open,
-          color: Color(0xFF00FFFF),
+          color: GatoMixTheme.techCyan,
           size: 16,
         ),
         title: Text(
@@ -339,7 +339,7 @@ class _LibraryTreePanelState extends ConsumerState<LibraryTreePanel> {
               IconButton(
                 icon: Icon(
                   Icons.add_to_drive,
-                  color: const Color(0xFF00FFFF),
+                  color: GatoMixTheme.techCyan,
                   size: isMobile ? 15 : 18,
                 ),
                 onPressed: _changeRootDirectory,
@@ -443,7 +443,7 @@ class FolderContentPanel extends ConsumerWidget {
                 ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white10,
-                  foregroundColor: const Color(0xFF39FF14),
+                  foregroundColor: GatoMixTheme.statusReady,
                   padding: const EdgeInsets.symmetric(horizontal: 10),
                   minimumSize: Size(0, isMobile ? 24 : 30),
                 ),
@@ -479,7 +479,7 @@ class FolderContentPanel extends ConsumerWidget {
                             '${index + 1}',
                             textAlign: TextAlign.center,
                             style: const TextStyle(
-                              color: Color(0xFF00FFFF),
+                              color: GatoMixTheme.techCyan,
                               fontFamily: 'Consolas',
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
@@ -502,7 +502,7 @@ class FolderContentPanel extends ConsumerWidget {
                               bpm > 0 ? bpm.toStringAsFixed(1) : "---",
                               style: TextStyle(
                                 color: bpm > 0
-                                    ? const Color(0xFFFF007F)
+                                    ? GatoMixTheme.fire
                                     : Colors.white24,
                                 fontFamily: 'Consolas',
                                 fontSize: 11,
@@ -513,7 +513,7 @@ class FolderContentPanel extends ConsumerWidget {
                             IconButton(
                               icon: const Icon(
                                 Icons.add_circle_outline,
-                                color: Color(0xFF00FFFF),
+                                color: GatoMixTheme.techCyan,
                                 size: 20,
                               ),
                               onPressed: () {
@@ -599,7 +599,7 @@ class AutomixPanel extends ConsumerWidget {
             content: Text(
               'Lista serializada: Set_$dateStr.json',
               style: const TextStyle(
-                color: Color(0xFF39FF14),
+                color: GatoMixTheme.statusReady,
                 fontFamily: 'Consolas',
                 fontSize: 12,
               ),
@@ -649,15 +649,15 @@ class AutomixPanel extends ConsumerWidget {
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
-              backgroundColor: const Color(0xFF121212),
+              backgroundColor: GatoMixTheme.bgPanel,
               shape: RoundedRectangleBorder(
-                side: const BorderSide(color: Color(0xFFFF007F)),
+                side: const BorderSide(color: GatoMixTheme.fire),
                 borderRadius: BorderRadius.circular(8),
               ),
               title: const Text(
                 "Librería de Sets (Playlists)",
                 style: TextStyle(
-                  color: Color(0xFFFF007F),
+                  color: GatoMixTheme.fire,
                   fontWeight: FontWeight.bold,
                   fontSize: 14,
                 ),
@@ -683,7 +683,7 @@ class AutomixPanel extends ConsumerWidget {
                       child: ListTile(
                         leading: const Icon(
                           Icons.queue_music,
-                          color: Color(0xFF39FF14),
+                          color: GatoMixTheme.statusReady,
                         ),
                         title: Text(
                           fileName,
@@ -856,7 +856,7 @@ class AutomixPanel extends ConsumerWidget {
                   ],
                   Icon(
                     Icons.shuffle,
-                    color: const Color(0xFFFF007F),
+                    color: GatoMixTheme.fire,
                     size: isMobile ? 14 : 18,
                   ),
                   const SizedBox(width: 4),
@@ -864,7 +864,7 @@ class AutomixPanel extends ConsumerWidget {
                     child: Text(
                       "AUTOMIX (${displayFiles.length})",
                       style: TextStyle(
-                        color: const Color(0xFFFF007F),
+                        color: GatoMixTheme.fire,
                         fontWeight: FontWeight.bold,
                         fontSize: isMobile ? 11 : 13,
                         letterSpacing: 1,
@@ -903,7 +903,7 @@ class AutomixPanel extends ConsumerWidget {
                               ),
                             ),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF007F),
+                              backgroundColor: GatoMixTheme.fire,
                               foregroundColor: Colors.white,
                               padding: EdgeInsets.symmetric(
                                 horizontal: isMobile ? 6 : 8,
@@ -937,7 +937,7 @@ class AutomixPanel extends ConsumerWidget {
                             IconButton(
                               icon: Icon(
                                 Icons.save,
-                                color: const Color(0xFF00FFFF),
+                                color: GatoMixTheme.techCyan,
                                 size: isMobile ? 16 : 18,
                               ),
                               onPressed: () =>
@@ -957,7 +957,7 @@ class AutomixPanel extends ConsumerWidget {
                           IconButton(
                             icon: Icon(
                               Icons.folder_open,
-                              color: const Color(0xFF39FF14),
+                              color: GatoMixTheme.statusReady,
                               size: isMobile ? 16 : 18,
                             ),
                             onPressed: () => _loadAutomixQueue(context, ref),
@@ -987,7 +987,7 @@ class AutomixPanel extends ConsumerWidget {
                             ),
                             color: GatoMixTheme.bgDark,
                             shape: RoundedRectangleBorder(
-                              side: const BorderSide(color: Color(0xFFFF007F)),
+                              side: const BorderSide(color: GatoMixTheme.fire),
                               borderRadius: BorderRadius.circular(4),
                             ),
                             tooltip: "Ordenar Automix",
@@ -1067,7 +1067,7 @@ class AutomixPanel extends ConsumerWidget {
                               ? Icons.volume_up
                               : Icons.drag_handle,
                           color: isPlayingThisTrack
-                              ? const Color(0xFFFF007F)
+                              ? GatoMixTheme.fire
                               : Colors.white24,
                           size: 18,
                         ),
@@ -1075,7 +1075,7 @@ class AutomixPanel extends ConsumerWidget {
                           formatTrackTitle(file.path, bpm: bpm),
                           style: TextStyle(
                             color: isPlayingThisTrack
-                                ? const Color(0xFFFF007F)
+                                ? GatoMixTheme.fire
                                 : Colors.white,
                             fontWeight: isPlayingThisTrack
                                 ? FontWeight.bold
@@ -1092,7 +1092,7 @@ class AutomixPanel extends ConsumerWidget {
                               bpm > 0 ? bpm.toStringAsFixed(1) : "---",
                               style: TextStyle(
                                 color: bpm > 0
-                                    ? const Color(0xFFFF007F)
+                                    ? GatoMixTheme.fire
                                     : Colors.white24,
                                 fontFamily: 'Consolas',
                                 fontSize: 11,
@@ -1132,7 +1132,7 @@ class AutomixPanel extends ConsumerWidget {
                                   (isPlayingThisTrack && isPlaying)
                                       ? Icons.pause
                                       : Icons.play_arrow,
-                                  color: const Color(0xFF39FF14),
+                                  color: GatoMixTheme.statusReady,
                                   size: 20,
                                 ),
                               ),
@@ -1331,7 +1331,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                 child: Text(
                   displaySubtitle,
                   style: TextStyle(
-                    color: isPlaying ? const Color(0xFFFF007F) : Colors.white54,
+                    color: isPlaying ? GatoMixTheme.fire : Colors.white54,
                     fontSize: 14,
                     fontWeight: isPlaying ? FontWeight.bold : FontWeight.normal,
                   ),
@@ -1399,7 +1399,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                 activeIdx < 0 && index == 0;
                             final isPassed = index < activeIdx;
                             final Color textColor = isCurrent
-                                ? const Color(0xFF39FF14)
+                                ? GatoMixTheme.statusReady
                                 : (previewFirst
                                       ? Colors.white
                                       : (isPassed
@@ -1419,7 +1419,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                       maxLines: 1,
                                       style: TextStyle(
                                         color: isCurrent
-                                            ? const Color(0xFF00FFFF)
+                                            ? GatoMixTheme.techCyan
                                             : textColor,
                                         fontSize: compact ? 10 : 12,
                                         fontWeight: FontWeight.bold,
@@ -1497,7 +1497,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                 FontWeight fontWeight;
 
                                 if (isCurrent) {
-                                  textColor = const Color(0xFF39FF14);
+                                  textColor = GatoMixTheme.statusReady;
                                   fontSize = compact
                                       ? (extent * 0.75).clamp(10.0, 14.0)
                                       : 24;
@@ -1641,13 +1641,13 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                 shape: BoxShape.circle,
                                 color:
                                     (mixStrategy == MixStrategy.random
-                                            ? const Color(0xFFFF007F)
-                                            : const Color(0xFF00FFFF))
+                                            ? GatoMixTheme.fire
+                                            : GatoMixTheme.techCyan)
                                         .withValues(alpha: 0.18),
                                 border: Border.all(
                                   color: mixStrategy == MixStrategy.random
-                                      ? const Color(0xFFFF007F)
-                                      : const Color(0xFF00FFFF),
+                                      ? GatoMixTheme.fire
+                                      : GatoMixTheme.techCyan,
                                   width: 2,
                                 ),
                               ),
@@ -1657,8 +1657,8 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                     : Icons.format_list_numbered,
                                 size: compact ? 16 : 26,
                                 color: mixStrategy == MixStrategy.random
-                                    ? const Color(0xFFFF007F)
-                                    : const Color(0xFF00FFFF),
+                                    ? GatoMixTheme.fire
+                                    : GatoMixTheme.techCyan,
                               ),
                             ),
                             tooltip: mixStrategy == MixStrategy.random
@@ -1686,7 +1686,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                               isPlaying
                                   ? Icons.pause_circle_filled
                                   : Icons.play_circle_fill,
-                              color: const Color(0xFF39FF14),
+                              color: GatoMixTheme.statusReady,
                               size: compact ? 42 : 45,
                             ),
                             onPressed: () => automixNotifier.togglePlayPause(),
@@ -1732,7 +1732,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                   Text(
                                     "${position.inMinutes}:${(position.inSeconds % 60).toString().padLeft(2, '0')}",
                                     style: const TextStyle(
-                                      color: Color(0xFF39FF14),
+                                      color: GatoMixTheme.statusReady,
                                       fontFamily: 'Consolas',
                                       fontSize: 12,
                                     ),
@@ -1749,7 +1749,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                               ? Icons.lock_outline
                                               : Icons.lock_open,
                                           color: autoMixArmed
-                                              ? const Color(0xFF00FFFF)
+                                              ? GatoMixTheme.techCyan
                                               : Colors.white24,
                                           size: 18,
                                         ),
@@ -1778,9 +1778,8 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                               ),
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: Colors.white10,
-                                          foregroundColor: const Color(
-                                            0xFF39FF14,
-                                          ),
+                                          foregroundColor:
+                                              GatoMixTheme.statusReady,
                                           disabledForegroundColor:
                                               Colors.white24,
                                           disabledBackgroundColor:
@@ -1816,9 +1815,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                               },
                                         style: ElevatedButton.styleFrom(
                                           backgroundColor: Colors.white10,
-                                          foregroundColor: const Color(
-                                            0xFFFF007F,
-                                          ),
+                                          foregroundColor: GatoMixTheme.fire,
                                           disabledForegroundColor:
                                               Colors.white24,
                                           disabledBackgroundColor:
@@ -2294,10 +2291,10 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
     showDialog(
       context: context,
       builder: (ctx) => Dialog(
-        backgroundColor: const Color(0xFF121212),
+        backgroundColor: GatoMixTheme.bgPanel,
         insetPadding: const EdgeInsets.all(15),
         shape: RoundedRectangleBorder(
-          side: const BorderSide(color: Color(0xFF39FF14), width: 1.5),
+          side: const BorderSide(color: GatoMixTheme.statusReady, width: 1.5),
           borderRadius: BorderRadius.circular(12),
         ),
         child: Container(
@@ -2313,7 +2310,7 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
                     child: Text(
                       displayTitle,
                       style: const TextStyle(
-                        color: Color(0xFF39FF14),
+                        color: GatoMixTheme.statusReady,
                         fontWeight: FontWeight.bold,
                         fontSize: 16,
                       ),
@@ -2493,7 +2490,7 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
                     data: ThemeData(unselectedWidgetColor: Colors.white38),
                     child: Checkbox(
                       value: isArmed,
-                      activeColor: const Color(0xFFFF007F),
+                      activeColor: GatoMixTheme.fire,
                       visualDensity: VisualDensity.compact,
                       onChanged: (val) {
                         final bool armed = val ?? false;
@@ -2510,7 +2507,7 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
                       children: [
                         _anchorNumBtn(
                           n: '1',
-                          color: const Color(0xFFFF007F),
+                          color: GatoMixTheme.fire,
                           selected: widget.anchorMode == 1,
                           isMobileLandscape: isMobileLandscape,
                           tooltip: 'Ancla 1: bloque entero',
@@ -2520,7 +2517,7 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
                         ),
                         _anchorNumBtn(
                           n: '2',
-                          color: const Color(0xFF00FFFF),
+                          color: GatoMixTheme.techCyan,
                           selected: widget.anchorMode == 2,
                           isMobileLandscape: isMobileLandscape,
                           tooltip: 'Ancla 2: desde #Fila al final',
@@ -2571,7 +2568,7 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
                                 ),
                                 focusedBorder: const OutlineInputBorder(
                                   borderSide: BorderSide(
-                                    color: Color(0xFF00FFFF),
+                                    color: GatoMixTheme.techCyan,
                                   ),
                                 ),
                               ),
@@ -2586,7 +2583,7 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
                           icon: Icon(
                             Icons.my_location,
                             size: isMobileLandscape ? 16 : 18,
-                            color: const Color(0xFF00FFFF),
+                            color: GatoMixTheme.techCyan,
                           ),
                           onPressed: isArmed ? _stampNow : null,
                         ),
@@ -2670,7 +2667,7 @@ class _VocalCountIn extends ConsumerWidget {
         child: Text(
           '$n',
           style: const TextStyle(
-            color: Color(0xFF39FF14),
+            color: GatoMixTheme.statusReady,
             fontSize: 28,
             fontWeight: FontWeight.bold,
             fontFamily: 'Consolas',
@@ -2718,7 +2715,7 @@ class SemanticDeckPainter extends CustomPainter {
     canvas.drawRect(deckA, Paint()..color = GatoMixTheme.bgPanel);
     canvas.drawRect(
       Rect.fromLTWH(0, 0, progressX, 10),
-      Paint()..color = const Color(0xFF39FF14).withValues(alpha: 0.5),
+      Paint()..color = GatoMixTheme.statusReady.withValues(alpha: 0.5),
     );
 
     final Paint vocalPaint = Paint()
@@ -2745,7 +2742,7 @@ class SemanticDeckPainter extends CustomPainter {
     if (autoMixArmed) {
       canvas.drawRect(
         Rect.fromLTWH(visualMixStartX, 0, visualMixWidth, 10),
-        Paint()..color = const Color(0xFFFF007F).withValues(alpha: 0.4),
+        Paint()..color = GatoMixTheme.fire.withValues(alpha: 0.4),
       );
     }
 
@@ -2755,20 +2752,20 @@ class SemanticDeckPainter extends CustomPainter {
 
       canvas.drawRect(
         Rect.fromLTWH(0, 0, inX, 10),
-        Paint()..color = const Color(0xFFFF007F).withValues(alpha: 0.4),
+        Paint()..color = GatoMixTheme.fire.withValues(alpha: 0.4),
       );
 
       canvas.drawLine(
         Offset(inX, 0),
         Offset(inX, 10),
         Paint()
-          ..color = const Color(0xFF39FF14)
+          ..color = GatoMixTheme.statusReady
           ..strokeWidth = 2,
       );
       canvas.drawCircle(
         Offset(inX, 0),
         3,
-        Paint()..color = const Color(0xFF39FF14),
+        Paint()..color = GatoMixTheme.statusReady,
       );
     }
 
@@ -2779,13 +2776,13 @@ class SemanticDeckPainter extends CustomPainter {
         Offset(outX, 0),
         Offset(outX, 10),
         Paint()
-          ..color = const Color(0xFFFF007F)
+          ..color = GatoMixTheme.fire
           ..strokeWidth = 2,
       );
       canvas.drawCircle(
         Offset(outX, 10),
         3,
-        Paint()..color = const Color(0xFFFF007F),
+        Paint()..color = GatoMixTheme.fire,
       );
 
       double deadX = visualMixEndX;
@@ -2800,7 +2797,7 @@ class SemanticDeckPainter extends CustomPainter {
         Offset(triggerX, 0),
         Offset(triggerX, 10),
         Paint()
-          ..color = const Color(0xFFFF007F)
+          ..color = GatoMixTheme.fire
           ..strokeWidth = 2,
       );
     }
@@ -2811,7 +2808,7 @@ class SemanticDeckPainter extends CustomPainter {
     if (autoMixArmed && nextTrackName != null) {
       canvas.drawRect(
         Rect.fromLTWH(visualMixStartX, 18, visualMixWidth, 10),
-        Paint()..color = const Color(0xFF00FFFF).withValues(alpha: 0.3),
+        Paint()..color = GatoMixTheme.techCyan.withValues(alpha: 0.3),
       );
 
       if (customMixOutMs > 0) {

@@ -5,12 +5,16 @@ class GatoMixTheme {
   // 3.1.55 DiFogo Theme: negro profundo, grises carbon y acentos fuego.
   static const Color fire = Color(0xFFFF5722); // Rojo brasa (marca DiFogo)
   static const Color ember = Color(0xFFFF7A1A); // Naranja intenso
-  static const Color bgDark = Color(0xFF0A0A0A); // Negro profundo
-  static const Color bgPanel = Color(0xFF161616); // Panel carbon
+  static const Color bgDark = Color(0xFF0F1115); // 3.1.56 base mate
+  static const Color bgPanel = Color(0xFF181B21); // 3.1.56 tarjetas
+  static const Color surfaceHover = Color(0xFF22262F); // 3.1.56 hover/elevado
+  static const Color techCyan = Color(0xFF00E5FF); // 3.1.56 cian tecnico
+  static const Color statusReady = Color(0xFF10B981); // 3.1.56 OK/Listo
+  static const Color borderSubtle = Color(0xFF2A2F38); // 3.1.56 bordes
 
   static const Color deckA = Color(0xFF2E9BFF); // Deck A azul Traktor
   static const Color deckB = fire; // Deck B fuego
-  static const Color cyanAccent = ember; // Acento de marca / hover
+  static const Color cyanAccent = techCyan; // 3.1.56 cian tecnico
 
   // Estados Críticos del Sistema
   // 3.1.55: el verde neon pasa a fuego (Sync, botones activos, sliders).
@@ -46,7 +50,7 @@ class GatoMixTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: bgPanel,
           foregroundColor: textMain,
-          side: const BorderSide(color: Color(0xFF2A2A2A)), // Borde carbon
+          side: const BorderSide(color: borderSubtle),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
           elevation: 0,
         ),
@@ -56,13 +60,13 @@ class GatoMixTheme {
         thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
         overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
         activeTrackColor: syncActive,
-        inactiveTrackColor: Color(0xFF2A2A2A), // Track inactivo carbon
+        inactiveTrackColor: borderSubtle,
         thumbColor: ember,
         overlayColor: Color(0x33FF5722),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(
         color: fire,
-        linearTrackColor: Color(0xFF2A2A2A),
+        linearTrackColor: borderSubtle,
       ),
       checkboxTheme: CheckboxThemeData(
         fillColor: WidgetStateProperty.resolveWith(
@@ -87,6 +91,23 @@ class GatoMixTheme {
         textColor: textMain,
       ),
       iconTheme: const IconThemeData(color: textMuted),
+      // 3.1.56 DiFogo Smart AutoMix: tarjetas, dialogos y hover elevados.
+      hoverColor: surfaceHover,
+      cardTheme: CardThemeData(
+        color: surfaceHover,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: const BorderSide(color: borderSubtle),
+        ),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: surfaceHover,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: const BorderSide(color: borderSubtle),
+        ),
+      ),
     );
   }
 }

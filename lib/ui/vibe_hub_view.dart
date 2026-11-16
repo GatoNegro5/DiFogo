@@ -108,6 +108,17 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                         controlAffinity: ListTileControlAffinity.leading,
                         activeColor: _hubNeon,
                         checkColor: Colors.black,
+                        // 3.1.56: categoria marcada elevada con borde fuego.
+                        selected: on,
+                        selectedTileColor: GatoMixTheme.surfaceHover,
+                        shape: on
+                            ? RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(6),
+                                side: const BorderSide(
+                                  color: GatoMixTheme.fire,
+                                ),
+                              )
+                            : null,
                         value: on,
                         onChanged: (_) => n.toggle(
                           s.checked.firstWhere(
@@ -131,7 +142,7 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                         secondary: Text(
                           '${g.count}',
                           style: const TextStyle(
-                            color: Colors.white38,
+                            color: GatoMixTheme.techCyan,
                             fontSize: 10,
                           ),
                         ),
