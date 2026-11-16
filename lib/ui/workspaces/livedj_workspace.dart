@@ -42,8 +42,8 @@ class LiveDjWorkspace extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final compact = liveDjIsMobile();
     final bool playlist = ref.watch(liveDjPlaylistViewProvider);
-    // 3.0.48: en móvil no hay vista de carpeta (disco); solo la hoja.
-    if (playlist && !compact) {
+    // 3.1.48: la vista de la cancion (disco) vuelve tambien al celular.
+    if (playlist) {
       return Scaffold(
         backgroundColor: GatoMixTheme.bgDark,
         body: Stack(
@@ -1098,26 +1098,26 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                   onTap: () => ref.read(mobileNavOpenProvider.notifier).state =
                       !menuOpen,
                 ),
-                if (!compact)
-                  Tooltip(
-                    message: playlistOn
-                        ? 'Volver a GatoMix'
-                        : 'Vista de la carpeta',
-                    child: GestureDetector(
-                      onTap: () {
-                        ref.read(liveDjPlaylistViewProvider.notifier).state =
-                            !playlistOn;
-                      },
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 8),
-                        child: Icon(
-                          Icons.album,
-                          size: 26,
-                          color: GatoMixTheme.syncActive,
-                        ),
+                // 3.1.48: disco en la barra movil, como en 3.0.17.
+                Tooltip(
+                  message: playlistOn
+                      ? 'Volver a GatoMix'
+                      : 'Vista de la carpeta',
+                  child: GestureDetector(
+                    onTap: () {
+                      ref.read(liveDjPlaylistViewProvider.notifier).state =
+                          !playlistOn;
+                    },
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 8),
+                      child: Icon(
+                        Icons.album,
+                        size: 26,
+                        color: GatoMixTheme.syncActive,
                       ),
                     ),
                   ),
+                ),
                 Expanded(child: routingBar),
               ],
             ),

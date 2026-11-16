@@ -32,7 +32,7 @@ void main() {
         await tester.pump();
         expect(find.byType(LiveDjFolderPanel), findsNothing);
         expect(find.text('Cargar Carpeta'), findsNothing);
-        expect(find.byIcon(Icons.album), findsNothing);
+        expect(find.byIcon(Icons.album), findsOneWidget);
         expect(find.text('+ Agregar canciones'), findsOneWidget);
       },
     );
