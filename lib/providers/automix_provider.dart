@@ -40,7 +40,7 @@ import '../ui/widgets/approx_lyric_icon.dart' show approxLyricRevision;
 import 'db_provider.dart';
 import 'nlp_provider.dart';
 import 'equalizer_provider.dart';
-import 'mix_formula.dart' show seamGain, seamVolume, snapCueToBeat;
+import 'mix_formula.dart' show snapCueToBeat;
 import '../services/adaptive_eq.dart' show AdaptiveEq;
 
 // 🛡️ FIX: Dependencia para dspWorkerProvider
@@ -1744,9 +1744,10 @@ class AutomixNotifier extends Notifier<AutomixState> {
           1.0,
         );
 
-        // 3.1.32: costura de seda (seamGain) con ley cubica de mpv (seamVolume).
-        final double smoothRateIn = seamGain(progress);
-        final double smoothRateOut = seamGain(1.0 - progress);
+        // 3.1.45: curva DAWN original (3.1.30); el volumen sigue por
+        // setDeckVolume (3.1.33).
+        final smoothRateIn = dawnCrossfadeGain(progress);
+        final smoothRateOut = dawnCrossfadeGain(1.0 - progress);
 
         // 🔀 PERMUTA DE GRAVES en el cruce, donde ambas rondan el 0.9: la
         // saliente cede el bajo y la entrante lo recupera. Una única
@@ -1760,9 +1761,12 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
         await AdaptiveEq.setDeckVolume(
           incomingPlayer,
-          seamVolume(smoothRateIn),
+          (smoothRateIn * 100.0).clamp(0.0, 100.0),
         );
-        await AdaptiveEq.setDeckVolume(fadingPlayer, seamVolume(smoothRateOut));
+        await AdaptiveEq.setDeckVolume(
+          fadingPlayer,
+          (smoothRateOut * 100.0).clamp(0.0, 100.0),
+        );
 
         await _mix.slice(32, fadeClock);
       }
