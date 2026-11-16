@@ -36,6 +36,7 @@ import 'services/lyric_retry_queue.dart';
 import 'core/headless_args.dart';
 import 'ui/headless_master_page.dart';
 import 'ui/headless_karaoke_page.dart';
+import 'ui/startup_vibe_dialog.dart';
 
 // ==========================================
 // ENRUTADOR DE ESTADO (SPA - Single Page App)
@@ -401,6 +402,16 @@ class MainWorkspace extends ConsumerStatefulWidget {
 }
 
 class _MainWorkspaceState extends ConsumerState<MainWorkspace> {
+  @override
+  void initState() {
+    super.initState();
+    // 3.1.52: Smart Vibe al arrancar (una vez por arranque).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(showStartupVibeFlow(context, ref));
+    });
+  }
+
   void _openMenu() {
     ref.read(mobileNavOpenProvider.notifier).state = true;
   }

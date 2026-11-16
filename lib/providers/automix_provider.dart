@@ -38,6 +38,7 @@ import '../core/lyric_match.dart';
 import '../core/lyric_approx.dart';
 import '../ui/widgets/approx_lyric_icon.dart' show approxLyricRevision;
 import 'db_provider.dart';
+import 'session_provider.dart';
 import 'nlp_provider.dart';
 import 'equalizer_provider.dart';
 import 'mix_formula.dart' show snapCueToBeat;
@@ -2913,8 +2914,35 @@ class AutomixQueueNotifier extends Notifier<List<File>> {
     } catch (_) {}
   }
 
+  /// 3.1.52 Strict Genre Guard: paths que pasan el candado de genero.
+  List<String> _vibeKeep(List<String> paths) {
+    try {
+      return vibeKeep(paths, ref.read(vibeProvider).active, vibeMusicRoot());
+    } catch (_) {
+      return paths;
+    }
+  }
+
+  /// Aplica el candado a la cola ya cargada (al elegir genero).
+  void applyVibe() {
+    final List<String> keep = _vibeKeep(<String>[
+      for (final File f in state) f.path,
+    ]);
+    if (keep.length == state.length) return;
+    final List<File> next = <File>[
+      for (final File f in state)
+        if (keep.contains(f.path)) f,
+    ];
+    state = next;
+    _saveSession(next);
+  }
+
   void addTrack(File file) {
     if (isKaraokeAudioPath(file.path)) return;
+    if (_vibeKeep(<String>[file.path]).isEmpty) {
+      debugPrint('[VIBE] fuera del genero activo: ${file.path}');
+      return;
+    }
     final File kept = File(canonicalAudioPath(file.path));
     if (_shuffleOn()) {
       final int epoch = _addEpoch;
@@ -2930,7 +2958,14 @@ class AutomixQueueNotifier extends Notifier<List<File>> {
     _saveSession(newState);
   }
 
-  void addAll(List<File> files) {
+  void addAll(List<File> input) {
+    final Set<String> ok = _vibeKeep(<String>[
+      for (final File f in input) f.path,
+    ]).toSet();
+    final List<File> files = <File>[
+      for (final File f in input)
+        if (ok.contains(f.path)) f,
+    ];
     if (_shuffleOn()) {
       final List<File> kept = <File>[
         for (final File f in files)
@@ -2977,6 +3012,7 @@ class AutomixQueueNotifier extends Notifier<List<File>> {
     final List<File> files = dedupeAudioFiles(
       paths
           .where((p) => !isKaraokeAudioPath(p) && File(p).existsSync())
+          .where(_vibeKeep(paths).toSet().contains)
           .map(File.new)
           .toList(),
     );
