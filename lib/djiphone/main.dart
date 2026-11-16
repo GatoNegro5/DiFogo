@@ -271,9 +271,10 @@ class _DjIphoneBootState extends State<_DjIphoneBoot> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
-              'assets/branding/gatomix_logo.png',
+              'assets/branding/difogo_logo.png',
               width: 96,
               height: 96,
+              fit: BoxFit.contain,
             ),
             const SizedBox(height: 30),
             const CircularProgressIndicator(color: GatoMixTheme.deckA),
@@ -554,7 +555,7 @@ class _DjIphoneNav extends ConsumerWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
           child: Image.asset(
-            'assets/branding/gatomix_wordmark.png',
+            'assets/branding/difogo_wordmark.png',
             height: 44,
             fit: BoxFit.contain,
             alignment: Alignment.centerLeft,
