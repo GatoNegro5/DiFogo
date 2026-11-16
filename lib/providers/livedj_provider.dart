@@ -22,6 +22,8 @@ import '../core/livedj_order.dart';
 import '../core/dna_mix.dart';
 import '../core/phrase_grid.dart';
 import '../core/queue_bpm.dart';
+import 'automix_provider.dart' show bpmCacheProvider;
+import 'directory_provider.dart';
 import '../core/stored_grid.dart';
 import '../core/session_restore.dart';
 import '../core/session_store.dart';
@@ -201,6 +203,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   BpmBackfillWorker? _backfill;
   // queueEpoch: la lista inmutable de la cola del ultimo orden aplicado.
   List<File>? _backfillEpoch;
+  // 3.1.42: ultima cola/pista ya encoladas al medidor (evita repetir).
+  Object? _kickedQueue;
+  String? _kickedCurrent;
   bool _queueHold = false;
   bool _queueRestart = false;
   RadioMemory? _radioMem;
@@ -539,7 +544,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     final double bpm = gridBpm >= 60 ? gridBpm : _extractBpm(path);
     final int g0 = grid?.beatMs ?? 0;
     final int leadMs = TrackTags.peek(path)?.leadMs ?? 0;
-    final int cue = _activeCueByPath[path] ??
+    final int cue =
+        _activeCueByPath[path] ??
         activeCueInMs(
           durationMs: effDurMs,
           leadMs: leadMs,
@@ -683,7 +689,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       outBpm: _extractBpm(outPath),
       inBpm: _extractBpm(inPath),
       outRate: outRate,
-      outKey: outPath == null || outPath.isEmpty ? null : harmonicKeyOf(outPath),
+      outKey: outPath == null || outPath.isEmpty
+          ? null
+          : harmonicKeyOf(outPath),
       inKey: inPath == null || inPath.isEmpty ? null : harmonicKeyOf(inPath),
       outgoing: PhraseGridMemory.peek(outPath),
       incoming: PhraseGridMemory.peek(inPath),
@@ -701,9 +709,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   void attachPlaybackExclusion() {
     final PlaybackOwner owner = ref.read(playbackOwnerProvider);
     owner.register(PlaybackEngine.liveDj, yieldPlayback);
-    ref.onDispose(
-      () => owner.unregister(PlaybackEngine.liveDj, yieldPlayback),
-    );
+    ref.onDispose(() => owner.unregister(PlaybackEngine.liveDj, yieldPlayback));
   }
 
   Future<void> _claimPlayback() async {
@@ -932,6 +938,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
   Future<void> _saveSnapshot() async {
     try {
+      _kickBackfill();
       final path = _sessionFilePath();
       if (_queueHold && state.queue.isNotEmpty) {
         _queueHold = false;
@@ -1087,13 +1094,26 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   // 3.1.14: worker silencioso de BPM. Mide de una en una las pistas sin BPM
   // desde index + 2 (queue[1..]; queue[0] es la siguiente) y se pausa solo
   // durante el cruce entre los 2 decks.
+  // 3.1.42: mide en cualquier modo (Radio incluido); la que suena y la
+  // armada en el otro deck no se tocan porque Rust reescribe su TBPM.
   void _startBackfill() {
-    if (state.mixStrategy != LiveDjMixStrategy.random || state.radioOn) return;
     _backfillEpoch = state.queue;
+    _kickBackfill(force: true);
+  }
+
+  void _kickBackfill({bool force = false}) {
+    if (!force &&
+        identical(_kickedQueue, state.queue) &&
+        _kickedCurrent == state.currentTrackPath) {
+      return;
+    }
+    _kickedQueue = state.queue;
+    _kickedCurrent = state.currentTrackPath;
+    if (state.queue.isEmpty) return;
     final BpmBackfillWorker worker = _backfill ??= BpmBackfillWorker(
       measure: measureAndStampBpm,
       isPaused: () => _isCrossfading,
-      onBatch: (_) => _backfillReorder(),
+      onBatch: (_) => _backfillBatch(),
     );
     worker.enqueue(
       backfillCandidates(
@@ -1137,18 +1157,25 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     _saveSnapshot();
   }
 
+  // 3.1.42: el reorden sigue solo en Aleatorio; la cache de la carpeta
+  // abierta se recarga para que la lista muestre el BPM recien medido.
+  void _backfillBatch() {
+    _backfillReorder();
+    try {
+      final String dir = ref.read(directoryProvider).currentPath;
+      if (dir.isNotEmpty) {
+        unawaited(ref.read(bpmCacheProvider.notifier).loadCache(dir));
+      }
+    } catch (_) {}
+  }
+
   void _backfillOnTrackChange(List<File> before) {
     final BpmBackfillWorker? worker = _backfill;
-    if (worker == null || !sameQueueEpoch(_backfillEpoch, before)) return;
-    _backfillEpoch = state.queue;
-    if (worker.takeUnapplied() > 0) _backfillReorder();
-    worker.enqueue(
-      backfillCandidates(
-        <String>[for (final File f in state.queue) f.path],
-        _liveFixedCount(),
-        knownBpm,
-      ),
-    );
+    if (worker != null && sameQueueEpoch(_backfillEpoch, before)) {
+      _backfillEpoch = state.queue;
+      if (worker.takeUnapplied() > 0) _backfillReorder();
+    }
+    _kickBackfill(force: true);
   }
 
   /// Orden de la cola en Secuencial. Se guarda y se vuelve a aplicar a lo
@@ -1495,10 +1522,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         final file = File(result.path);
         final content = await file.readAsString();
         final List<dynamic> paths = jsonDecode(content);
-        final List<String> alive = await compute(
-          _existingPaths,
-          <String>[for (final dynamic p in paths) p.toString()],
-        );
+        final List<String> alive = await compute(_existingPaths, <String>[
+          for (final dynamic p in paths) p.toString(),
+        ]);
         final List<File> newFiles = dedupeAudioFiles(
           alive.map(File.new).toList(),
         );
@@ -1738,11 +1764,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         if (state.currentTrackPath != tickPath || player != _activePlayer) {
           return;
         }
-        if (mixTriggerDue(
-          posMs: posMs,
-          exactMs: durMs,
-          mixOutMs: barMixOut,
-        )) {
+        if (mixTriggerDue(posMs: posMs, exactMs: durMs, mixOutMs: barMixOut)) {
           if (!_isCrossfading && !_isPrepModeBypass && !_mix.paused) {
             _djTrace(
               'TRIGGER pos=$posMs dur=$durMs bar=$barMixOut '
@@ -2432,9 +2454,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     // corto (o ninguno) no puede dejar el panel en una sola canción.
     if (!radioAssembleShouldStart(
       inFlight: _radioAssemble != null && _radioAssembleEpoch == epoch,
-      planOpen: saved != null &&
-          !saved.finished &&
-          radioPlanIsOpen(saved, pool),
+      planOpen:
+          saved != null && !saved.finished && radioPlanIsOpen(saved, pool),
     )) {
       _djTrace(
         'RADIO ASSEMBLE DROP en curso o lista abierta pool=${pool.length} '
@@ -2473,7 +2494,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           );
           if (!applied) return;
           final List<String> untagged = <String>[
-            for (final Object? p in (raw['untagged'] as List?) ?? const <Object>[])
+            for (final Object? p
+                in (raw['untagged'] as List?) ?? const <Object>[])
               p.toString(),
           ];
           if (untagged.isEmpty || epoch != _radioEpoch || !state.radioOn) {
@@ -2838,8 +2860,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     );
     _radioFreeze = null;
     final bool sameQueue =
-        live.length == effect.queue.length &&
-        listEquals(live, effect.queue);
+        live.length == effect.queue.length && listEquals(live, effect.queue);
     state = state.copyWith(
       radioOn: false,
       clearRadioNextPath: true,
@@ -3346,9 +3367,11 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         .filterFor(incoming);
     if (plan.kind == DnaKind.longBlend) {
       return AfCaps.sanitize(
-        [base, _bassKillFilter, dnaHighShelfCut]
-            .where((String s) => s.isNotEmpty)
-            .join(','),
+        [
+          base,
+          _bassKillFilter,
+          dnaHighShelfCut,
+        ].where((String s) => s.isNotEmpty).join(','),
       );
     }
     return AfCaps.sanitize(base);
@@ -3403,7 +3426,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         dnaOutExtra == null
             ? outBase()
             : AfCaps.sanitize(
-                [outBase(), dnaOutExtra].where((String s) => s.isNotEmpty).join(','),
+                [
+                  outBase(),
+                  dnaOutExtra,
+                ].where((String s) => s.isNotEmpty).join(','),
               ),
       );
 
@@ -3468,9 +3494,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
             dnaOutExtra == null
                 ? lowCutOut
                 : AfCaps.sanitize(
-                    [lowCutOut, dnaOutExtra]
-                        .where((String s) => s.isNotEmpty)
-                        .join(','),
+                    [
+                      lowCutOut,
+                      dnaOutExtra,
+                    ].where((String s) => s.isNotEmpty).join(','),
                   ),
           );
           AdaptiveEq.holdAf(incomingPlayer, null); // 3.1.21: swap hecho
@@ -3480,7 +3507,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           platformOut?.setProperty(
             'af',
             AfCaps.sanitize(
-              [outBase(), dnaOutMid].where((String s) => s.isNotEmpty).join(','),
+              [
+                outBase(),
+                dnaOutMid,
+              ].where((String s) => s.isNotEmpty).join(','),
             ),
           );
         }
@@ -3490,10 +3520,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           incomingPlayer,
           seamVolume(smoothRateIn),
         );
-        await AdaptiveEq.setDeckVolume(
-          fadingPlayer,
-          seamVolume(smoothRateOut),
-        );
+        await AdaptiveEq.setDeckVolume(fadingPlayer, seamVolume(smoothRateOut));
 
         await _mix.slice(32, fadeClock);
       }

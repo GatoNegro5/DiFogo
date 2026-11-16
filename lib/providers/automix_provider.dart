@@ -30,6 +30,7 @@ import '../core/bpm_backfill_worker.dart';
 import '../core/livedj_order.dart';
 import '../core/mode_session.dart';
 import '../core/queue_bpm.dart';
+import 'directory_provider.dart';
 import '../core/stored_grid.dart';
 import '../core/lyric_files.dart' hide sameAudioPath;
 import '../core/session_restore.dart';
@@ -174,6 +175,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
   BpmBackfillWorker? _backfill;
   // queueEpoch: la lista inmutable del ultimo orden aplicado.
   List<String>? _backfillEpoch;
+  // 3.1.42: ultima lista/indice ya encolados al medidor (evita repetir).
+  Object? _kickedQueue;
+  int _kickedIndex = -2;
   bool _parking = false;
   bool _isPrepModeBypass = false;
   int _lastSavedPositionMs = 0;
@@ -487,6 +491,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
   Future<void> _saveSnapshot() async {
     try {
+      _kickBackfill();
       final String filePath = _getSessionFilePath();
       if (_queueHold) {
         clearModeQueueSync(filePath, playbackList: true);
@@ -901,17 +906,42 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
   // 3.1.14: worker silencioso de BPM. Mide de una en una las pistas sin BPM
   // desde currentIndex + 2 y se pausa solo durante el cruce entre decks.
+  // 3.1.42: mide en cualquier modo; la actual y la siguiente no se tocan
+  // porque estan abiertas en los decks y Rust reescribe su TBPM.
   void _startBackfill() {
-    if (state.mixStrategy != MixStrategy.random) return;
     _backfillEpoch = state.playlist;
+    _kickBackfill(force: true);
+  }
+
+  void _kickBackfill({bool force = false}) {
+    if (!force &&
+        identical(_kickedQueue, state.playlist) &&
+        _kickedIndex == state.currentIndex) {
+      return;
+    }
+    _kickedQueue = state.playlist;
+    _kickedIndex = state.currentIndex;
+    if (state.playlist.isEmpty) return;
     final BpmBackfillWorker worker = _backfill ??= BpmBackfillWorker(
       measure: measureAndStampBpm,
       isPaused: () => _isCrossfading,
-      onBatch: (_) => _backfillReorder(),
+      onBatch: (_) => _backfillBatch(),
     );
     worker.enqueue(
       backfillCandidates(state.playlist, _autoFixedCount(), knownBpm),
     );
+  }
+
+  // 3.1.42: el reorden sigue solo en Aleatorio; la cache de la carpeta
+  // abierta se recarga para que la lista muestre el BPM recien medido.
+  void _backfillBatch() {
+    _backfillReorder();
+    try {
+      final String dir = ref.read(directoryProvider).currentPath;
+      if (dir.isNotEmpty) {
+        unawaited(ref.read(bpmCacheProvider.notifier).loadCache(dir));
+      }
+    } catch (_) {}
   }
 
   int _autoFixedCount() {
@@ -952,12 +982,11 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
   void _backfillOnTrackChange(List<String> before) {
     final BpmBackfillWorker? worker = _backfill;
-    if (worker == null || !sameQueueEpoch(_backfillEpoch, before)) return;
-    _backfillEpoch = state.playlist;
-    if (worker.takeUnapplied() > 0) _backfillReorder();
-    worker.enqueue(
-      backfillCandidates(state.playlist, _autoFixedCount(), knownBpm),
-    );
+    if (worker != null && sameQueueEpoch(_backfillEpoch, before)) {
+      _backfillEpoch = state.playlist;
+      if (worker.takeUnapplied() > 0) _backfillReorder();
+    }
+    _kickBackfill(force: true);
   }
 
   double _extractBpm(String? path) => knownBpm(path);
@@ -972,8 +1001,10 @@ class AutomixNotifier extends Notifier<AutomixState> {
       return meta.cueInMs!;
     }
 
-    final int durMs =
-        (await _trueDuration(path, player.state.duration)).inMilliseconds;
+    final int durMs = (await _trueDuration(
+      path,
+      player.state.duration,
+    )).inMilliseconds;
     if (durMs > 30000) return 10000;
     return 0;
   }
@@ -1702,16 +1733,16 @@ class AutomixNotifier extends Notifier<AutomixState> {
       final MixRunClock fadeClock = _mix.beginFade(mixDurationMs);
       final actualDuration = mixDurationMs;
 
-      while (
-        fadeClock.elapsedMilliseconds < actualDuration &&
-        _mix.epoch == mixEpoch
-      ) {
+      while (fadeClock.elapsedMilliseconds < actualDuration &&
+          _mix.epoch == mixEpoch) {
         if (_mix.paused) {
           await _mix.untilRunning();
           continue;
         }
-        final progress = (fadeClock.elapsedMilliseconds / actualDuration)
-            .clamp(0.0, 1.0);
+        final progress = (fadeClock.elapsedMilliseconds / actualDuration).clamp(
+          0.0,
+          1.0,
+        );
 
         // 3.1.32: costura de seda (seamGain) con ley cubica de mpv (seamVolume).
         final double smoothRateIn = seamGain(progress);
@@ -1731,10 +1762,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
           incomingPlayer,
           seamVolume(smoothRateIn),
         );
-        await AdaptiveEq.setDeckVolume(
-          fadingPlayer,
-          seamVolume(smoothRateOut),
-        );
+        await AdaptiveEq.setDeckVolume(fadingPlayer, seamVolume(smoothRateOut));
 
         await _mix.slice(32, fadeClock);
       }
@@ -1910,10 +1938,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
     final Duration livePos = player.state.position;
     final bool livePlaying = player.state.playing;
     if (liveDur.inMilliseconds > 0) {
-      state = state.copyWith(
-        position: livePos,
-        isPlaying: livePlaying,
-      );
+      state = state.copyWith(position: livePos, isPlaying: livePlaying);
       unawaited(_applyTrueDuration(state.currentTrackPath, liveDur));
     } else if (livePlaying || livePos.inMilliseconds > 0) {
       state = state.copyWith(isPlaying: livePlaying, position: livePos);
@@ -1922,7 +1947,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _positionSub = player.stream.position.listen((Duration pos) {
       final posMs = pos.inMilliseconds;
 
-      if (!_isCrossfading && !_mix.paused && state.duration.inMilliseconds > 0) {
+      if (!_isCrossfading &&
+          !_mix.paused &&
+          state.duration.inMilliseconds > 0) {
         final double curRate = player.state.rate;
         final String? blocked = _drift.takeBlockedReport();
         if (blocked != null) djTrace('MIDPOINT FUERA $blocked');

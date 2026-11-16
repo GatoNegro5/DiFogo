@@ -176,7 +176,9 @@ Future<double> measureAndStampBpm(String path) async {
 void stampBackfill(String path, double bpm) {
   final File file = File(path);
   final String dir = file.parent.path;
-  if (!File('$dir${Platform.pathSeparator}$gatomixStoreName').existsSync()) {
+  // 3.1.42: sin `.gatomix.json` se crea, pero solo si hay BPM que guardar.
+  if (bpm <= 0 &&
+      !File('$dir${Platform.pathSeparator}$gatomixStoreName').existsSync()) {
     return;
   }
   final int mtime;
@@ -185,8 +187,9 @@ void stampBackfill(String path, double bpm) {
   } catch (_) {
     return;
   }
-  final Map<String, dynamic> stamps =
-      Map<String, dynamic>.from(readDjTimestamps(dir))..[path] = mtime;
+  final Map<String, dynamic> stamps = Map<String, dynamic>.from(
+    readDjTimestamps(dir),
+  )..[path] = mtime;
   writeDjTimestamps(dir, stamps);
   if (bpm > 0) {
     writeDjMetadata(
