@@ -371,7 +371,7 @@ class _BootloaderScreenState extends State<BootloaderScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
-              'assets/branding/difogo_logo.png',
+              'assets/branding/difogo_logo3.png',
               width: 96,
               height: 96,
               fit: BoxFit.contain,

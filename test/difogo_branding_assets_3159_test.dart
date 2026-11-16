@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 const List<String> _assets = <String>[
   'assets/branding/difogo_logo.png',
   'assets/branding/difogo_wordmark.png',
-  'assets/branding/difogo_banner.png',
+  'assets/branding/difogo_logo3.png',
 ];
 
 bool _isPng(List<int> b) =>
@@ -55,7 +55,7 @@ void main() {
       expect(src.contains('gatomix_logo.png'), isFalse, reason: f);
       expect(src.contains('gatomix_wordmark.png'), isFalse, reason: f);
       expect(
-        src.contains("'assets/branding/difogo_logo.png'"),
+        src.contains("'assets/branding/difogo_logo3.png'"),
         isTrue,
         reason: f,
       );
