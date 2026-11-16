@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../core/net/artist_info.dart';
+import '../widgets/hover_marquee_text.dart';
 
 /// Tarjeta del artista a la derecha del título (foto, nombre, fans). Sin
 /// internet o sin dato no se muestra nada: NOW PLAYING queda como siempre.
@@ -61,10 +62,8 @@ class LiveDjArtistCard extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        HoverMarqueeText(
                           info.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             color: Colors.white,
                             fontWeight: FontWeight.bold,

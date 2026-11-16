@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 import '../widgets/approx_lyric_icon.dart';
+import '../widgets/hover_marquee_text.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -286,14 +287,12 @@ class LiveDjFolderPanel extends ConsumerWidget {
                             ApproxLyricIcon(path: file.path, size: 16),
                             const SizedBox(width: 4),
                             Expanded(
-                              child: Text(
+                              child: HoverMarqueeText(
                                 formatTrackTitle(file.path),
                                 style: const TextStyle(
                                   color: Colors.white70,
                                   fontSize: 12,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ],
@@ -562,15 +561,13 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                     ),
                   ),
                   SizedBox(height: compact ? 2 : 5),
-                  Text(
+                  HoverMarqueeText(
                     formatTrackTitle(currentName),
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
                       fontSize: titleSize,
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),
@@ -1585,14 +1582,12 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                             LiveDjBpmBadge(path: file.path),
                           ],
                         ),
-                        title: Text(
+                        title: HoverMarqueeText(
                           formatTrackTitle(path),
                           style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 12,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         onTap: radioOn
                             ? null

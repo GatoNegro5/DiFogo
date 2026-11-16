@@ -15,6 +15,7 @@ import '../../providers/directory_provider.dart';
 import '../../providers/automix_provider.dart';
 import '../mobile/music_picker_screen.dart';
 import '../widgets/approx_lyric_icon.dart';
+import '../widgets/hover_marquee_text.dart';
 import '../../providers/pipeline_provider.dart';
 import '../../providers/theme_provider.dart';
 
@@ -505,14 +506,12 @@ class FolderContentPanel extends ConsumerWidget {
                             ),
                           ),
                         ),
-                        title: Text(
+                        title: HoverMarqueeText(
                           formatTrackTitle(file.path, bpm: bpm),
                           style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 12,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -1117,7 +1116,7 @@ class AutomixPanel extends ConsumerWidget {
                               : Colors.white24,
                           size: 18,
                         ),
-                        title: Text(
+                        title: HoverMarqueeText(
                           formatTrackTitle(file.path, bpm: bpm),
                           style: TextStyle(
                             color: isPlayingThisTrack
@@ -1128,8 +1127,6 @@ class AutomixPanel extends ConsumerWidget {
                                 : FontWeight.normal,
                             fontSize: 12,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
