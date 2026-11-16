@@ -189,6 +189,12 @@ void main() {
       find.byKey(const ValueKey<String>('curator-card-v1')),
       findsOneWidget,
     );
+    // 3.1.55: botones de texto claros, sin pulgares.
+    expect(find.text('Descargar'), findsNWidgets(2));
+    expect(find.text('Descartar'), findsNWidgets(2));
+    expect(find.byIcon(Icons.thumb_up), findsNothing);
+    expect(find.byIcon(Icons.thumb_down), findsNothing);
+    expect(t.takeException(), isNull);
     await t.tap(find.byKey(const ValueKey<String>('curator-reject-v1')));
     await t.pumpAndSettle();
     expect(find.byKey(const ValueKey<String>('curator-card-v1')), findsNothing);

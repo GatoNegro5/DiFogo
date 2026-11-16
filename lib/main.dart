@@ -203,6 +203,7 @@ class GatoMixApp extends ConsumerWidget {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      title: 'DiFogo',
       scaffoldMessengerKey: lyricRetryMessengerKey,
       theme: appTheme,
       builder: (context, child) {
@@ -582,7 +583,7 @@ String _moduleTitle(int route, bool mobile) {
     case 6:
       return "Karaoke";
     default:
-      return "GatoMix";
+      return "DiFogo";
   }
 }
 
@@ -638,7 +639,7 @@ class _GatoMixNavColumn extends ConsumerWidget {
       required Color accent,
     }) {
       final active = currentRoute == route;
-      const Color menuIdle = Color(0xFF00E676);
+      const Color menuIdle = GatoMixTheme.syncActive;
       const Color menuSelected = Color(0xFF43B3AE);
       final Color ink = active ? menuSelected : menuIdle;
       return ListTile(

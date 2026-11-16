@@ -5,13 +5,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../providers/automix_provider.dart';
 import '../providers/session_provider.dart';
+import '../providers/theme_provider.dart';
 
 /// Solo pruebas: no abrir el flujo de inicio.
 @visibleForTesting
 bool debugSkipStartupVibe = false;
 bool _vibeShown = false;
 
-const Color _vibeNeon = Color(0xFF00E676);
+const Color _vibeNeon = GatoMixTheme.syncActive;
 
 /// 3.1.52: al arrancar pregunta si se mantiene el genero anterior o se elige
 /// uno de la carpeta unica; aplica el candado a la cola de Automix.

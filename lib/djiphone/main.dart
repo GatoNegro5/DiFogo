@@ -72,9 +72,7 @@ class DjIphoneRouter extends Notifier<int> {
       final File legacy = File(
         '${IphoneLibrary.playlistsDir}${sep}_player_session.json',
       );
-      final File live = File(
-        '${IphoneLibrary.playlistsDir}${sep}liveDj.json',
-      );
+      final File live = File('${IphoneLibrary.playlistsDir}${sep}liveDj.json');
       final File file = legacy.existsSync() ? legacy : live;
       if (!file.existsSync()) return 0;
       final data = jsonDecode(file.readAsStringSync());
@@ -125,7 +123,7 @@ Future<void> main() async {
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Text(
-                'GatoMix no pudo abrir la carpeta de música.\n\n$e',
+                'DiFogo no pudo abrir la carpeta de música.\n\n$e',
                 style: const TextStyle(
                   color: Colors.redAccent,
                   fontFamily: 'Consolas',
@@ -148,7 +146,7 @@ class DjIphoneApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final appTheme = ref.watch(themeProvider);
     return MaterialApp(
-      title: 'GatoMix',
+      title: 'DiFogo',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: lyricRetryMessengerKey,
       theme: appTheme,
@@ -281,7 +279,7 @@ class _DjIphoneBootState extends State<_DjIphoneBoot> {
             const CircularProgressIndicator(color: GatoMixTheme.deckA),
             const SizedBox(height: 20),
             const Text(
-              'GatoMix',
+              'DiFogo',
               style: TextStyle(
                 color: GatoMixTheme.textMuted,
                 fontFamily: 'Consolas',
@@ -450,7 +448,7 @@ String _title(int route) {
     case 5:
       return 'Live DJ';
     default:
-      return 'GatoMix';
+      return 'DiFogo';
   }
 }
 
@@ -489,7 +487,7 @@ class _DjIphoneNav extends ConsumerWidget {
       required int route,
     }) {
       final active = currentRoute == route;
-      const Color menuIdle = Color(0xFF00E676);
+      const Color menuIdle = GatoMixTheme.syncActive;
       const Color menuSelected = Color(0xFF43B3AE);
       final Color ink = active ? menuSelected : menuIdle;
       return ListTile(

@@ -5,7 +5,7 @@ import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/vibe_hub_provider.dart';
 
-const Color _hubNeon = Color(0xFF00E676);
+const Color _hubNeon = GatoMixTheme.syncActive;
 
 /// 3.1.54 Super-Vibe Hub: categorias maestras con casillas. En escritorio
 /// ocupa la columna izquierda de Live DJ; en movil se abre como hoja.

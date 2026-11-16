@@ -7,6 +7,7 @@ import '../../core/audio_path.dart';
 import '../../core/lan_sync_plan.dart';
 import '../../core/track_name_clean.dart';
 import '../../djiphone/iphone_library.dart';
+import '../../providers/theme_provider.dart';
 import '../widgets/hover_marquee_text.dart';
 
 const Color _bg = Color(0xFF121212);
@@ -20,7 +21,7 @@ const TextStyle _metaStyle = TextStyle(color: _muted, fontSize: 14);
 // 3.1.50: paleta Pro DJ (crates grafito, activo y acentos neon).
 const Color _crateBg = Color(0xFF0E1117);
 const Color _activeBg = Color(0xFF1A222D);
-const Color _neon = Color(0xFF00E676);
+const Color _neon = GatoMixTheme.syncActive;
 const Color _cyan = Color(0xFF00E5FF);
 const TextStyle _countStyle = TextStyle(color: _muted, fontSize: 12);
 

@@ -2,18 +2,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 class GatoMixTheme {
-  // Traktor / Native Instruments (cabina “lab”)
-  static const Color bgDark = Color(0xFF0E1014); // Carbón NI
-  static const Color bgPanel = Color(0xFF1A1E26); // Panel elevado
+  // 3.1.55 DiFogo Theme: negro profundo, grises carbon y acentos fuego.
+  static const Color fire = Color(0xFFFF5722); // Rojo brasa (marca DiFogo)
+  static const Color ember = Color(0xFFFF7A1A); // Naranja intenso
+  static const Color bgDark = Color(0xFF0A0A0A); // Negro profundo
+  static const Color bgPanel = Color(0xFF161616); // Panel carbon
 
   static const Color deckA = Color(0xFF2E9BFF); // Deck A azul Traktor
-  static const Color deckB = Color(0xFFF05A22); // Naranja Native Instruments
-  static const Color cyanAccent = Color(0xFFF05A22); // Acento de marca / hover
+  static const Color deckB = fire; // Deck B fuego
+  static const Color cyanAccent = ember; // Acento de marca / hover
 
   // Estados Críticos del Sistema
-  static const Color syncActive = Color(
-    0xFF00E676,
-  ); // Verde Neón (Sync/Beatmatch)
+  // 3.1.55: el verde neon pasa a fuego (Sync, botones activos, sliders).
+  static const Color syncActive = fire;
   static const Color masterPeak = Color(
     0xFFFFC400,
   ); // Ámbar/Oro (Alertas/Master)
@@ -45,9 +46,7 @@ class GatoMixTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: bgPanel,
           foregroundColor: textMain,
-          side: const BorderSide(
-            color: Color(0xFF2A2E37),
-          ), // Borde sutil arquitectónico
+          side: const BorderSide(color: Color(0xFF2A2A2A)), // Borde carbon
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
           elevation: 0,
         ),
@@ -57,10 +56,31 @@ class GatoMixTheme {
         thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
         overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
         activeTrackColor: syncActive,
-        inactiveTrackColor: Color(
-          0xFF2A2E37,
-        ), // Track inactivo más oscuro y elegante
-        thumbColor: textMain,
+        inactiveTrackColor: Color(0xFF2A2A2A), // Track inactivo carbon
+        thumbColor: ember,
+        overlayColor: Color(0x33FF5722),
+      ),
+      progressIndicatorTheme: const ProgressIndicatorThemeData(
+        color: fire,
+        linearTrackColor: Color(0xFF2A2A2A),
+      ),
+      checkboxTheme: CheckboxThemeData(
+        fillColor: WidgetStateProperty.resolveWith(
+          (Set<WidgetState> s) =>
+              s.contains(WidgetState.selected) ? fire : null,
+        ),
+        checkColor: const WidgetStatePropertyAll<Color>(Colors.black),
+        side: const BorderSide(color: textMuted),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith(
+          (Set<WidgetState> s) =>
+              s.contains(WidgetState.selected) ? ember : null,
+        ),
+        trackColor: WidgetStateProperty.resolveWith(
+          (Set<WidgetState> s) =>
+              s.contains(WidgetState.selected) ? const Color(0x80FF5722) : null,
+        ),
       ),
       listTileTheme: const ListTileThemeData(
         iconColor: textMuted,

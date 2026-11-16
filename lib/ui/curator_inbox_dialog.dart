@@ -7,14 +7,15 @@ import 'package:media_kit/media_kit.dart';
 
 import '../providers/curator_provider.dart';
 import '../providers/session_provider.dart';
+import '../providers/theme_provider.dart';
 import '../services/smart_discovery_service.dart';
 
 /// 3.1.53 Curator Inbox: tarjetas de los temas pendientes con vista previa,
 /// Agregar, Descartar, Buscar mas y Ver despues.
 
-const Color _curNeon = Color(0xFF00E676);
+const Color _curNeon = GatoMixTheme.syncActive;
 const Color _curBg = Color(0xFF121212);
-const Color _curCard = Color(0xFF1A222D);
+const Color _curCard = Color(0xFF1C1C1C);
 
 Future<void> showCuratorInbox(BuildContext context) => showDialog<void>(
   context: context,
@@ -229,10 +230,12 @@ class _CuratorInboxDialogState extends ConsumerState<CuratorInboxDialog> {
                 ],
               ),
             ),
-            IconButton(
+            // 3.1.55: botones de texto claros en vez de pulgares.
+            _CuratorTextButton(
               key: ValueKey<String>('curator-accept-${e.id}'),
+              label: 'Descargar',
               tooltip: 'Agregar a ${e.genre}',
-              icon: const Icon(Icons.thumb_up, color: _curNeon),
+              color: _curNeon,
               onPressed: () async {
                 await _stopIf(e.id);
                 final String? dst = await ref
@@ -248,10 +251,12 @@ class _CuratorInboxDialogState extends ConsumerState<CuratorInboxDialog> {
                 );
               },
             ),
-            IconButton(
+            const SizedBox(width: 4),
+            _CuratorTextButton(
               key: ValueKey<String>('curator-reject-${e.id}'),
+              label: 'Descartar',
               tooltip: 'Descartar',
-              icon: const Icon(Icons.thumb_down, color: Colors.redAccent),
+              color: Colors.white70,
               onPressed: () async {
                 await _stopIf(e.id);
                 ref.read(curatorProvider.notifier).reject(e.id);
@@ -259,6 +264,41 @@ class _CuratorInboxDialogState extends ConsumerState<CuratorInboxDialog> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// 3.1.55: boton de texto compacto de la tarjeta (Descargar / Descartar).
+class _CuratorTextButton extends StatelessWidget {
+  const _CuratorTextButton({
+    super.key,
+    required this.label,
+    required this.tooltip,
+    required this.color,
+    required this.onPressed,
+  });
+
+  final String label;
+  final String tooltip;
+  final Color color;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: color,
+          side: BorderSide(color: color.withValues(alpha: 0.7)),
+          minimumSize: const Size(0, 34),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+        child: Text(label, style: const TextStyle(fontSize: 12)),
       ),
     );
   }
