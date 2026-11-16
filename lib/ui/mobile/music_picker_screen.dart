@@ -7,6 +7,7 @@ import '../../core/audio_path.dart';
 import '../../core/lan_sync_plan.dart';
 import '../../core/track_name_clean.dart';
 import '../../djiphone/iphone_library.dart';
+import '../widgets/hover_marquee_text.dart';
 
 const Color _bg = Color(0xFF121212);
 const Color _card = Color(0xFF1E1E1E);
@@ -15,6 +16,13 @@ const Color _muted = Color(0xFFB3B3B3);
 
 const TextStyle _titleStyle = TextStyle(color: _text, fontSize: 16);
 const TextStyle _metaStyle = TextStyle(color: _muted, fontSize: 14);
+
+// 3.1.50: paleta Pro DJ (crates grafito, activo y acentos neon).
+const Color _crateBg = Color(0xFF0E1117);
+const Color _activeBg = Color(0xFF1A222D);
+const Color _neon = Color(0xFF00E676);
+const Color _cyan = Color(0xFF00E5FF);
+const TextStyle _countStyle = TextStyle(color: _muted, fontSize: 12);
 
 String gatomixMusicRoot() {
   if (Platform.isIOS) return IphoneLibrary.musicRoot;
@@ -495,6 +503,8 @@ class _MusicPickerScreenState extends State<MusicPickerScreen> {
   final Map<String, File?> _covers = <String, File?>{};
   final Set<String> _lrc = <String>{};
   final Set<String> _mixing = <String>{};
+  // 3.1.50: arbol vertical plegado por defecto en la vista compacta.
+  bool _treeOpen = false;
 
   @override
   void initState() {
@@ -663,128 +673,336 @@ class _MusicPickerScreenState extends State<MusicPickerScreen> {
         ? 'M\u00fasica'
         : _pickerName(_current);
 
+    final List<Widget> songSlivers = <Widget>[
+      if (!readable)
+        const SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(
+            child: Text(
+              'No se pudo leer la carpeta de m\u00fasica',
+              style: _metaStyle,
+            ),
+          ),
+        )
+      else if (pending)
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.all(24),
+            child: Center(child: CircularProgressIndicator(color: _muted)),
+          ),
+        )
+      else
+        SliverList(
+          delegate: SliverChildBuilderDelegate((
+            BuildContext context,
+            int index,
+          ) {
+            final File song = songs[index];
+            return _SongRow(
+              file: song,
+              cover: _covers[song.path],
+              lrc: _lrc.contains(song.path),
+              onTap: () => _enqueue(song),
+              onPlayNext: () => widget.onPlayNext(song),
+            );
+          }, childCount: songs.length),
+        ),
+      // Espacio para que el aviso "Agregada a la cola" no tape la ultima
+      // cancion.
+      const SliverToBoxAdapter(child: SizedBox(height: 72)),
+    ];
+
     return Scaffold(
       backgroundColor: _bg,
-      body: Column(
-        children: <Widget>[
-          // 3.1.38: barra de 48 px (buscador y Cerrar); sin pestanas.
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            child: SizedBox(
-              height: 48,
-              child: Row(
-                children: <Widget>[
-                  Expanded(
-                    child: TextField(
-                      controller: _search,
-                      style: _titleStyle,
-                      cursorColor: _text,
-                      decoration: InputDecoration(
-                        hintText: 'Buscar en $here',
-                        hintStyle: _metaStyle.copyWith(
-                          overflow: TextOverflow.ellipsis,
+      body: LayoutBuilder(
+        builder: (BuildContext context, BoxConstraints box) {
+          // 3.1.50: Split Crate Browser (34 % arbol / 66 % pistas) desde
+          // 560 dp; el panel movil (340..420 dp) usa la vista compacta.
+          if (box.maxWidth >= 560) {
+            final double left = (box.maxWidth * 0.34).floorToDouble();
+            return Row(
+              children: <Widget>[
+                SizedBox(
+                  width: left,
+                  child: DecoratedBox(
+                    decoration: const BoxDecoration(
+                      color: _crateBg,
+                      border: Border(right: BorderSide(color: Colors.white10)),
+                    ),
+                    child: Column(
+                      children: <Widget>[
+                        _breadcrumb(parent),
+                        Expanded(
+                          child: ListView.builder(
+                            key: const ValueKey<String>('crate-strip'),
+                            padding: const EdgeInsets.only(bottom: 8),
+                            itemCount: crates.length,
+                            itemBuilder: (BuildContext context, int index) =>
+                                _crateRow(crates[index], parent),
+                          ),
                         ),
-                        hintMaxLines: 1,
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          color: _muted,
+                      ],
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: Column(
+                    children: <Widget>[
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 2,
+                        ),
+                        child: SizedBox(
+                          height: 48,
+                          child: Row(
+                            children: <Widget>[
+                              const SizedBox(width: 6),
+                              Expanded(flex: 4, child: _crateTitle(here)),
+                              const SizedBox(width: 8),
+                              Expanded(flex: 5, child: _searchField(here)),
+                              const SizedBox(width: 8),
+                              _mixPill(),
+                              if (widget.onClose != null) _closeButton(),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: CustomScrollView(
+                          controller: widget.scrollController,
+                          slivers: songSlivers,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          }
+          // 3.1.50: vista compacta (panel movil 340..420 dp): carril de
+          // crates de 52 px (garantia de 4.5 filas a 360 dp de alto) y arbol
+          // vertical plegable con el boton de la izquierda.
+          final bool tree = _treeOpen && query.isEmpty;
+          final int? n = _crateCount(_current);
+          return Column(
+            children: <Widget>[
+              // 3.1.38: barra de 48 px (buscador y Cerrar).
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                child: SizedBox(
+                  height: 48,
+                  child: Row(
+                    children: <Widget>[
+                      Expanded(child: _searchField(here)),
+                      if (widget.onClose != null) _closeButton(),
+                    ],
+                  ),
+                ),
+              ),
+              ColoredBox(
+                color: _crateBg,
+                child: SizedBox(
+                  height: 52,
+                  child: Row(
+                    children: <Widget>[
+                      IconButton(
+                        onPressed: () => setState(() => _treeOpen = !_treeOpen),
+                        style: IconButton.styleFrom(
+                          minimumSize: const Size(48, 48),
+                        ),
+                        icon: Icon(
+                          _treeOpen ? Icons.expand_less : Icons.account_tree,
+                          color: _treeOpen ? _neon : _muted,
                           size: 20,
                         ),
-                        prefixIconConstraints: const BoxConstraints(
-                          minWidth: 36,
-                          minHeight: 36,
-                        ),
-                        filled: true,
-                        fillColor: _card,
-                        border: const OutlineInputBorder(
-                          borderSide: BorderSide.none,
-                          borderRadius: BorderRadius.all(Radius.circular(8)),
-                        ),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 10,
+                      ),
+                      Expanded(
+                        child: ListView.builder(
+                          key: const ValueKey<String>('crate-strip'),
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.only(right: 6),
+                          itemCount: crates.length,
+                          itemBuilder: (BuildContext context, int index) =>
+                              _crateChip(crates[index], parent),
                         ),
                       ),
-                      onChanged: (String _) => setState(() {}),
-                    ),
+                    ],
                   ),
-                  if (widget.onClose != null)
-                    IconButton(
-                      tooltip: 'Cerrar',
-                      onPressed: widget.onClose,
-                      style: IconButton.styleFrom(
-                        minimumSize: const Size(48, 48),
-                      ),
-                      icon: const Icon(Icons.close, color: _text),
-                    ),
-                ],
+                ),
               ),
-            ),
-          ),
-          // 3.1.38: cinta horizontal de crates (56 px).
-          SizedBox(
-            height: 56,
-            child: ListView.builder(
-              key: const ValueKey<String>('crate-strip'),
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              itemCount: crates.length,
-              itemBuilder: (BuildContext context, int index) =>
-                  _crateChip(crates[index], parent),
-            ),
-          ),
-          Expanded(
-            child: CustomScrollView(
-              controller: widget.scrollController,
-              slivers: <Widget>[
-                if (!readable)
-                  const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(
-                      child: Text(
-                        'No se pudo leer la carpeta de m\u00fasica',
-                        style: _metaStyle,
+              Expanded(
+                child: CustomScrollView(
+                  controller: widget.scrollController,
+                  slivers: <Widget>[
+                    if (tree)
+                      SliverList(
+                        delegate: SliverChildBuilderDelegate(
+                          (BuildContext context, int index) =>
+                              _crateRow(crates[index], parent),
+                          childCount: crates.length,
+                        ),
+                      ),
+                    SliverPersistentHeader(
+                      pinned: true,
+                      delegate: _PinnedBar(
+                        height: 48,
+                        child: ColoredBox(
+                          color: _bg,
+                          child: Row(
+                            children: <Widget>[
+                              Expanded(child: _breadcrumb(parent)),
+                              if (n != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(right: 6),
+                                  child: Text('$n pistas', style: _countStyle),
+                                ),
+                              _mixPill(),
+                              const SizedBox(width: 4),
+                            ],
+                          ),
+                        ),
                       ),
                     ),
-                  )
-                else if (pending)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.all(24),
-                      child: Center(
-                        child: CircularProgressIndicator(color: _muted),
-                      ),
-                    ),
-                  )
-                else
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate((
-                      BuildContext context,
-                      int index,
-                    ) {
-                      final File song = songs[index];
-                      return _SongRow(
-                        file: song,
-                        cover: _covers[song.path],
-                        lrc: _lrc.contains(song.path),
-                        onTap: () => _enqueue(song),
-                        onPlayNext: () => widget.onPlayNext(song),
-                      );
-                    }, childCount: songs.length),
-                  ),
-                // Espacio para que el aviso "Agregada a la cola" no tape la
-                // ultima cancion.
-                const SliverToBoxAdapter(child: SizedBox(height: 72)),
-              ],
-            ),
-          ),
+                    ...songSlivers,
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _searchField(String here) {
+    return TextField(
+      controller: _search,
+      style: _titleStyle,
+      cursorColor: _neon,
+      decoration: InputDecoration(
+        hintText: 'Buscar en $here',
+        hintStyle: _metaStyle.copyWith(overflow: TextOverflow.ellipsis),
+        hintMaxLines: 1,
+        prefixIcon: const Icon(Icons.search, color: _muted, size: 20),
+        prefixIconConstraints: const BoxConstraints(
+          minWidth: 36,
+          minHeight: 36,
+        ),
+        filled: true,
+        fillColor: _activeBg,
+        border: const OutlineInputBorder(
+          borderSide: BorderSide.none,
+          borderRadius: BorderRadius.all(Radius.circular(10)),
+        ),
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 10),
+      ),
+      onChanged: (String _) => setState(() {}),
+    );
+  }
+
+  Widget _closeButton() {
+    return IconButton(
+      tooltip: 'Cerrar',
+      onPressed: widget.onClose,
+      style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+      icon: const Icon(Icons.close, color: _text),
+    );
+  }
+
+  /// 3.1.50: titulo del crate activo + contador (un solo Text, no repite el
+  /// nombre del arbol ni el "N canciones" de su badge).
+  Widget _crateTitle(String here) {
+    final int? n = _crateCount(_current);
+    return Text(
+      n == null ? here : '$here  \u00b7  $n pistas',
+      style: const TextStyle(
+        color: _text,
+        fontSize: 14,
+        fontWeight: FontWeight.w600,
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    );
+  }
+
+  /// 3.1.50: "+ Mezclar todo" en pastilla de alto contraste (48 px; toma el
+  /// toque aunque este resolviendo, sin doble toque).
+  Widget _mixPill() {
+    final bool mixing = _mixing.contains(_current);
+    final String path = _current;
+    return TextButton(
+      style: TextButton.styleFrom(
+        backgroundColor: mixing ? _activeBg : _neon,
+        foregroundColor: mixing ? _muted : Colors.black,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        minimumSize: const Size(48, 48),
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        shape: const StadiumBorder(),
+        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+      ),
+      onPressed: () => _mix(path),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          Icon(Icons.add, size: 18),
+          SizedBox(width: 4),
+          Text('Mezclar todo', maxLines: 1),
         ],
       ),
     );
   }
 
-  /// 3.1.38: crate de la cinta: nombre + "N canciones"; el activo trae
-  /// "Mezclar todo" (48 px, toma el toque aunque este resolviendo).
+  /// 3.1.50: ruta interactiva (Musica > crate > subcarpeta); cada tramo
+  /// salta a ese nivel en un toque.
+  Widget _breadcrumb(String? parent) {
+    final String root = widget.rootPath;
+    final List<String> path = <String>[
+      root,
+      ?parent,
+      if (_current != root && _current != parent) _current,
+    ];
+    return SizedBox(
+      height: 36,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        reverse: true,
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Row(
+          children: <Widget>[
+            for (final String p in path)
+              InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => _selectCrate(p),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 8,
+                  ),
+                  child: Text(
+                    p == root
+                        ? '\u{1F3B5} M\u00fasica'
+                        : '\u203a  ${_pickerName(p)}',
+                    style: TextStyle(
+                      color: p == _current ? _cyan : _muted,
+                      fontSize: 13,
+                      fontWeight: p == _current
+                          ? FontWeight.w600
+                          : FontWeight.normal,
+                    ),
+                    maxLines: 1,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// 3.1.50: crate del carril compacto: barra neon y fondo en el activo,
+  /// marca de subcarpeta y badge con el numero de pistas.
   Widget _crateChip(String path, String? parent) {
     final bool active = path == _current;
     final bool isRoot = path == widget.rootPath;
@@ -794,30 +1012,38 @@ class _MusicPickerScreenState extends State<MusicPickerScreen> {
         path != parent &&
         _pickerParent(path) == parent;
     final int? n = _crateCount(path);
-    final bool mixing = _mixing.contains(path);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 3, vertical: 4),
-      child: Material(
-        color: active ? _card : _bg,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: BorderSide(color: active ? _text : const Color(0xFF333333)),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _selectCrate(path),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 260),
+      padding: const EdgeInsets.only(left: 6, top: 2, bottom: 2),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 220),
+        child: Material(
+          color: active ? _activeBg : Colors.white10,
+          borderRadius: BorderRadius.circular(8),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () => _selectCrate(path),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
-                const SizedBox(width: 10),
+                Container(width: 3, color: active ? _neon : Colors.transparent),
+                const SizedBox(width: 8),
+                if (isSub)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 2),
+                    child: Text(
+                      '\u251c',
+                      style: TextStyle(
+                        color: Colors.white24,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ),
                 Icon(
                   isRoot
                       ? Icons.library_music
-                      : (isSub ? Icons.subdirectory_arrow_right : Icons.album),
-                  color: active ? _text : _muted,
-                  size: 18,
+                      : (isSub ? Icons.queue_music : Icons.folder),
+                  color: active ? _neon : _muted,
+                  size: 16,
                 ),
                 const SizedBox(width: 6),
                 Flexible(
@@ -829,9 +1055,9 @@ class _MusicPickerScreenState extends State<MusicPickerScreen> {
                         isRoot ? 'M\u00fasica' : _pickerName(path),
                         style: TextStyle(
                           color: active ? _text : _muted,
-                          fontSize: 14,
+                          fontSize: 13,
                           fontWeight: active
-                              ? FontWeight.bold
+                              ? FontWeight.w600
                               : FontWeight.normal,
                         ),
                         maxLines: 1,
@@ -839,27 +1065,16 @@ class _MusicPickerScreenState extends State<MusicPickerScreen> {
                       ),
                       Text(
                         n == null ? '...' : '$n canciones',
-                        style: const TextStyle(color: _muted, fontSize: 12),
+                        style: TextStyle(
+                          color: active ? _neon : _muted,
+                          fontSize: 11,
+                        ),
                         maxLines: 1,
                       ),
                     ],
                   ),
                 ),
-                if (active)
-                  TextButton(
-                    style: TextButton.styleFrom(
-                      // Gris mientras resuelve; el boton sigue tomando el
-                      // toque para que no cambie de crate por debajo.
-                      foregroundColor: mixing ? _muted : _text,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: const Size(48, 48),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    onPressed: () => _mix(path),
-                    child: const Text('Mezclar todo', maxLines: 1),
-                  )
-                else
-                  const SizedBox(width: 10),
+                const SizedBox(width: 10),
               ],
             ),
           ),
@@ -867,9 +1082,136 @@ class _MusicPickerScreenState extends State<MusicPickerScreen> {
       ),
     );
   }
+
+  /// 3.1.50: fila del arbol de crates: barra neon y fondo en el activo,
+  /// subcarpetas con sangria de 14 px y guia, badge con el numero de pistas.
+  Widget _crateRow(String path, String? parent) {
+    final bool active = path == _current;
+    final bool isRoot = path == widget.rootPath;
+    final bool isSub =
+        !isRoot &&
+        parent != null &&
+        path != parent &&
+        _pickerParent(path) == parent;
+    final bool open = !isRoot && !isSub && path == parent;
+    final int? n = _crateCount(path);
+    final double indent = isRoot ? 0 : (isSub ? 28 : 14);
+    return Material(
+      color: active ? _activeBg : _crateBg,
+      child: InkWell(
+        onTap: () => _selectCrate(path),
+        child: SizedBox(
+          height: 48,
+          child: Row(
+            children: <Widget>[
+              Container(width: 3, color: active ? _neon : Colors.transparent),
+              SizedBox(width: 8 + indent),
+              if (isSub)
+                const Padding(
+                  padding: EdgeInsets.only(right: 4),
+                  child: Text(
+                    '\u251c\u2500',
+                    style: TextStyle(
+                      color: Colors.white24,
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+              Icon(
+                isRoot
+                    ? Icons.library_music
+                    : (isSub
+                          ? Icons.queue_music
+                          : (open ? Icons.folder_open : Icons.folder)),
+                color: active ? _neon : _muted,
+                size: 18,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  isRoot ? 'M\u00fasica' : _pickerName(path),
+                  style: TextStyle(
+                    color: active ? _text : _muted,
+                    fontSize: 14,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.normal,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: active ? const Color(0x2200E676) : Colors.white10,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  n == null ? '...' : '$n canciones',
+                  style: TextStyle(
+                    color: active ? _neon : _muted,
+                    fontSize: 11,
+                  ),
+                  maxLines: 1,
+                ),
+              ),
+              const SizedBox(width: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 3.1.50: barra fija (Mezclar todo) dentro del scroll de la vista compacta.
+class _PinnedBar extends SliverPersistentHeaderDelegate {
+  final double height;
+  final Widget child;
+
+  const _PinnedBar({required this.height, required this.child});
+
+  @override
+  double get minExtent => height;
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  Widget build(BuildContext context, double shrink, bool overlaps) =>
+      SizedBox.expand(child: child);
+
+  @override
+  bool shouldRebuild(covariant _PinnedBar old) =>
+      old.height != height || old.child != child;
+}
+
+/// 3.1.50: partes de una fila: BPM del nombre, artista y titulo.
+/// "Cantante (128) - Cancion" -> (128, Cantante, Cancion); sin " - " el
+/// titulo va completo y artista queda vacio.
+({int? bpm, String artist, String title}) musicPickerRowParts(
+  String formatted,
+) {
+  String name = formatted.trim();
+  int? bpm;
+  final RegExpMatch? m = RegExp(r'\s\((\d{2,3})\)(?=\s-\s|$)').firstMatch(name);
+  if (m != null) {
+    bpm = int.tryParse(m.group(1)!);
+    name = (name.substring(0, m.start) + name.substring(m.end)).trim();
+  }
+  final int sep = name.indexOf(' - ');
+  if (sep <= 0) return (bpm: bpm, artist: '', title: name);
+  return (
+    bpm: bpm,
+    artist: name.substring(0, sep).trim(),
+    title: name.substring(sep + 3).trim(),
+  );
 }
 
 /// 3.1.24: portada y .lrc llegan ya resueltos (sin disco en build).
+/// 3.1.50: fila estilo Rekordbox / djay Pro: badge de BPM, artista en
+/// negrita, titulo en white70 y boton "+" a la derecha.
 class _SongRow extends StatelessWidget {
   final File file;
   final File? cover;
@@ -888,18 +1230,16 @@ class _SongRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final CleanTrackName meta = cleanTrackFileName(file.path);
-    final double? bpm = meta.bpmHint;
-    String bpmText = '';
-    if (bpm != null && bpm > 0) {
-      bpmText = bpm == bpm.roundToDouble()
-          ? '${bpm.toStringAsFixed(0)} BPM'
-          : '${bpm.toStringAsFixed(1)} BPM';
-    }
+    final parts = musicPickerRowParts(musicPickerTitle(file.path));
+    final int? bpm =
+        parts.bpm ?? ((meta.bpmHint ?? 0) > 0 ? meta.bpmHint!.round() : null);
     final String key = meta.camelot ?? '';
-    final String metaLine = <String>[
-      if (bpmText.isNotEmpty) bpmText,
+    final bool split = parts.artist.isNotEmpty;
+    final String line1 = split ? parts.artist : parts.title;
+    final String line2 = <String>[
+      if (split) parts.title,
       if (key.isNotEmpty) key,
-    ].join('  ·  ');
+    ].join('  \u00b7  ');
     final File? image = cover;
 
     return Material(
@@ -911,7 +1251,7 @@ class _SongRow extends StatelessWidget {
           height: 56,
           child: Row(
             children: <Widget>[
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: SizedBox(
@@ -929,33 +1269,67 @@ class _SongRow extends StatelessWidget {
                       : Image.file(image, fit: BoxFit.cover),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
+              if (bpm != null)
+                Container(
+                  margin: const EdgeInsets.only(right: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0x1A00E5FF),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: const Color(0x5500E5FF)),
+                  ),
+                  child: Text(
+                    '$bpm',
+                    style: const TextStyle(
+                      color: _cyan,
+                      fontSize: 12,
+                      fontFamily: 'monospace',
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               Expanded(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
-                    Text(
-                      musicPickerTitle(file.path),
-                      style: _titleStyle,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                    HoverMarqueeText(
+                      line1,
+                      style: const TextStyle(
+                        color: _text,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                    if (metaLine.isNotEmpty)
-                      Text(
-                        metaLine,
-                        style: _metaStyle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                    if (line2.isNotEmpty)
+                      HoverMarqueeText(
+                        line2,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
                       ),
                   ],
                 ),
               ),
               if (lrc)
                 const Padding(
-                  padding: EdgeInsets.only(right: 12),
-                  child: Text('🎤', style: TextStyle(fontSize: 18)),
+                  padding: EdgeInsets.only(left: 4),
+                  child: Text('\u{1F3A4}', style: TextStyle(fontSize: 18)),
                 ),
+              IconButton(
+                onPressed: onTap,
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(44, 44),
+                  backgroundColor: const Color(0x1400E676),
+                ),
+                icon: const Icon(Icons.add, color: _neon, size: 20),
+              ),
+              const SizedBox(width: 4),
             ],
           ),
         ),
