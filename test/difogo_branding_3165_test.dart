@@ -4,8 +4,8 @@ import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 
-// 3.1.65: sidebar solo con el escudo logo3 a 120 px (sin wordmark debajo) e
-// icono nativo recortado a la cara del gato con las llamas. Solo lectura.
+// 3.1.65: sidebar solo con el escudo logo3 a 120 px (sin wordmark debajo).
+// 3.1.66: icono nativo acercado 1,46x a la cara del gato. Solo lectura.
 class _Px {
   _Px(this.w, this.h, this.data);
   final int w;
@@ -50,17 +50,28 @@ void _checkFill(_Px p, String name) {
   }
   final double fw = (x1 - x0 + 1) / p.w;
   final double fh = (y1 - y0 + 1) / p.h;
-  // El arte (cabeza + llamas) es mas alto que ancho (0,85): el lado mayor
-  // llena >= 90 % y el menor conserva la proporcion sin deformar (>= 75 %).
-  final double big = fw > fh ? fw : fh;
-  final double small = fw > fh ? fh : fw;
-  expect(big, greaterThanOrEqualTo(0.90), reason: '$name lado mayor $big');
-  expect(big, lessThanOrEqualTo(0.97), reason: '$name margen $big');
-  expect(small, greaterThanOrEqualTo(0.75), reason: '$name lado menor $small');
-  // Margen simetrico (diferencia <= 2 px a 256 o su equivalente).
-  final int tol = (p.w / 128).ceil();
-  expect((x0 - (p.w - 1 - x1)).abs(), lessThanOrEqualTo(tol), reason: name);
-  expect((y0 - (p.h - 1 - y1)).abs(), lessThanOrEqualTo(tol), reason: name);
+  // 3.1.66: acercamiento 1,46x a la cabeza con audifonos; el arte llega a los
+  // cuatro bordes (llamas recortadas) y cubre la mayor parte del lienzo.
+  expect(fw, greaterThanOrEqualTo(0.99), reason: '$name ancho $fw');
+  expect(fh, greaterThanOrEqualTo(0.99), reason: '$name alto $fh');
+  int opaque = 0;
+  for (int y = 0; y < p.h; y++) {
+    for (int x = 0; x < p.w; x++) {
+      if (p.alpha(x, y) > 32) opaque++;
+    }
+  }
+  final double cover = opaque / (p.w * p.h);
+  expect(cover, greaterThanOrEqualTo(0.75), reason: '$name cobertura $cover');
+  // Esquinas transparentes: parche de 1/32 del lado en cada esquina.
+  final int n = p.w ~/ 32;
+  for (int y = 0; y < n; y++) {
+    for (int x = 0; x < n; x++) {
+      expect(p.alpha(x, y), 0, reason: '$name esquina sup-izq');
+      expect(p.alpha(p.w - 1 - x, y), 0, reason: '$name esquina sup-der');
+      expect(p.alpha(x, p.h - 1 - y), 0, reason: '$name esquina inf-izq');
+      expect(p.alpha(p.w - 1 - x, p.h - 1 - y), 0, reason: name);
+    }
+  }
   for (final List<int> c in <List<int>>[
     <int>[0, 0],
     <int>[p.w - 1, 0],
@@ -94,7 +105,7 @@ void main() {
     }
   });
 
-  testWidgets('3165 difogo_logo.png e icono .ico llenan el lienzo', (
+  testWidgets('3165/3166 difogo_logo.png e icono .ico acercados al gato', (
     WidgetTester tester,
   ) async {
     await tester.runAsync(() async {
