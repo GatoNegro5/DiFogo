@@ -19,6 +19,7 @@ import 'livedj_artist_card.dart';
 import 'livedj_folder_playlist.dart';
 import 'livedj_spotify_panel.dart';
 import '../../core/audio/cue_preview.dart';
+import '../../core/genre_mix_fx.dart' show mixFormulaLockedProvider;
 import '../../core/livedj_next.dart';
 import '../../core/queue_bpm.dart';
 import '../../core/track_name_clean.dart';
@@ -992,6 +993,8 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                   ? null
                   : () {
                       final cur = ref.read(mixFormulaProvider);
+                      // 3.1.73: elegir a mano fija la curva.
+                      ref.read(mixFormulaLockedProvider.notifier).state = true;
                       ref
                           .read(mixFormulaProvider.notifier)
                           .state = cur == MixFormula.dnaEnergy

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio_path.dart' show sameAudioPath;
+import '../../core/genre_mix_fx.dart';
 import '../../core/genre_stations.dart' show stationTitleOf;
 import '../../core/net/artist_info.dart';
 import '../../providers/livedj_provider.dart';
@@ -67,6 +68,31 @@ String spotifyNextMixLabel(LiveDjState s) {
   return 'NEXT MIX en ${_clock(Duration(milliseconds: left))} · $title';
 }
 
+/// 3.1.73: plan (curva + FX) del proximo cruce, el mismo que usara el motor.
+GenreMixPlan spotifyMixFxPlan(
+  LiveDjState s,
+  MixFormula formula,
+  String? stationKey, {
+  bool locked = false,
+}) {
+  String? next;
+  for (final File f in s.queue) {
+    if (s.currentTrackPath != null &&
+        sameAudioPath(f.path, s.currentTrackPath)) {
+      continue;
+    }
+    next = f.path;
+    break;
+  }
+  return genrePlanForPaths(
+    current: formula,
+    stationKey: stationKey,
+    outPath: s.currentTrackPath,
+    inPath: next,
+    locked: locked,
+  );
+}
+
 String _clock(Duration d) {
   final Duration v = d.isNegative ? Duration.zero : d;
   return '${v.inMinutes.toString().padLeft(2, '0')}:'
@@ -107,11 +133,21 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
       vibeHubProvider.select((VibeHubState h) => h.activeStation),
     );
 
+    final bool fxLocked = ref.watch(mixFormulaLockedProvider);
+    final GenreMixPlan fxPlan = spotifyMixFxPlan(
+      s,
+      formula,
+      station,
+      locked: fxLocked,
+    );
+
     Widget mixChip() => GestureDetector(
       key: const Key('spotify-mix-chip'),
       onTap: () {
         final MixFormula next =
             MixFormula.values[(formula.index + 1) % MixFormula.values.length];
+        // 3.1.73: elegir a mano fija la curva (el selector solo pone FX).
+        ref.read(mixFormulaLockedProvider.notifier).state = true;
         ref.read(mixFormulaProvider.notifier).state = next;
       },
       child: Container(
@@ -196,6 +232,38 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
                 ),
               ),
               mixChip(),
+              GestureDetector(
+                key: const Key('spotify-fx-badge'),
+                onTap: () => ref.read(mixFormulaLockedProvider.notifier).state =
+                    !fxLocked,
+                child: Tooltip(
+                  message:
+                      'Mix Effect del proximo cruce segun genero y BPM. '
+                      'AUTO elige curva y efecto; FIJO respeta tu tipo de '
+                      'mezcla. Toca para cambiar.',
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0x2200E5FF),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: GatoMixTheme.cyanAccent),
+                    ),
+                    child: Text(
+                      genreMixBadge(fxPlan, spotifyMixLabel(fxPlan.formula)),
+                      maxLines: 1,
+                      style: const TextStyle(
+                        color: GatoMixTheme.cyanAccent,
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 6),
@@ -304,7 +372,7 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
       builder: (BuildContext context, BoxConstraints c) {
         final double w = c.maxWidth.isFinite ? c.maxWidth : 400;
         final double h = c.maxHeight.isFinite ? c.maxHeight : 400;
-        const double infoH = 262;
+        const double infoH = 286;
         final bool wide = w >= 520;
         final double colSide = (h - infoH - 24).clamp(0.0, w - 48);
         // Telefono con poco alto: portada al lado en vez de encima.

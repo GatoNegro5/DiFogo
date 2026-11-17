@@ -42,6 +42,53 @@ bool mixFormulaEqualPower(MixFormula f) =>
 int equalPowerFadeMs(int wantedMs) =>
     wantedMs.clamp(kEqualPowerMinMs, kEqualPowerMaxMs);
 
+/// 3.1.73 (orden explicita de Gabriel, solo Phrase 8 y Stealth): ventanas
+/// largas. Phrase 8 cruza 12-16 s alineado a una frase de 32 golpes
+/// (8 compases de 4/4) segun el BPM; Stealth 10-12 s. Siguen en
+/// Equal-Power con la compensacion cubica de mpv en toda la rampa.
+const int kPhrase8MinMs = 12000;
+const int kPhrase8MaxMs = 16000;
+const int kStealthMinMs = 10000;
+const int kStealthMaxMs = 12000;
+
+/// Phrase 8: 32 golpes del BPM sonando, acotado a 12-16 s (14 s sin BPM).
+int phrase8WindowMs(double bpm) {
+  if (bpm < 60 || bpm > 200) return 14000;
+  final int span = (60000.0 / bpm * 32).round();
+  return span.clamp(kPhrase8MinMs, kPhrase8MaxMs);
+}
+
+/// Stealth: 24 golpes (6 compases), acotado a 10-12 s (11 s sin BPM).
+int stealthWindowMs(double bpm) {
+  if (bpm < 60 || bpm > 200) return 11000;
+  final int span = (60000.0 / bpm * 24).round();
+  return span.clamp(kStealthMinMs, kStealthMaxMs);
+}
+
+/// Margen tras el fin del cruce: A nunca se corta en su final.
+const int kMixTailMarginMs = 1500;
+
+/// El punto de mezcla se adelanta lo necesario para que la ventana larga
+/// completa ([windowMs]) termine antes del final de A, sin bajar del 50 %
+/// de la pista. Si ya cabe no cambia.
+int extendedMixOutCap({
+  required int durationMs,
+  required int mixOutMs,
+  required int windowMs,
+}) {
+  if (durationMs <= 0 || mixOutMs <= 0) return mixOutMs;
+  final int latest = durationMs - windowMs - kMixTailMarginMs;
+  if (mixOutMs <= latest) return mixOutMs;
+  final int floor = durationMs ~/ 2;
+  final int capped = latest > floor ? latest : floor;
+  return capped < mixOutMs ? capped : mixOutMs;
+}
+
+/// 3.1.73: en Phrase 8 la cola no se mueve sola despues del Shuffle (ni el
+/// reorden del backfill de BPM al cambiar de pista): suena el orden del
+/// Shuffle / estacion; Phrase 8 solo cambia la tecnica de mezcla.
+bool mixFormulaMayReorderQueue(MixFormula f) => f != MixFormula.phraseGrid;
+
 int snapPhraseGridMixOut({
   required int durationMs,
   required int dnaMixOutMs,

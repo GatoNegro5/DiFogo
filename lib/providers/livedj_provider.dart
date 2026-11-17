@@ -35,11 +35,13 @@ import '../core/audio/phase_lock.dart';
 import '../core/audio/tempo_drift.dart';
 import '../core/dj_trace.dart';
 import '../core/exact_mix.dart';
+import '../core/genre_mix_fx.dart';
 import '../services/adaptive_eq.dart' show AdaptiveEq;
 import '../services/track_tags.dart';
 import '../core/audio/dj_audio_handler.dart';
 import 'equalizer_provider.dart';
 import 'mix_formula.dart';
+import 'vibe_hub_provider.dart' show vibeHubProvider;
 import '../djiphone/iphone_library.dart';
 
 enum LiveDjMixStrategy { sequential, random }
@@ -537,10 +539,15 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     }
 
     if (ref.read(mixFormulaProvider) == MixFormula.stealthGap) {
-      return stealthMixOutMs(
+      // 3.1.73: el cruce de 10-12 s termina antes del final de A.
+      return extendedMixOutCap(
         durationMs: effDurMs,
-        lyricMs: const [],
-        bpm: _extractBpm(path),
+        mixOutMs: stealthMixOutMs(
+          durationMs: effDurMs,
+          lyricMs: const [],
+          bpm: _extractBpm(path),
+        ),
+        windowMs: kStealthMaxMs,
       );
     }
     if (ref.read(mixFormulaProvider) == MixFormula.phraseGrid) {
@@ -553,7 +560,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       final PhraseTrack? incoming = PhraseGridMemory.peek(peer);
       final double peerBpm = _extractBpm(peer);
       final int peerDur = incoming?.durationMs ?? 0;
-      return planPhrase8(
+      final int phraseOut = planPhrase8(
         outDurationMs: effDurMs,
         inDurationMs: peerDur,
         fallbackMixOutMs: snapped,
@@ -563,6 +570,12 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         outgoing: PhraseGridMemory.peek(path),
         incoming: incoming,
       ).mixOutMs;
+      // 3.1.73: la ventana de 12-16 s cabe entera antes del final de A.
+      return extendedMixOutCap(
+        durationMs: effDurMs,
+        mixOutMs: phraseOut,
+        windowMs: kPhrase8MaxMs,
+      );
     }
     final String? peer = _phrasePeerPath();
     final PhraseTrack? incoming = PhraseGridMemory.peek(peer);
@@ -1056,6 +1069,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   /// orden (queueEpoch): un cambio manual se respeta hasta el proximo Shuffle.
   void _backfillReorder() {
     if (state.mixStrategy != LiveDjMixStrategy.random || state.radioOn) return;
+    // 3.1.73: Phrase 8 respeta el orden del Shuffle / estacion.
+    if (!mixFormulaMayReorderQueue(ref.read(mixFormulaProvider))) return;
     if (!sameQueueEpoch(_backfillEpoch, state.queue)) return;
     final List<String>? ordered = reorderQueueTail(
       <String>[for (final File f in state.queue) f.path],
@@ -3297,23 +3312,12 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     if (!isManualSkip &&
         nextMode != LiveDjMixMode.longBypass &&
         ref.read(mixFormulaProvider) == MixFormula.phraseGrid) {
-      // 3.1.71: Equal-Power de 6-8 s (antes 8-18 s).
-      phraseFadeOverride = equalPowerFadeMs(
-        phraseGridFadeMs(
-          bpm: phraseSoundingBpm(
-            incomingBpm: incomingBpm,
-            incomingRate: incomingRate,
-          ),
-          instrumental: phraseCrossIsInstrumental(
-            outgoing: PhraseGridMemory.peek(fadingPath),
-            incoming: PhraseGridMemory.peek(nextTrack),
-            outMs: fadingMixOut,
-            inMs: cueInMs,
-          ),
-          durationMs: trackDur.inMilliseconds,
-        ),
+      // 3.1.73: Equal-Power de 12-16 s alineado a 32 golpes (antes 6-8 s).
+      phraseFadeOverride = phrase8WindowMs(
+        phraseSoundingBpm(incomingBpm: incomingBpm, incomingRate: incomingRate),
       );
     }
+    final GenreMixPlan genrePlan = _genrePlanFor(fadingPath, nextTrack);
     _publishedFadeMs =
         phraseFadeOverride ??
         (dnaPlan != null && !dnaPlan.legacy ? dnaPlan.fadeMs : 0);
@@ -3353,7 +3357,53 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       dnaEchoFeedback: dnaPlan?.echoFeedback ?? 0,
       outgoingDurationMs: fadingDurMs,
       outgoingMixOutMs: fadingMixOut,
+      genreFx: isManualSkip || nextMode == LiveDjMixMode.longBypass
+          ? GenreMixFx.none
+          : genrePlan.fx,
+      outgoingBpm: _extractBpm(fadingPath),
     );
+    _applyAutoCurve();
+  }
+
+  String? _activeStationKey() {
+    try {
+      return ref.read(vibeHubProvider).activeStation;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// 3.1.73: plan (curva + FX) del cruce [outPath] -> [inPath].
+  GenreMixPlan _genrePlanFor(String? outPath, String? inPath) =>
+      genrePlanForPaths(
+        current: ref.read(mixFormulaProvider),
+        stationKey: _activeStationKey(),
+        outPath: outPath,
+        inPath: inPath,
+        locked: ref.read(mixFormulaLockedProvider),
+      );
+
+  /// 3.1.73: terminado el cruce, el selector deja lista la curva del
+  /// proximo (si el usuario no la fijo) y recalcula el punto de mezcla de
+  /// la que suena con esa curva. Durante un cruce la curva no cambia.
+  void _applyAutoCurve() {
+    try {
+      if (ref.read(mixFormulaLockedProvider)) return;
+      final String? cur = state.currentTrackPath;
+      final String? next = state.radioOn ? _driftNextPath : _queueHeadPath();
+      if (cur == null || next == null || _isCrossfading) return;
+      final GenreMixPlan plan = _genrePlanFor(cur, next);
+      if (plan.formula == ref.read(mixFormulaProvider)) return;
+      _djTrace('AUTO-FX curva ${plan.formula.name} (${plan.reason})');
+      ref.read(mixFormulaProvider.notifier).state = plan.formula;
+      _mixOutCacheKey = null;
+      final int dur = state.duration.inMilliseconds;
+      if (dur <= 0) return;
+      final int mix = _calculateRadioMixOut(dur, cur);
+      if (mix > 10000 && mix > state.position.inMilliseconds + 1500) {
+        state = state.copyWith(customMixOutMs: mix);
+      }
+    } catch (_) {}
   }
 
   /// Deja el deck entrante listo ANTES de `play()`: corrección de tono y cadena
@@ -3418,6 +3468,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     double dnaEchoFeedback = 0,
     int outgoingDurationMs = 0,
     int outgoingMixOutMs = 0,
+    GenreMixFx genreFx = GenreMixFx.none,
+    double outgoingBpm = 0,
   }) async {
     final eqN = ref.read(liveDjEqualizerProvider.notifier);
     String inBase() => eqN.filterFor(incomingPlayer);
@@ -3444,6 +3496,11 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       [outBase(), _bassKillFilter].where((s) => s.isNotEmpty).join(','),
     );
     bool bassSwapped = false;
+    // 3.1.73: etapa del efecto DJ por genero (0 = A intacta).
+    int fxStage = 0;
+    final String fxEcho = AfCaps.has('aecho')
+        ? dnaEchoChain(genreEchoDelayMs(outgoingBpm), 0.35)
+        : '';
 
     try {
       // El deck entrante ya quedó preparado antes de sonar (_prepareIncomingDeck).
@@ -3473,18 +3530,17 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           : (mixProfile == LiveDjMixMode.longBypass
                 ? 4000
                 : (dnaFadeMs ??
-                      (phraseNow && phraseFadeOverride != null
-                          ? phraseFadeOverride
-                          : (phraseNow || stealthNow
-                                ? phraseFadeMs(
-                                    incomingBpm: _extractBpm(
-                                      state.currentTrackPath,
-                                    ),
-                                    incomingDurationMs:
-                                        state.duration.inMilliseconds,
+                      (phraseNow
+                          ? (phraseFadeOverride ??
+                                phrase8WindowMs(
+                                  _extractBpm(state.currentTrackPath),
+                                ))
+                          : (stealthNow
+                                ? stealthWindowMs(
+                                    _extractBpm(state.currentTrackPath),
                                   )
                                 : 18000))));
-      // 3.1.71: Phrase 8 y Stealth, Equal-Power real de 6-8 s.
+      // 3.1.73: Phrase 8 (12-16 s) y Stealth (10-12 s) en Equal-Power.
       final bool equalPower =
           !isManualSkip &&
           mixProfile != LiveDjMixMode.longBypass &&
@@ -3492,9 +3548,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       final FittedFade fitted = fitMixFade(
         exactDurationMs: outgoingDurationMs,
         mixOutMs: outgoingMixOutMs,
-        wantedFadeMs: equalPower
-            ? equalPowerFadeMs(fadeOutDurationMs)
-            : fadeOutDurationMs,
+        wantedFadeMs: fadeOutDurationMs,
       );
       if (fitted.shortened) _djTrace(fitted.note);
       final int fadeMs = fitted.fadeMs;
@@ -3547,6 +3601,37 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
               ].where((String s) => s.isNotEmpty).join(','),
             ),
           );
+        }
+
+        // 3.1.73: efecto DJ por genero, solo sobre la saliente y con B ya
+        // sonando (desde el 25 % del cruce). No toca la entrante ni la fase;
+        // si el cruce ya trae su efecto DNA, ese manda.
+        if (genreFx != GenreMixFx.none &&
+            fxStage < 2 &&
+            dnaOutExtra == null &&
+            dnaOutMid == null &&
+            volIn > 0) {
+          final int want = progress >= genreFxStageAt(genreFx, 2)
+              ? 2
+              : (progress >= genreFxStageAt(genreFx, 1) ? 1 : 0);
+          if (want > fxStage) {
+            fxStage = want;
+            final bool keepSwap = useBassSwap && bassSwapped;
+            platformOut?.setProperty(
+              'af',
+              AfCaps.sanitize(
+                [
+                  keepSwap ? lowCutOut : outBase(),
+                  genreFxChain(
+                    genreFx,
+                    want,
+                    bassKill: keepSwap ? '' : _bassKillFilter,
+                    echo: fxEcho,
+                  ),
+                ].where((String s) => s.isNotEmpty).join(','),
+              ),
+            );
+          }
         }
 
         // 3.1.20: respeta la rampa de AdaptiveEq en curso.

@@ -192,7 +192,9 @@ void main() {
     expect(newFrac * kEqualPowerMinMs, greaterThan(4000));
     // El motor de Live DJ usa la ventana y la curva en Phrase 8 y Stealth.
     final String ld = _read('lib/providers/livedj_provider.dart');
-    expect(ld.contains('equalPowerFadeMs(fadeOutDurationMs)'), isTrue);
+    // 3.1.73 (orden de Gabriel): la ventana ya no se acota a 6-8 s; Phrase 8
+    // 12-16 s y Stealth 10-12 s, misma curva cubica.
+    expect(ld.contains('wantedFadeMs: fadeOutDurationMs,'), isTrue);
     expect(ld.contains('mpvVolumeForGain(equalPowerInGain(progress))'), isTrue);
     expect(
       ld.contains('mpvVolumeForGain(equalPowerOutGain(progress))'),
