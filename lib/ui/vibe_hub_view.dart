@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../providers/session_provider.dart';
+import '../core/genre_stations.dart';
 import '../providers/theme_provider.dart';
 import '../providers/vibe_hub_provider.dart';
+import 'curator_inbox_dialog.dart';
 
 const Color _hubNeon = GatoMixTheme.syncActive;
 
-/// 3.1.54 Super-Vibe Hub: categorias maestras con casillas. En escritorio
+/// 3.1.54 Super-Vibe Hub (3.1.62: estaciones con sub-generos en visto). En escritorio
 /// ocupa la columna izquierda de Live DJ; en movil se abre como hoja.
 class VibeHubView extends ConsumerStatefulWidget {
   const VibeHubView({super.key, this.onPlayed});
@@ -20,6 +21,10 @@ class VibeHubView extends ConsumerStatefulWidget {
 }
 
 class _VibeHubViewState extends ConsumerState<VibeHubView> {
+  // 3.1.62: estacion desplegada y sus sub-generos en visto.
+  String? _open;
+  final Set<String> _checked = <String>{};
+
   @override
   void initState() {
     super.initState();
@@ -28,18 +33,46 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
     });
   }
 
+  void _select(GenreStation st) {
+    if (_open == st.key) {
+      setState(() => _open = null);
+      return;
+    }
+    final List<String>? saved = ref
+        .read(vibeHubProvider.notifier)
+        .stationSession(st.key)
+        ?.subGenresChecked;
+    final Set<String> keep = <String>{
+      for (final String g in saved ?? const <String>[])
+        if (st.subGenres.contains(g)) g,
+    };
+    setState(() {
+      _open = st.key;
+      _checked
+        ..clear()
+        ..addAll(keep.isEmpty ? st.subGenres : keep);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final VibeHubState s = ref.watch(vibeHubProvider);
     final VibeHubNotifier n = ref.read(vibeHubProvider.notifier);
-    final bool all = s.genres.isNotEmpty && s.checked.length >= s.genres.length;
+    GenreStation? open;
+    for (final GenreStation st in s.stations) {
+      if (st.key == _open) open = st;
+    }
+    final List<String> picked = <String>[
+      for (final String g in open?.subGenres ?? const <String>[])
+        if (_checked.contains(g)) g,
+    ];
     return Material(
       color: GatoMixTheme.bgPanel,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(10, 8, 4, 4),
+            padding: const EdgeInsets.fromLTRB(10, 10, 6, 6),
             child: Row(
               children: <Widget>[
                 const Icon(Icons.auto_awesome, color: _hubNeon, size: 16),
@@ -57,25 +90,18 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                     ),
                   ),
                 ),
-                TextButton(
-                  key: const Key('vibe-hub-all'),
-                  onPressed: s.genres.isEmpty ? null : () => n.setAll(!all),
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.white70,
-                    minimumSize: const Size(0, 28),
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                  ),
-                  child: Text(
-                    all ? 'Ninguno' : 'Todo',
-                    style: const TextStyle(fontSize: 11),
-                  ),
-                ),
+                // 3.1.62: columna de escritorio: conmutador y curador aqui,
+                // porque el Cartridge se oculta mientras la cola esta vacia.
+                if (widget.onPlayed == null) ...const <Widget>[
+                  LiveDjViewToggleButton(mobile: false),
+                  CuratorInboxButton(),
+                ],
               ],
             ),
           ),
           const Divider(height: 1, color: Colors.white10),
           Expanded(
-            child: s.loading && s.genres.isEmpty
+            child: s.loading && s.stations.isEmpty
                 ? const Center(
                     child: SizedBox(
                       width: 22,
@@ -83,71 +109,56 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                       child: CircularProgressIndicator(strokeWidth: 2),
                     ),
                   )
-                : s.genres.isEmpty
+                : s.stations.isEmpty
                 ? const Center(
                     child: Padding(
                       padding: EdgeInsets.all(12),
                       child: Text(
-                        'Sin categorias en la carpeta de musica',
+                        'Sin estaciones en la carpeta de musica',
                         textAlign: TextAlign.center,
                         style: TextStyle(color: Colors.white38, fontSize: 11),
                       ),
                     ),
                   )
-                : ListView.builder(
-                    itemCount: s.genres.length,
-                    itemBuilder: (BuildContext context, int i) {
-                      final VibeGenre g = s.genres[i];
-                      final bool on = s.checked.any(
-                        (String c) => c.toLowerCase() == g.name.toLowerCase(),
-                      );
-                      return CheckboxListTile(
-                        key: Key('vibe-hub-cat-${g.name}'),
-                        dense: true,
-                        visualDensity: VisualDensity.compact,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        activeColor: _hubNeon,
-                        checkColor: Colors.black,
-                        // 3.1.56: categoria marcada elevada con borde fuego.
-                        selected: on,
-                        selectedTileColor: GatoMixTheme.surfaceHover,
-                        shape: on
-                            ? RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(6),
-                                side: const BorderSide(
-                                  color: GatoMixTheme.fire,
+                : ListView(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    children: <Widget>[
+                      for (final GenreStation st in s.stations) ...<Widget>[
+                        _StationCard(
+                          station: st,
+                          open: st.key == _open,
+                          active: st.key == s.activeStation,
+                          onTap: () => _select(st),
+                        ),
+                        if (st.key == _open)
+                          for (final String g in st.subGenres)
+                            CheckboxListTile(
+                              key: Key('vibe-hub-cat-$g'),
+                              dense: true,
+                              visualDensity: VisualDensity.compact,
+                              contentPadding: const EdgeInsets.only(
+                                left: 22,
+                                right: 8,
+                              ),
+                              controlAffinity: ListTileControlAffinity.leading,
+                              activeColor: _hubNeon,
+                              checkColor: Colors.black,
+                              value: _checked.contains(g),
+                              onChanged: (_) => setState(() {
+                                if (!_checked.remove(g)) _checked.add(g);
+                              }),
+                              title: Text(
+                                g,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12,
                                 ),
-                              )
-                            : null,
-                        value: on,
-                        onChanged: (_) => n.toggle(
-                          s.checked.firstWhere(
-                            (String c) =>
-                                c.toLowerCase() == g.name.toLowerCase(),
-                            orElse: () => g.name,
-                          ),
-                        ),
-                        title: Text(
-                          g.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: on ? Colors.white : Colors.white70,
-                            fontSize: 12,
-                            fontWeight: on
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                          ),
-                        ),
-                        secondary: Text(
-                          '${g.count}',
-                          style: const TextStyle(
-                            color: GatoMixTheme.techCyan,
-                            fontSize: 10,
-                          ),
-                        ),
-                      );
-                    },
+                              ),
+                            ),
+                      ],
+                    ],
                   ),
           ),
           if (s.message != null)
@@ -163,13 +174,13 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
             child: SizedBox(
-              height: 40,
+              height: 48,
               child: ElevatedButton.icon(
                 key: const Key('vibe-hub-play'),
-                onPressed: s.checked.isEmpty || s.busy
+                onPressed: open == null || picked.isEmpty || s.busy
                     ? null
                     : () async {
-                        final int got = await n.play();
+                        final int got = await n.playStation(open!.key, picked);
                         if (got > 0) widget.onPlayed?.call();
                       },
                 icon: s.busy
@@ -178,23 +189,113 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                         height: 14,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Icon(Icons.shuffle, size: 16),
-                label: Text(
-                  s.checked.isEmpty
-                      ? 'Marca una categoria'
-                      : 'Mezclar (${s.checked.length})',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 12),
+                    : const Icon(Icons.play_arrow, size: 20),
+                // Ventana angosta: se achica en vez de recortarse.
+                label: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    open == null
+                        ? 'Elige una estación'
+                        : 'Reproducir Estación en Shuffle',
+                    maxLines: 1,
+                    style: const TextStyle(fontSize: 12),
+                  ),
                 ),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white10,
-                  foregroundColor: _hubNeon,
+                  backgroundColor: open == null ? Colors.white10 : _hubNeon,
+                  foregroundColor: open == null ? _hubNeon : Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                 ),
               ),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Tarjeta de estacion (macro-genero o carpeta suelta).
+class _StationCard extends StatelessWidget {
+  const _StationCard({
+    required this.station,
+    required this.open,
+    required this.active,
+    required this.onTap,
+  });
+
+  final GenreStation station;
+  final bool open;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final int subs = station.subGenres.length;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      child: Material(
+        color: open ? GatoMixTheme.surfaceHover : Colors.white10,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: active ? GatoMixTheme.fire : Colors.transparent,
+          ),
+        ),
+        child: InkWell(
+          key: Key('vibe-hub-st-${station.key}'),
+          borderRadius: BorderRadius.circular(8),
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 52),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                children: <Widget>[
+                  Icon(
+                    active ? Icons.graphic_eq : Icons.radio,
+                    color: _hubNeon,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        Text(
+                          station.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          '${station.count} canciones · $subs '
+                          '${subs == 1 ? 'género' : 'géneros'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    open ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.white54,
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

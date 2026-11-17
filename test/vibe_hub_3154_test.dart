@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:gatomix/core/genre_stations.dart';
 import 'package:gatomix/providers/livedj_provider.dart';
 import 'package:gatomix/providers/session_provider.dart';
 import 'package:gatomix/providers/vibe_hub_provider.dart';
@@ -80,10 +81,14 @@ void main() {
     await pumpWs(tester, const Size(1400, 900));
     expect(find.byType(VibeHubView), findsOneWidget);
     expect(find.byType(LibraryTreePanel), findsNothing);
-    expect(find.text('Salsa'), findsOneWidget);
+    // 3.1.62: Salsa y Merengue van dentro de la estacion Tropical.
+    expect(find.text('Tropical & Fiesta'), findsOneWidget);
+    expect(find.text('Cargar Carpeta'), findsNothing);
+    expect(find.byType(LiveDjCartridgePanel), findsNothing);
     await tester.tap(find.byKey(const Key('livedj-view-toggle')));
     await tester.pump();
     expect(find.byType(VibeHubView), findsNothing);
+    expect(find.text('Cargar Carpeta'), findsOneWidget);
     expect(find.byType(LibraryTreePanel), findsOneWidget);
     await tester.tap(find.byKey(const Key('livedj-view-toggle')));
     await tester.pump();
@@ -92,28 +97,60 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('casillas: se guardan y Mezclar carga solo lo marcado', (
+  testWidgets('3162 estacion: sub-generos en visto y Shuffle de lo marcado', (
     WidgetTester tester,
   ) async {
     debugLiveDjForceMobile = false;
-    await pumpWs(tester, const Size(1400, 900));
-    await tester.tap(find.byKey(const Key('vibe-hub-cat-Salsa')));
-    await tester.runAsync(
-      () => Future<void>.delayed(Duration(milliseconds: 50)),
-    );
-    await tester.pump();
-    final Map<String, dynamic> doc =
-        jsonDecode(File(_state).readAsStringSync()) as Map<String, dynamic>;
-    expect((doc['vibeHub'] as Map)['checked'], <String>['Salsa']);
-    await tester.runAsync(() async {
-      final ProviderContainer c = ProviderScope.containerOf(
-        tester.element(find.byType(VibeHubView)),
-      );
-      final int n = await c.read(vibeHubProvider.notifier).play();
-      expect(n, 2);
+    debugStationSessionsPath =
+        '${_tmp.path}${Platform.pathSeparator}sessions.json';
+    final List<StationPlan> plans = <StationPlan>[];
+    debugStationPlay = (StationPlan p) async => plans.add(p);
+    addTearDown(() {
+      debugStationSessionsPath = null;
+      debugStationPlay = null;
     });
-    expect(_played.length, 1);
-    expect(_played.single.every((File f) => f.path.contains('Salsa')), isTrue);
+    await pumpWs(tester, const Size(1400, 900));
+    expect(find.byIcon(Icons.folder), findsNothing);
+    await tester.tap(find.byKey(const Key('vibe-hub-st-tropical')));
+    await tester.pump();
+    final Iterable<Checkbox> boxes = tester.widgetList<Checkbox>(
+      find.byType(Checkbox),
+    );
+    expect(boxes.length, 2);
+    expect(boxes.every((Checkbox c) => c.value == true), isTrue);
+    await tester.tap(find.byKey(const Key('vibe-hub-cat-Merengue')));
+    await tester.pump();
+    await tester.tap(find.text('Reproducir Estación en Shuffle'));
+    // E/S real del plan y del JSON: se deja correr fuera del reloj falso.
+    for (int i = 0; i < 40; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 25)),
+      );
+      await tester.pump();
+      if (plans.isNotEmpty &&
+          File(debugStationSessionsPath!).existsSync() &&
+          File(
+            debugStationSessionsPath!,
+          ).readAsStringSync().contains('"active":"tropical"')) {
+        break;
+      }
+    }
+    expect(plans.length, 1);
+    final List<String> all = <String>[
+      plans.single.currentTrackPath!,
+      ...plans.single.queue,
+    ];
+    expect(all.length, 2);
+    expect(all.every((String p) => p.contains('Salsa')), isTrue);
+    final Map<String, dynamic> doc =
+        jsonDecode(File(debugStationSessionsPath!).readAsStringSync())
+            as Map<String, dynamic>;
+    expect(doc['active'], 'tropical');
+    expect(
+      ((doc['stations'] as Map)['tropical'] as Map)['subGenresChecked'],
+      <String>['Salsa'],
+    );
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('movil: el conmutador abre el Hub en hoja sin overflow', (

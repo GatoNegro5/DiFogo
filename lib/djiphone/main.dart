@@ -27,15 +27,10 @@ import 'package:gatomix/ui/workspaces/livedj_workspace.dart';
 /// Entrada de DjIphone. No es lib/main.dart.
 /// Pantallas: Automix, Live DJ, Masterizar, LAN Sync, Laboratorio.
 /// Índices iguales al player de escritorio (0, 5, 1, 4, 3).
-const int _kRouteCount = 8;
-
 class DjIphoneRouter extends Notifier<int> {
+  // 3.1.62: abre siempre en Live DJ, igual que escritorio.
   @override
-  int build() {
-    final saved = _readSavedRoute();
-    if (saved != null) return saved;
-    return _inferRouteFromAudioSession();
-  }
+  int build() => 5;
 
   void setRoute(int newRoute) {
     final route = _keep(newRoute);
@@ -50,37 +45,6 @@ class DjIphoneRouter extends Notifier<int> {
     if (route == 0 || route == 1 || route == 3 || route == 4 || route == 5) {
       return route;
     }
-    return 0;
-  }
-
-  int? _readSavedRoute() {
-    try {
-      final file = File(_routeFilePath());
-      if (!file.existsSync()) return null;
-      final data = jsonDecode(file.readAsStringSync());
-      final route = data['route'];
-      if (route is int && route >= 0 && route < _kRouteCount) {
-        return _keep(route);
-      }
-    } catch (_) {}
-    return null;
-  }
-
-  int _inferRouteFromAudioSession() {
-    try {
-      final String sep = Platform.pathSeparator;
-      final File legacy = File(
-        '${IphoneLibrary.playlistsDir}${sep}_player_session.json',
-      );
-      final File live = File('${IphoneLibrary.playlistsDir}${sep}liveDj.json');
-      final File file = legacy.existsSync() ? legacy : live;
-      if (!file.existsSync()) return 0;
-      final data = jsonDecode(file.readAsStringSync());
-      if (data is! Map) return 0;
-      final wasPlaying = data['wasPlaying'] == true;
-      final track = data['currentTrackPath'];
-      if (wasPlaying && track is String && track.isNotEmpty) return 5;
-    } catch (_) {}
     return 0;
   }
 
@@ -552,13 +516,25 @@ class _DjIphoneNav extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // 3.1.62: escudo grande (130 px de cabecera, logo a 110 px).
+        SizedBox(
+          height: 130,
+          width: double.infinity,
+          child: Center(
+            child: Image.asset(
+              'assets/branding/difogo_logo3.png',
+              key: const Key('sidebar-logo'),
+              height: 110,
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
           child: Image.asset(
             'assets/branding/difogo_wordmark.png',
-            height: 44,
+            height: 26,
             fit: BoxFit.contain,
-            alignment: Alignment.centerLeft,
           ),
         ),
         const AppVersionLabel(),

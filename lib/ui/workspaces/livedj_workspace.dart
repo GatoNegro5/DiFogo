@@ -76,6 +76,10 @@ class LiveDjWorkspace extends ConsumerWidget {
         ),
       );
     }
+    final bool classic = ref.watch(liveDjClassicFolderViewProvider);
+    final bool hasQueue = ref.watch(
+      liveDjProvider.select((s) => s.queue.isNotEmpty),
+    );
     return Scaffold(
       backgroundColor: GatoMixTheme.bgDark,
       body: Row(
@@ -84,10 +88,11 @@ class LiveDjWorkspace extends ConsumerWidget {
           // las canciones se agregan desde la hoja del Cartridge.
           if (!compact) ...<Widget>[
             Expanded(
-              flex: 5,
+              // 3.1.62: las tarjetas de estacion piden algo mas de ancho.
+              flex: classic ? 5 : 6,
               // 3.1.54: Smart Vibe (Hub) por defecto; el modo clasico vuelve
               // al arbol de carpetas.
-              child: ref.watch(liveDjClassicFolderViewProvider)
+              child: classic
                   ? Material(
                       color: GatoMixTheme.bgPanel,
                       child: LibraryTreePanel(
@@ -99,7 +104,7 @@ class LiveDjWorkspace extends ConsumerWidget {
             const VerticalDivider(width: 1, color: Colors.white10),
           ],
           Expanded(
-            flex: compact ? 1 : 19,
+            flex: compact ? 1 : (classic ? 19 : 18),
             child: Column(
               children: [
                 Expanded(
@@ -107,20 +112,25 @@ class LiveDjWorkspace extends ConsumerWidget {
                   child: const LiveDjPlayerPanel(),
                 ),
                 const Divider(height: 1, color: Colors.white10),
-                Expanded(
-                  flex: compact ? 6 : 5,
-                  child: compact
-                      // 3.0.48: en móvil (acostado o parado) no va la columna
-                      // de carpeta; se agrega con "+ Agregar canciones".
-                      ? const LiveDjCartridgePanel()
-                      : const Row(
-                          children: [
-                            Expanded(flex: 4, child: LiveDjFolderPanel()),
-                            VerticalDivider(width: 1, color: Colors.white10),
-                            Expanded(flex: 5, child: LiveDjCartridgePanel()),
-                          ],
-                        ),
-                ),
+                // 3.1.62: en modo estaciones (escritorio) no va "Cargar
+                // Carpeta" ni el Cartridge vacio; la cola aparece al sonar.
+                if (compact || classic || hasQueue)
+                  Expanded(
+                    flex: compact ? 6 : 5,
+                    child: !compact && !classic
+                        ? const LiveDjCartridgePanel()
+                        : compact
+                        // 3.0.48: en móvil (acostado o parado) no va la columna
+                        // de carpeta; se agrega con "+ Agregar canciones".
+                        ? const LiveDjCartridgePanel()
+                        : const Row(
+                            children: [
+                              Expanded(flex: 4, child: LiveDjFolderPanel()),
+                              VerticalDivider(width: 1, color: Colors.white10),
+                              Expanded(flex: 5, child: LiveDjCartridgePanel()),
+                            ],
+                          ),
+                  ),
               ],
             ),
           ),
@@ -1513,10 +1523,14 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-                  // 3.1.54: conmutador Smart Vibe / Modo Clasico.
-                  LiveDjViewToggleButton(mobile: liveDjIsMobile()),
-                  // 3.1.53: bandeja del curador (Smart Discovery).
-                  const CuratorInboxButton(),
+                  // 3.1.54: conmutador Smart Vibe / Modo Clasico. 3.1.62: en
+                  // escritorio con estaciones viven en la cabecera del Hub.
+                  if (liveDjIsMobile() ||
+                      ref.watch(liveDjClassicFolderViewProvider)) ...<Widget>[
+                    LiveDjViewToggleButton(mobile: liveDjIsMobile()),
+                    // 3.1.53: bandeja del curador (Smart Discovery).
+                    const CuratorInboxButton(),
+                  ],
                   IconButton(
                     icon: const Icon(
                       Icons.delete_sweep,

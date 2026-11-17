@@ -254,6 +254,19 @@ void main() {
       await liveDjAt(t, e.value, false);
       expect(find.byType(VibeHubView), findsOneWidget);
       expectNotClipped(t, 'SMART VIBE');
+      // 3.1.62: los sub-generos (casillas) salen al abrir una estacion.
+      await t.tap(
+        find
+            .byWidgetPredicate(
+              (Widget w) =>
+                  w.key is ValueKey<String> &&
+                  (w.key! as ValueKey<String>).value.startsWith('vibe-hub-st-'),
+            )
+            .first,
+      );
+      await t.pump();
+      expect(t.takeException(), isNull, reason: 'overflow estacion ${e.key}');
+      expectNotClipped(t, 'Reproducir Estación en Shuffle');
       final Checkbox cb = t.widget<Checkbox>(find.byType(Checkbox).first);
       final Color? fill = Theme.of(
         t.element(find.byType(Checkbox).first),

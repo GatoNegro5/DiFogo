@@ -46,13 +46,13 @@ import 'providers/curator_provider.dart';
 class RouterNotifier extends Notifier<int> {
   static const int _routeCount = 8;
 
+  // 3.1.62: DiFogo abre siempre en Live DJ (modo estaciones).
+  static const int kStartRoute = 5;
+
   @override
   int build() {
-    final saved = _readSavedRoute();
-    if (saved != null) return saved;
-    final inferred = _inferRouteFromAudioSession();
-    _writeRoute(inferred);
-    return inferred;
+    _writeRoute(kStartRoute);
+    return kStartRoute;
   }
 
   void setRoute(int newRoute) {
@@ -63,35 +63,6 @@ class RouterNotifier extends Notifier<int> {
   }
 
   void persistRoute() => _writeRoute(state);
-
-  int? _readSavedRoute() {
-    try {
-      final file = File(_routeFilePath());
-      if (!file.existsSync()) return null;
-      final data = jsonDecode(file.readAsStringSync());
-      final route = data['route'];
-      if (route is int && route >= 0 && route < _routeCount) return route;
-    } catch (_) {}
-    return null;
-  }
-
-  int _inferRouteFromAudioSession() {
-    try {
-      final String session = MixStrategyFactory.getStrategy().getSessionPath();
-      final File legacy = File(session);
-      final File live = File(
-        '${legacy.parent.path}${Platform.pathSeparator}liveDj.json',
-      );
-      final File file = legacy.existsSync() ? legacy : live;
-      if (!file.existsSync()) return 0;
-      final data = jsonDecode(file.readAsStringSync());
-      if (data is! Map) return 0;
-      final wasPlaying = data['wasPlaying'] == true;
-      final track = data['currentTrackPath'];
-      if (wasPlaying && track is String && track.isNotEmpty) return 5;
-    } catch (_) {}
-    return 0;
-  }
 
   void _writeRoute(int route) {
     try {
@@ -413,7 +384,11 @@ class _MainWorkspaceState extends ConsumerState<MainWorkspace> {
       if (!mounted) return;
       // 3.1.53: tras elegir genero arranca el worker diario del curador.
       unawaited(
-        showStartupVibeFlow(context, ref).then((_) {
+        showStartupVibeFlow(
+          context,
+          ref,
+          onStation: () => ref.read(routerProvider.notifier).setRoute(5),
+        ).then((_) {
           if (mounted) ref.read(curatorProvider.notifier).startDailyWorker();
         }),
       );
@@ -491,7 +466,7 @@ class _MainWorkspaceState extends ConsumerState<MainWorkspace> {
             if (!playlistFull)
               Material(
                 color: GatoMixTheme.bgDark,
-                child: SizedBox(width: 160, child: nav),
+                child: SizedBox(width: 196, child: nav),
               ),
             Expanded(child: _stage(currentRoute)),
           ],
@@ -749,13 +724,25 @@ class _GatoMixNavColumn extends ConsumerWidget {
       mainAxisSize: compactSheet ? MainAxisSize.min : MainAxisSize.max,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // 3.1.62: escudo grande (130 px de cabecera, logo a 110 px).
+        SizedBox(
+          height: 130,
+          width: double.infinity,
+          child: Center(
+            child: Image.asset(
+              'assets/branding/difogo_logo3.png',
+              key: const Key('sidebar-logo'),
+              height: 110,
+              fit: BoxFit.contain,
+            ),
+          ),
+        ),
         Padding(
-          padding: const EdgeInsets.fromLTRB(12, 10, 12, 4),
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
           child: Image.asset(
             'assets/branding/difogo_wordmark.png',
-            height: 44,
+            height: 26,
             fit: BoxFit.contain,
-            alignment: Alignment.centerLeft,
           ),
         ),
         const AppVersionLabel(),

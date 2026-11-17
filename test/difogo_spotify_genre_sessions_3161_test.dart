@@ -194,4 +194,32 @@ void main() {
       c.dispose();
     },
   );
+
+  // 3.1.62: escudo grande en la barra lateral (escritorio y djiphone).
+  test('3162 sidebar: logo3 a 110 px en cabecera de 130 y barra de 196', () {
+    for (final String f in <String>[
+      'lib/main.dart',
+      'lib/djiphone/main.dart',
+    ]) {
+      final String src = File(f).readAsStringSync();
+      final int at = src.indexOf("Key('sidebar-logo')");
+      expect(at, greaterThan(0), reason: f);
+      final String around = src.substring(at - 260, at + 160);
+      expect(around.contains("'assets/branding/difogo_logo3.png'"), isTrue);
+      expect(around.contains('height: 130'), isTrue, reason: f);
+      final RegExpMatch m = RegExp(
+        r'height: (\d+)',
+      ).allMatches(src.substring(at, at + 160)).first;
+      expect(int.parse(m.group(1)!), greaterThanOrEqualTo(100), reason: f);
+      expect(
+        src.contains('int build() => 5;') || src.contains('kStartRoute = 5'),
+        isTrue,
+        reason: f,
+      );
+    }
+    expect(
+      File('lib/main.dart').readAsStringSync().contains('width: 196'),
+      isTrue,
+    );
+  });
 }
