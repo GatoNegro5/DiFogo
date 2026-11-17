@@ -1528,8 +1528,6 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                   if (liveDjIsMobile() ||
                       ref.watch(liveDjClassicFolderViewProvider)) ...<Widget>[
                     LiveDjViewToggleButton(mobile: liveDjIsMobile()),
-                    // 3.1.53: bandeja del curador (Smart Discovery).
-                    const CuratorInboxButton(),
                   ],
                   IconButton(
                     icon: const Icon(
@@ -1584,6 +1582,14 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                   ),
                 ],
               ),
+              // 3.1.68: "Acepta Nueva Musica" en la barra de Live DJ (movil y
+              // modo clasico); en escritorio con estaciones va en el Hub.
+              if (liveDjIsMobile() ||
+                  ref.watch(liveDjClassicFolderViewProvider))
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: CuratorInboxButton(),
+                ),
             ],
           ),
         ),

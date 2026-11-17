@@ -4,7 +4,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/genre_stations.dart' show registerSavedTrack;
+import '../core/genre_stations.dart'
+    show isStationSub, registerSavedTrack, stationSaveDir, stationSubOf;
 import '../services/smart_discovery_service.dart';
 import '../ui/workspaces/yt_workspace.dart' show moveFile;
 import 'automix_provider.dart';
@@ -120,7 +121,15 @@ class CuratorNotifier extends Notifier<CuratorState> {
   /// 3.1.61: [genre] (sub-genero de una estacion corta) sin tocar el candado.
   /// 3.1.64: [query] son los terminos canonicos del sub-genero; [genre]
   /// sigue siendo la carpeta destino al aceptar.
-  Future<int> discover({int count = 1, String? genre, String? query}) async {
+  /// 3.1.68: [stationId] y [subGenreId] viajan con cada tema a la bandeja
+  /// para agruparlo por genero y guardarlo en su carpeta canonica.
+  Future<int> discover({
+    int count = 1,
+    String? genre,
+    String? query,
+    String? stationId,
+    String? subGenreId,
+  }) async {
     final String? g = genre ?? _vibe;
     if (g == null) {
       state = state.copyWith(message: 'Elige un genero para buscar temas.');
@@ -142,6 +151,8 @@ class CuratorNotifier extends Notifier<CuratorState> {
         knownIds: <String>{for (final CuratorEntry e in state.entries) e.id},
         genreDir: _dirOf(g),
         query: query,
+        stationId: stationId,
+        subGenreId: subGenreId,
       );
       _persist(
         state.copyWith(
@@ -181,7 +192,7 @@ class CuratorNotifier extends Notifier<CuratorState> {
   Future<String?> accept(String id) async {
     final CuratorEntry? e = _find(id);
     if (e == null || !File(e.file).existsSync()) return null;
-    final String dir = _dirOf(e.genre);
+    final String dir = _destOf(e);
     Directory(dir).createSync(recursive: true);
     final String dst = discoveryFreePath(dir, discoverySafeName(e.title));
     moveFile(e.file, dst);
@@ -200,7 +211,13 @@ class CuratorNotifier extends Notifier<CuratorState> {
     // 3.1.67: estacion y sub-genero al indice por cancion apenas se guarda.
     if (debugCuratorRegister == null || trackGenreIndexInTemp()) {
       try {
-        await registerSavedTrack(trackGenreIndexPath(), vibeMusicRoot(), dst);
+        await registerSavedTrack(
+          trackGenreIndexPath(),
+          vibeMusicRoot(),
+          dst,
+          stationId: e.stationId,
+          subGenreId: e.subGenreId,
+        );
       } catch (err) {
         debugPrint('[CURATOR] indice de generos: $err');
       }
@@ -208,6 +225,36 @@ class CuratorNotifier extends Notifier<CuratorState> {
     ref.read(automixQueueProvider.notifier).addTrack(File(dst));
     _replace(e.copyWith(status: CuratorStatus.accepted, finalPath: dst));
     return dst;
+  }
+
+  /// 3.1.68: destino del tema: con estacion y sub-genero, la carpeta que ya
+  /// alimenta ese sub-genero o la canonica `<Estacion>/<Sub>`
+  /// ([stationSaveDir]); temas de antes, la carpeta de su genero.
+  String _destOf(CuratorEntry e) {
+    final String? st = e.stationId;
+    final String? sub = e.subGenreId;
+    if (st == null || sub == null || !isStationSub(st, sub)) {
+      return _dirOf(e.genre);
+    }
+    final MapEntry<String, String>? m = stationSubOf(e.genre);
+    final bool mine = m != null && m.key == st && m.value == sub;
+    return stationSaveDir(
+      vibeMusicRoot(),
+      st,
+      sub,
+      library: mine ? <String, int>{e.genre: 1} : const <String, int>{},
+    );
+  }
+
+  /// 3.1.68 [Aceptar todo este genero]: acepta [ids] en orden (mismo
+  /// camino que [accept]). Devuelve las rutas guardadas.
+  Future<List<String>> acceptAll(List<String> ids) async {
+    final List<String> out = <String>[];
+    for (final String id in ids) {
+      final String? dst = await accept(id);
+      if (dst != null) out.add(dst);
+    }
+    return out;
   }
 
   /// [Descartar]: borra el temporal; el id queda para no volver a bajarlo.

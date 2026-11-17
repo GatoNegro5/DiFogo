@@ -113,7 +113,7 @@ void main() {
     expect(find.byIcon(Icons.folder), findsNothing);
     await tester.tap(find.byKey(const Key('vibe-hub-st-tropical')));
     await tester.pump();
-    expect(find.byIcon(Icons.check_box), findsNWidgets(5));
+    expect(find.byIcon(Icons.check_box), findsNWidgets(6));
     await tester.tap(find.byKey(const Key('vibe-hub-cat-Merengue')));
     await tester.pump();
     await tester.tap(find.text('Reproducir Estación en Shuffle'));
@@ -144,7 +144,7 @@ void main() {
     expect(doc['active'], 'tropical');
     expect(
       ((doc['stations'] as Map)['tropical'] as Map)['subGenresChecked'],
-      <String>['Salsa', 'Cumbia', 'Bachatas', 'Vallenatos'],
+      <String>['Salsa', 'Cumbia', 'Bachatas', 'Vallenatos', 'Todas'],
     );
     expect(tester.takeException(), isNull);
   });
@@ -159,7 +159,7 @@ void main() {
     await tester.tap(find.byKey(const Key('livedj-view-toggle')));
     await tester.pumpAndSettle();
     expect(find.byType(VibeHubView), findsOneWidget);
-    expect(find.text('SMART VIBE'), findsOneWidget);
+    expect(find.text('ESTACIONES & GÉNEROS'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
 }

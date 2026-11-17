@@ -98,8 +98,9 @@ void main() {
       'Merengue',
       'Bachatas',
       'Vallenatos',
+      'Todas',
     ]);
-    expect(st[5].subGenres, <String>['En Inglés', 'En Español']);
+    expect(st[5].subGenres, <String>['En Inglés', 'En Español', 'Todas']);
     // Las carpetas solo viven en el mapa interno.
     expect(st[0].folders['Pop'], <String>[
       'Actualidad Espanol',
@@ -193,7 +194,7 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('vibe-hub-st-tropical')));
     await tester.pump();
-    expect(find.byIcon(Icons.check_box), findsNWidgets(5));
+    expect(find.byIcon(Icons.check_box), findsNWidgets(6));
     final Finder mer = find.byKey(const Key('vibe-hub-cat-Merengue'));
     await tester.tap(mer);
     await tester.pump();
@@ -227,7 +228,7 @@ void main() {
             as Map<String, dynamic>;
     expect(
       ((doc['stations'] as Map)['tropical'] as Map)['subGenresChecked'],
-      <String>['Salsa', 'Cumbia', 'Bachatas', 'Vallenatos'],
+      <String>['Salsa', 'Cumbia', 'Bachatas', 'Vallenatos', 'Todas'],
     );
     expect(tester.takeException(), isNull);
   });

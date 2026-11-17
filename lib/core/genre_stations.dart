@@ -65,6 +65,8 @@ const List<UniversalStation> kUniversalStations = <UniversalStation>[
     StationSub('Rock', 'Rock 80s hits'),
     StationSub('HipHop', 'Hip Hop 80s'),
     StationSub('Eurodance', 'Eurodance Dance 80s'),
+    // 3.1.68: bucket de respaldo (canciones sin match en el lexico).
+    StationSub('Todas', 'Ochenteras 80s hits'),
   ]),
   UniversalStation('tropical', 'Tropical', <StationSub>[
     StationSub('Salsa', 'Salsa'),
@@ -72,6 +74,7 @@ const List<UniversalStation> kUniversalStations = <UniversalStation>[
     StationSub('Merengue', 'Merengue'),
     StationSub('Bachatas', 'Bachata'),
     StationSub('Vallenatos', 'Vallenato'),
+    StationSub('Todas', 'Música tropical bailable'),
   ]),
   UniversalStation('fiesta', 'Fiesta MIX', <StationSub>[
     StationSub('Crossover & Hora Loca', 'Crossover Hora Loca'),
@@ -89,6 +92,7 @@ const List<UniversalStation> kUniversalStations = <UniversalStation>[
   UniversalStation('baladas', 'Baladas', <StationSub>[
     StationSub('En Inglés', 'Baladas en inglés love songs'),
     StationSub('En Español', 'Baladas románticas en español'),
+    StationSub('Todas', 'Baladas románticas'),
   ]),
   UniversalStation('nacional', 'Música Nacional Bailable', <StationSub>[
     StationSub('Cumbia & Chicha Nacional', 'Cumbia Chicha Ecuador'),
@@ -96,6 +100,13 @@ const List<UniversalStation> kUniversalStations = <UniversalStation>[
     StationSub('Tecnocumbia', 'Tecnocumbia Ecuador'),
     StationSub('Todas', 'Música nacional bailable Ecuador'),
   ]),
+];
+
+/// 3.1.68: estaciones que recibieron el sub-genero "Todas".
+const List<String> kTodasAddedIn3168 = <String>[
+  'ochenteras',
+  'tropical',
+  'baladas',
 ];
 
 // Claves de la 3.1.61/62 que pueden seguir en sesiones guardadas.
@@ -316,13 +327,16 @@ List<String> stationFolders(
 }
 
 class StationFeed {
-  const StationFeed(this.folder, this.query);
+  const StationFeed(this.folder, this.query, [this.sub]);
 
   /// Carpeta destino si el usuario acepta el tema en la bandeja.
   final String folder;
 
   /// Terminos canonicos de busqueda (null = el nombre de la carpeta).
   final String? query;
+
+  /// 3.1.68: sub-genero canonico pedido (viaja con el tema a la bandeja).
+  final String? sub;
 }
 
 /// Que pide el Auto-Curador para una estacion corta: el sub-genero en visto
@@ -365,7 +379,11 @@ StationFeed? stationFeedFor(
     if (n < bestN) {
       bestN = n;
       // 3.1.67: sin carpeta previa, destino canonico <Estacion>/<Sub>.
-      best = StationFeed(folder ?? stationCanonicalRel(key, s), def.terms);
+      best = StationFeed(
+        folder ?? stationCanonicalRel(key, s),
+        def.terms,
+        def.label,
+      );
     }
   }
   return best;
@@ -476,6 +494,29 @@ class GenreSessionDoc {
         }
       }
     }
+    // 3.1.68: sesiones de antes (schema 1) no conocian "Todas" en
+    // Ochenteras, Tropical y Baladas: entra en visto por defecto.
+    final Object? sc = raw['schema'];
+    if (sc is! int || sc < 2) {
+      for (final String k in kTodasAddedIn3168) {
+        final GenreSession? g = d.stations[k];
+        if (g == null ||
+            g.subGenresChecked.isEmpty ||
+            g.subGenresChecked.contains('Todas') ||
+            !g.subGenresChecked.every((String x) => isStationSub(k, x))) {
+          continue;
+        }
+        d.stations[k] = GenreSession(
+          subGenresChecked: <String>[...g.subGenresChecked, 'Todas'],
+          currentTrackPath: g.currentTrackPath,
+          positionMs: g.positionMs,
+          remainingQueuePaths: g.remainingQueuePaths,
+          playedPaths: g.playedPaths,
+          shuffleEnabled: g.shuffleEnabled,
+          updatedAt: g.updatedAt,
+        );
+      }
+    }
     return d;
   }
 
@@ -485,7 +526,7 @@ class GenreSessionDoc {
       File(path).parent.createSync(recursive: true);
     } catch (_) {}
     return SessionStore.writeJson(path, <String, dynamic>{
-      'schema': 1,
+      'schema': 2,
       'active': active,
       'stations': <String, dynamic>{
         for (final MapEntry<String, GenreSession> e in stations.entries)
@@ -2004,12 +2045,20 @@ Future<TrackGenreBuckets> classifyTracks(
 Future<TrackGenre?> registerSavedTrack(
   String indexPath,
   String root,
-  String savedPath,
-) async {
+  String savedPath, {
+  String? stationId,
+  String? subGenreId,
+}) async {
   // Carpeta canonica o carpeta de genero elegida por el Curador antes que
-  // el lexico: el destino ya dice el sub-genero.
+  // el lexico: el destino ya dice el sub-genero. 3.1.68: si el tema trae
+  // estacion y sub-genero de la bandeja, mandan esos.
   final TrackGenre c = TrackGenreClassifier.classify(savedPath, root: root);
-  TrackGenre? g = c.level == 0 ? c : null;
+  TrackGenre? g =
+      stationId != null &&
+          subGenreId != null &&
+          isStationSub(stationId, subGenreId)
+      ? TrackGenre(stationId, subGenreId, 0)
+      : (c.level == 0 ? c : null);
   final List<String> dirs = TrackGenreClassifier._dirsUnder(savedPath, root);
   for (int i = dirs.length - 1; g == null && i >= 0; i--) {
     if (isGenericMusicFolder(dirs[i])) continue;
@@ -2026,4 +2075,38 @@ Future<TrackGenre?> registerSavedTrack(
   idx.put(savedPath, m, g);
   await idx.write();
   return g;
+}
+
+/// 3.1.68: estacion y sub-genero de un tema de la bandeja del curador para
+/// agruparlo: los que trae el tema, su carpeta destino (`Tropical/Salsa` o
+/// carpeta de genero) o el lexico sobre el titulo. null = "Otros".
+MapEntry<String, String>? stationSubOfCurator({
+  String? stationId,
+  String? subGenreId,
+  required String genre,
+  required String title,
+}) {
+  if (stationId != null &&
+      subGenreId != null &&
+      isStationSub(stationId, subGenreId)) {
+    return MapEntry<String, String>(stationId, subGenreId);
+  }
+  final List<String> parts = genre
+      .replaceAll('\\', '/')
+      .split('/')
+      .where((String s) => s.isNotEmpty)
+      .toList();
+  if (parts.length >= 2) {
+    final MapEntry<String, String>? c = stationSubOfCanonical(
+      parts[parts.length - 2],
+      parts.last,
+    );
+    if (c != null) return c;
+  }
+  if (parts.isNotEmpty && !isGenericMusicFolder(parts.last)) {
+    final MapEntry<String, String>? f = _stationSubOfRaw(parts.last);
+    if (f != null) return f;
+  }
+  final TrackGenre g = TrackGenreClassifier.classify('$title.mp3');
+  return g.known ? MapEntry<String, String>(g.stationId!, g.subGenreId!) : null;
 }

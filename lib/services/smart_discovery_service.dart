@@ -100,6 +100,9 @@ class CuratorEntry {
     required this.status,
     required this.addedAt,
     this.finalPath,
+    this.stationId,
+    this.subGenreId,
+    this.durationMs,
   });
 
   final String id;
@@ -110,6 +113,14 @@ class CuratorEntry {
   final String addedAt;
   final String? finalPath;
 
+  /// 3.1.68: estacion y sub-genero canonicos que pidieron el tema (null en
+  /// temas de antes: se deducen de [genre] o del titulo al agrupar).
+  final String? stationId;
+  final String? subGenreId;
+
+  /// 3.1.68: duracion del video de origen (null si no se conocia).
+  final int? durationMs;
+
   CuratorEntry copyWith({CuratorStatus? status, String? finalPath}) =>
       CuratorEntry(
         id: id,
@@ -119,6 +130,9 @@ class CuratorEntry {
         status: status ?? this.status,
         addedAt: addedAt,
         finalPath: finalPath ?? this.finalPath,
+        stationId: stationId,
+        subGenreId: subGenreId,
+        durationMs: durationMs,
       );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -129,6 +143,9 @@ class CuratorEntry {
     'status': status.name,
     'addedAt': addedAt,
     if (finalPath != null) 'finalPath': finalPath,
+    if (stationId != null) 'stationId': stationId,
+    if (subGenreId != null) 'subGenreId': subGenreId,
+    if (durationMs != null) 'durationMs': durationMs,
   };
 
   static CuratorEntry? fromJson(Object? raw) {
@@ -148,6 +165,11 @@ class CuratorEntry {
       status: st,
       addedAt: raw['addedAt'] is String ? raw['addedAt'] as String : '',
       finalPath: raw['finalPath'] is String ? raw['finalPath'] as String : null,
+      stationId: raw['stationId'] is String ? raw['stationId'] as String : null,
+      subGenreId: raw['subGenreId'] is String
+          ? raw['subGenreId'] as String
+          : null,
+      durationMs: raw['durationMs'] is int ? raw['durationMs'] as int : null,
     );
   }
 }
@@ -239,6 +261,8 @@ class SmartDiscoveryService {
     required Set<String> knownIds,
     String? genreDir,
     String? query,
+    String? stationId,
+    String? subGenreId,
   }) async {
     if (count <= 0) return const <CuratorEntry>[];
     final List<DiscoveryCandidate> found = await search(
@@ -280,6 +304,9 @@ class SmartDiscoveryService {
           file: target,
           status: CuratorStatus.pending,
           addedAt: now().toIso8601String(),
+          stationId: stationId,
+          subGenreId: subGenreId,
+          durationMs: d?.inMilliseconds,
         ),
       );
     }

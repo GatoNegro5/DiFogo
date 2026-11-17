@@ -101,27 +101,36 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
               children: <Widget>[
                 const Icon(Icons.auto_awesome, color: _hubNeon, size: 16),
                 const SizedBox(width: 6),
+                // 3.1.68: titulo claro para cualquier usuario; en columnas
+                // angostas se achica en vez de cortarse.
                 const Expanded(
-                  child: Text(
-                    'SMART VIBE',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: _hubNeon,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                      letterSpacing: 1.5,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'ESTACIONES & GÉNEROS',
+                      maxLines: 1,
+                      style: TextStyle(
+                        color: _hubNeon,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 12,
+                        letterSpacing: 1.2,
+                      ),
                     ),
                   ),
                 ),
-                // 3.1.62: columna de escritorio: conmutador y curador aqui,
-                // porque el Cartridge se oculta mientras la cola esta vacia.
-                if (widget.onPlayed == null) ...const <Widget>[
-                  LiveDjViewToggleButton(mobile: false),
-                  CuratorInboxButton(),
-                ],
+                // 3.1.62: columna de escritorio: conmutador aqui, porque el
+                // Cartridge se oculta mientras la cola esta vacia.
+                if (widget.onPlayed == null)
+                  const LiveDjViewToggleButton(mobile: false),
               ],
             ),
+          ),
+          // 3.1.68: boton protagonista "Acepta Nueva Musica" arriba de las
+          // estaciones (escritorio y hoja movil).
+          const Padding(
+            padding: EdgeInsets.fromLTRB(8, 0, 8, 8),
+            child: CuratorInboxButton(),
           ),
           const Divider(height: 1, color: Colors.white10),
           Expanded(

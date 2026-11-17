@@ -181,17 +181,18 @@ void main() {
         ),
       ),
     );
-    expect(find.text('2'), findsOneWidget);
+    expect(find.text('✨ Acepta Nueva Música (2)'), findsOneWidget);
     await t.tap(find.text('abrir'));
     await t.pumpAndSettle();
-    expect(find.text('Bandeja del curador · Salsa'), findsOneWidget);
+    // 3.1.68: caja agrupada por estacion y sub-genero.
+    expect(find.text('TROPICAL • Salsa (2 canciones)'), findsOneWidget);
     expect(
       find.byKey(const ValueKey<String>('curator-card-v1')),
       findsOneWidget,
     );
     // 3.1.55: botones de texto claros, sin pulgares.
-    expect(find.text('Descargar'), findsNWidgets(2));
-    expect(find.text('Descartar'), findsNWidgets(2));
+    expect(find.text('✓ Aceptar'), findsNWidgets(2));
+    expect(find.text('✕ Descartar'), findsNWidgets(2));
     expect(find.byIcon(Icons.thumb_up), findsNothing);
     expect(find.byIcon(Icons.thumb_down), findsNothing);
     expect(t.takeException(), isNull);

@@ -117,7 +117,7 @@ void main() {
     expect(find.text('80s Espanol'), findsNothing);
     await tester.tap(find.text('Ochenteras'));
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.check_box), findsNWidgets(6));
+    expect(find.byIcon(Icons.check_box), findsNWidgets(7));
     expect(find.text('Dance 80s'), findsNothing);
     await tester.tap(find.text('Eurodance'));
     await tester.pumpAndSettle();
@@ -125,7 +125,14 @@ void main() {
     await tester.pumpAndSettle();
     final StationPick pick = got! as StationPick;
     expect(pick.key, 'ochenteras');
-    expect(pick.subGenres, <String>['Disco', 'Punk', 'Pop', 'Rock', 'HipHop']);
+    expect(pick.subGenres, <String>[
+      'Disco',
+      'Punk',
+      'Pop',
+      'Rock',
+      'HipHop',
+      'Todas',
+    ]);
     expect(tester.takeException(), isNull);
   });
 

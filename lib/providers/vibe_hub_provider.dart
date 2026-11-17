@@ -569,7 +569,13 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     };
     await ref
         .read(curatorProvider.notifier)
-        .discover(count: count, genre: f.folder, query: f.query);
+        .discover(
+          count: count,
+          genre: f.folder,
+          query: f.query,
+          stationId: key,
+          subGenreId: f.sub,
+        );
     return <String>[
       for (final CuratorEntry e in ref.read(curatorProvider).pending)
         if (!before.contains(e.id) && File(e.file).existsSync()) e.file,
@@ -604,7 +610,13 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     unawaited(
       ref
           .read(curatorProvider.notifier)
-          .discover(count: 3, genre: f.folder, query: f.query)
+          .discover(
+            count: 3,
+            genre: f.folder,
+            query: f.query,
+            stationId: key,
+            subGenreId: f.sub,
+          )
           .catchError((Object _) => 0),
     );
   }
@@ -701,6 +713,56 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
         ? <String>[if (key.startsWith('g:')) key.substring(2)]
         : s.subGenresChecked;
     return playStation(key, subs);
+  }
+
+  /// 3.1.68: un tema aceptado en la bandeja entra ya a su estacion: queda
+  /// entre las canciones clasificadas y, si esa estacion es la que suena
+  /// con ese sub-genero en visto, va a la cola de Live DJ.
+  void injectAccepted(String stationId, String subGenreId, String path) {
+    _virtual.add(path, TrackGenre(stationId, subGenreId, 0));
+    state = state.copyWith(
+      stations: groupStations(<MapEntry<String, int>>[
+        for (final VibeGenre g in state.genres)
+          MapEntry<String, int>(g.name, g.count),
+      ], extra: _virtual.counts()),
+    );
+    final String? active = state.activeStation ?? _stationsDoc.active;
+    if (active != stationId) return;
+    final List<String> subs =
+        _stationsDoc.stations[stationId]?.subGenresChecked ?? const <String>[];
+    if (subs.isNotEmpty && !subs.contains(subGenreId)) return;
+    if (debugStationPlay != null) return;
+    ref.read(liveDjProvider.notifier).addAllTracks(<File>[File(path)]);
+  }
+
+  /// 3.1.68 [Buscar Nueva Musica para mis Generos Activos]: el curador busca
+  /// temas de los sub-generos en visto de la estacion activa (los mas cortos
+  /// primero, hasta [maxSubs]); sin estacion, del genero bloqueado. Devuelve
+  /// cuantos temas llegaron a la bandeja.
+  Future<int> searchActiveGenres({int perSub = 2, int maxSubs = 3}) async {
+    final String? key = state.activeStation ?? _stationsDoc.active;
+    final List<String> subs = <String>[
+      if (key != null)
+        for (final String g
+            in _stationsDoc.stations[key]?.subGenresChecked ?? const <String>[])
+          if (isStationSub(key, g)) g,
+    ];
+    if (key == null || subs.isEmpty) {
+      if (debugStationFeed != null || debugStationPlay != null) return 0;
+      return ref.read(curatorProvider.notifier).discover(count: perSub);
+    }
+    Map<String, int> counts = const <String, int>{};
+    for (final GenreStation s in state.stations) {
+      if (s.key == key) counts = s.subCounts;
+    }
+    subs.sort(
+      (String a, String b) => (counts[a] ?? 0).compareTo(counts[b] ?? 0),
+    );
+    int n = 0;
+    for (final String sub in subs.take(maxSubs)) {
+      n += (await _fetchFeed(key, <String>[sub], perSub)).length;
+    }
+    return n;
   }
 
   /// Sesion guardada de [key] (sub-generos en visto, pista, segundo).

@@ -200,10 +200,10 @@ void main() {
     await t.tap(find.text('abrir'));
     await t.pumpAndSettle();
     expect(t.takeException(), isNull, reason: 'overflow en $size x$scale');
-    expect(find.text('Descargar'), findsNWidgets(2));
-    expect(find.text('Descartar'), findsNWidgets(2));
-    expectNotClipped(t, 'Descargar');
-    expectNotClipped(t, 'Descartar');
+    expect(find.text('✓ Aceptar'), findsNWidgets(2));
+    expect(find.text('✕ Descartar'), findsNWidgets(2));
+    expectNotClipped(t, '✓ Aceptar');
+    expectNotClipped(t, '✕ Descartar');
     // Con letra grande estos dos usan su elipsis prevista desde la 3.1.53.
     if (scale == 1.0) {
       expectNotClipped(t, 'Buscar más');
@@ -212,7 +212,7 @@ void main() {
     final Color fg = t
         .widget<OutlinedButton>(
           find.ancestor(
-            of: find.text('Descargar').first,
+            of: find.text('✓ Aceptar').first,
             matching: find.byType(OutlinedButton),
           ),
         )
@@ -259,7 +259,7 @@ void main() {
     testWidgets('Live DJ + Hub ${e.key}: tema fuego sin overflow', (t) async {
       await liveDjAt(t, e.value, false);
       expect(find.byType(VibeHubView), findsOneWidget);
-      expectNotClipped(t, 'SMART VIBE');
+      expectNotClipped(t, 'ESTACIONES & GÉNEROS');
       // 3.1.62: los sub-generos (casillas) salen al abrir una estacion.
       await t.tap(
         find
@@ -285,7 +285,7 @@ void main() {
       await t.pumpAndSettle();
       expect(t.takeException(), isNull);
       expect(find.byType(VibeHubView), findsOneWidget);
-      expectNotClipped(t, 'SMART VIBE');
+      expectNotClipped(t, 'ESTACIONES & GÉNEROS');
     });
   }
 }
