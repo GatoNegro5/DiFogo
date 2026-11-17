@@ -516,7 +516,8 @@ class _DjIphoneNav extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 3.1.62: escudo grande (130 px de cabecera, logo a 110 px).
+        // 3.1.65: solo el escudo (120 px en cabecera de 130) y la version;
+        // sin wordmark debajo (redundante).
         SizedBox(
           height: 130,
           width: double.infinity,
@@ -524,17 +525,9 @@ class _DjIphoneNav extends ConsumerWidget {
             child: Image.asset(
               'assets/branding/difogo_logo3.png',
               key: const Key('sidebar-logo'),
-              height: 110,
+              height: 120,
               fit: BoxFit.contain,
             ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 2),
-          child: Image.asset(
-            'assets/branding/difogo_wordmark.png',
-            height: 26,
-            fit: BoxFit.contain,
           ),
         ),
         const AppVersionLabel(),

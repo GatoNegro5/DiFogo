@@ -95,7 +95,7 @@ void main() {
       );
       expect(
         src.contains("'assets/branding/difogo_wordmark.png'"),
-        isTrue,
+        isFalse, // 3.1.65: wordmark fuera del sidebar
         reason: f,
       );
       expect(src.contains('gatomix_logo.png'), isFalse, reason: f);
