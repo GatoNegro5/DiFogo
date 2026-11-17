@@ -110,8 +110,9 @@ class CuratorNotifier extends Notifier<CuratorState> {
   }
 
   /// [Buscar Mas]: pide temas nuevos del genero activo ahora mismo.
-  Future<int> discover({int count = 1}) async {
-    final String? g = _vibe;
+  /// 3.1.61: [genre] (sub-genero de una estacion corta) sin tocar el candado.
+  Future<int> discover({int count = 1, String? genre}) async {
+    final String? g = genre ?? _vibe;
     if (g == null) {
       state = state.copyWith(message: 'Elige un genero para buscar temas.');
       return 0;

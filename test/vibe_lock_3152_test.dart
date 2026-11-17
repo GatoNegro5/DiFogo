@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:gatomix/providers/session_provider.dart';
+import 'package:gatomix/providers/vibe_hub_provider.dart';
 import 'package:gatomix/ui/startup_vibe_dialog.dart';
 
 void main() {
@@ -92,7 +93,8 @@ void main() {
     debugVibeStatePath = null;
   });
 
-  testWidgets('3152 dialogos: mantener y elegir genero', (tester) async {
+  // 3.1.61: el modal "mantener genero" paso a "Estabas escuchando ...".
+  testWidgets('3152/3161 dialogo de reingreso de estacion', (tester) async {
     Object? got;
     await tester.pumpWidget(
       MaterialApp(
@@ -101,30 +103,13 @@ void main() {
             onPressed: () async {
               got = await showDialog<bool>(
                 context: ctx,
-                builder: (_) => const VibeKeepDialog(genre: 'Salsa'),
-              );
-            },
-            child: const Text('abrir'),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('abrir'));
-    await tester.pumpAndSettle();
-    expect(find.text('¿Mantenemos el género Salsa?'), findsOneWidget);
-    await tester.tap(find.text('Sí, mantener'));
-    await tester.pumpAndSettle();
-    expect(got, isTrue);
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (ctx) => TextButton(
-            onPressed: () async {
-              got = await showDialog<String>(
-                context: ctx,
-                builder: (_) => const VibePickerDialog(
-                  genres: [VibeGenre('Merengue', 1), VibeGenre('Salsa', 2)],
+                builder: (_) => const StationResumeDialog(
+                  info: StationResumeInfo(
+                    'tropical',
+                    'Tropical & Fiesta',
+                    '/m/R/Salsa/a (100) - Uno.mp3',
+                    65000,
+                  ),
                 ),
               );
             },
@@ -135,10 +120,12 @@ void main() {
     );
     await tester.tap(find.text('abrir'));
     await tester.pumpAndSettle();
-    expect(find.text('2 canciones'), findsOneWidget);
-    expect(find.text('Todo (sin filtro)'), findsOneWidget);
-    await tester.tap(find.text('Merengue'));
+    expect(
+      find.text('Estabas escuchando Tropical & Fiesta — a (100) - Uno (1:05)'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Seguir escuchando donde quedó'));
     await tester.pumpAndSettle();
-    expect(got, 'Merengue');
+    expect(got, isTrue);
   });
 }

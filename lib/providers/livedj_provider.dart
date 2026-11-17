@@ -1414,6 +1414,59 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     clearModeQueueSync(_sessionFilePath());
   }
 
+  /// 3.1.61 Estaciones DiFogo: reemplaza la cola por la de una estacion
+  /// (ya barajada y sin pistas sonadas), carga [currentPath] en el segundo
+  /// [positionMs] y suena de inmediato. La cola queda en Secuencial para
+  /// respetar el orden guardado de la estacion. Devuelve false si hay un
+  /// cruce en curso.
+  Future<bool> loadStation({
+    String? currentPath,
+    int positionMs = 0,
+    required List<File> queue,
+    bool autoPlay = true,
+  }) async {
+    if (_isCrossfading) return false;
+    if (state.radioOn) _turnRadioOff();
+    await _stopWhenNoNext();
+    _addEpoch++;
+    _backfill?.cancel();
+    _backfillEpoch = null;
+    _queueAddPending.clear();
+    _queueAddChain = Future<void>.value();
+    _queueHold = false;
+    _queueRestart = false;
+    _radioFreeze = null;
+    final List<File> kept = <File>[];
+    final Set<String> seen = <String>{};
+    for (final File f in queue) {
+      if (isKaraokeAudioPath(f.path)) continue;
+      final File c = File(canonicalAudioPath(f.path));
+      if (seen.add(audioPathKey(c.path))) kept.add(c);
+    }
+    String? cur;
+    int pos = 0;
+    if (currentPath != null && File(currentPath).existsSync()) {
+      cur = canonicalAudioPath(currentPath);
+      pos = positionMs < 0 ? 0 : positionMs;
+      kept.removeWhere((File f) => sameAudioPath(f.path, cur!));
+    } else if (kept.isNotEmpty) {
+      cur = kept.removeAt(0).path;
+    }
+    state = state.copyWith(
+      queue: kept,
+      currentTrackPath: cur,
+      clearCurrentTrackPath: cur == null,
+      position: Duration(milliseconds: pos),
+      mixStrategy: LiveDjMixStrategy.sequential,
+      sortMode: LiveDjSortMode.manual,
+    );
+    _sessionPositionMs = pos;
+    _lastSavedPositionMs = pos;
+    await _saveSnapshot();
+    if (autoPlay && cur != null) await togglePlayPause();
+    return true;
+  }
+
   Future<void> savePlaylist() async {
     if (state.queue.isEmpty) return;
     try {
@@ -1996,8 +2049,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   /// Raíz de Música, donde vive `LiveDj_Radio.json`.
   String _musicRoot() {
     final String base = _musicBase();
-    if (base.isEmpty || base == '/')
+    if (base.isEmpty || base == '/') {
       return File(_sessionFilePath()).parent.path;
+    }
     return base;
   }
 

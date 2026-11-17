@@ -1,12 +1,15 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/genre_stations.dart';
 import '../core/mode_session.dart';
 import '../ui/mobile/music_picker_screen.dart'
     show musicPickerShowsFile, musicPickerTechFolder;
+import 'curator_provider.dart';
 import 'livedj_provider.dart';
 import 'session_provider.dart';
 
@@ -23,6 +26,50 @@ Future<void> Function(List<File> files)? debugVibeHubPlay;
 @visibleForTesting
 String? debugVibeHubStatePath;
 
+/// 3.1.61 Solo pruebas: estaciones sin Live DJ real ni biblioteca.
+@visibleForTesting
+String? debugStationSessionsPath;
+@visibleForTesting
+Future<void> Function(StationPlan plan)? debugStationPlay;
+@visibleForTesting
+StationLive Function()? debugStationLive;
+@visibleForTesting
+Future<List<String>> Function(List<String> subGenres)? debugStationCollect;
+@visibleForTesting
+Random? debugStationRng;
+
+/// Estacion con menos pistas que esto: el curador busca temas nuevos.
+const int kStationShortTracks = 25;
+
+String genreSessionsPath() =>
+    debugStationSessionsPath ??
+    '${sessionDir()}${Platform.pathSeparator}difogo_genre_sessions.json';
+
+/// Lo que suena en Live DJ (pista, segundo y cola restante).
+class StationLive {
+  const StationLive(this.current, this.positionMs, this.queue);
+  final String? current;
+  final int positionMs;
+  final List<String> queue;
+}
+
+/// Datos del modal de reingreso: "Estabas escuchando ...".
+class StationResumeInfo {
+  const StationResumeInfo(
+    this.key,
+    this.title,
+    this.trackPath,
+    this.positionMs,
+  );
+  final String key;
+  final String title;
+  final String trackPath;
+  final int positionMs;
+
+  String get trackTitle => stationTrackTitle(trackPath);
+  String get clock => stationClock(positionMs);
+}
+
 /// isClassicFolderView: false (por defecto al abrir) = Hub Smart Vibe;
 /// true = arbol de carpetas tradicional. No se guarda: cada arranque abre
 /// en Smart Vibe.
@@ -31,6 +78,8 @@ final liveDjClassicFolderViewProvider = StateProvider<bool>((ref) => false);
 class VibeHubState {
   const VibeHubState({
     this.genres = const <VibeGenre>[],
+    this.stations = const <GenreStation>[],
+    this.activeStation,
     this.checked = const <String>{},
     this.loading = false,
     this.busy = false,
@@ -38,6 +87,12 @@ class VibeHubState {
   });
 
   final List<VibeGenre> genres;
+
+  /// 3.1.61 Macro-generos (estaciones) armados desde [genres].
+  final List<GenreStation> stations;
+
+  /// Estacion que suena (clave del JSON de sesiones).
+  final String? activeStation;
 
   /// Nombres de categoria marcados (se guardan en el estado de modo).
   final Set<String> checked;
@@ -47,6 +102,8 @@ class VibeHubState {
 
   VibeHubState copyWith({
     List<VibeGenre>? genres,
+    List<GenreStation>? stations,
+    String? activeStation,
     Set<String>? checked,
     bool? loading,
     bool? busy,
@@ -54,6 +111,8 @@ class VibeHubState {
     bool clearMessage = false,
   }) => VibeHubState(
     genres: genres ?? this.genres,
+    stations: stations ?? this.stations,
+    activeStation: activeStation ?? this.activeStation,
     checked: checked ?? this.checked,
     loading: loading ?? this.loading,
     busy: busy ?? this.busy,
@@ -95,6 +154,10 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     };
     state = state.copyWith(
       genres: genres,
+      stations: groupStations(<MapEntry<String, int>>[
+        for (final VibeGenre g in genres)
+          MapEntry<String, int>(g.name, g.count),
+      ]),
       checked: <String>{
         for (final String c in state.checked)
           if (names.contains(c.toLowerCase())) c,
@@ -131,10 +194,12 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
   }
 
   /// Pistas de las categorias marcadas, en orden de ruta. Solo lectura.
-  Future<List<File>> collect() async {
+  Future<List<File>> collect() => _collectFrom(state.checked);
+
+  Future<List<File>> _collectFrom(Iterable<String> genres) async {
     final String root = vibeMusicRoot();
     final List<File> out = <File>[];
-    for (final String g in (state.checked.toList()..sort())) {
+    for (final String g in (genres.toList()..sort())) {
       final Directory d = Directory('$root${Platform.pathSeparator}$g');
       if (!await d.exists()) continue;
       try {
@@ -187,6 +252,244 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     }
     return n;
   }
+
+  // ---- 3.1.61 Estaciones con sesion persistente por genero ----
+
+  GenreSessionDoc? _doc;
+  Future<void> _write = Future<void>.value();
+  bool _tracking = false;
+  bool _loading = false;
+
+  GenreSessionDoc get _stationsDoc =>
+      _doc ??= GenreSessionDoc.read(genreSessionsPath());
+
+  Future<void> _saveStations() {
+    final GenreSessionDoc d = _stationsDoc;
+    final String path = genreSessionsPath();
+    _write = _write.catchError((_) {}).then((_) => d.write(path));
+    return _write;
+  }
+
+  @visibleForTesting
+  Future<void> get stationsSettled => _write;
+
+  StationLive _live() {
+    final StationLive Function()? hook = debugStationLive;
+    if (hook != null) return hook();
+    final LiveDjState s = ref.read(liveDjProvider);
+    return StationLive(s.currentTrackPath, s.position.inMilliseconds, <String>[
+      for (final File f in s.queue) f.path,
+    ]);
+  }
+
+  /// Congela en disco la estacion activa con lo que suena ahora.
+  Future<void> freezeActive() async {
+    final GenreSessionDoc d = _stationsDoc;
+    final String? key = d.active;
+    final GenreSession? s = key == null ? null : d.stations[key];
+    if (key == null || s == null) return;
+    final StationLive l = _live();
+    if (l.current == null) return;
+    d.stations[key] = s.copyWith(
+      currentTrackPath: l.current,
+      positionMs: l.positionMs,
+      remainingQueuePaths: l.queue,
+    );
+    await _saveStations();
+  }
+
+  Future<List<String>> _stationTracks(List<String> subs) async {
+    final Future<List<String>> Function(List<String>)? hook =
+        debugStationCollect;
+    if (hook != null) return hook(subs);
+    return <String>[for (final File f in await _collectFrom(subs)) f.path];
+  }
+
+  /// Toca una estacion: arma la cola de los sub-generos en visto sin las
+  /// sonadas, baraja, suena de una en Live DJ y, si ya tenia sesion, sigue
+  /// en su pista y segundo. Devuelve las pistas de la estacion.
+  Future<int> playStation(String key, List<String> subGenres) async {
+    if (state.busy || subGenres.isEmpty) return 0;
+    state = state.copyWith(busy: true, clearMessage: true);
+    _loading = true;
+    try {
+      await freezeActive();
+      final List<String> all = await _stationTracks(subGenres);
+      if (all.isEmpty) {
+        state = state.copyWith(message: 'Sin canciones en lo marcado');
+        return 0;
+      }
+      final GenreSessionDoc d = _stationsDoc;
+      final StationPlan plan = planStation(
+        all,
+        d.stations[key],
+        rng: debugStationRng,
+        exists: debugStationCollect != null
+            ? null
+            : (String p) => File(p).existsSync(),
+      );
+      final List<String> queue = List<String>.from(plan.queue);
+      final String? current =
+          plan.currentTrackPath ?? (queue.isEmpty ? null : queue.removeAt(0));
+      d.active = key;
+      d.stations[key] = GenreSession(
+        subGenresChecked: List<String>.from(subGenres),
+        currentTrackPath: current,
+        positionMs: plan.positionMs,
+        remainingQueuePaths: queue,
+        playedPaths: plan.played,
+      ).copyWith();
+      await _saveStations();
+      final StationPlan run = StationPlan(
+        currentTrackPath: current,
+        positionMs: plan.positionMs,
+        queue: queue,
+        played: plan.played,
+        resumed: plan.resumed,
+      );
+      final Future<void> Function(StationPlan)? hook = debugStationPlay;
+      if (hook != null) {
+        await hook(run);
+      } else {
+        await ref
+            .read(liveDjProvider.notifier)
+            .loadStation(
+              currentPath: current,
+              positionMs: plan.positionMs,
+              queue: <File>[for (final String p in queue) File(p)],
+            );
+        _ensureTracker();
+      }
+      state = state.copyWith(
+        activeStation: key,
+        message: '${stationTitleOf(key)}: ${all.length} canciones',
+      );
+      if (all.length < kStationShortTracks) _feedShortStation(subGenres);
+      return all.length;
+    } finally {
+      _loading = false;
+      state = state.copyWith(busy: false);
+    }
+  }
+
+  /// Estacion corta: el curador busca temas del sub-genero mas pequeno
+  /// (llegan a la bandeja de revision; agregar sigue siendo del usuario).
+  void _feedShortStation(List<String> subs) {
+    if (debugStationPlay != null) return;
+    String pick = subs.first;
+    int best = 1 << 30;
+    for (final String s in subs) {
+      for (final VibeGenre g in state.genres) {
+        if (g.name.toLowerCase() == s.toLowerCase() && g.count < best) {
+          best = g.count;
+          pick = g.name;
+        }
+      }
+    }
+    unawaited(
+      ref
+          .read(curatorProvider.notifier)
+          .discover(count: 3, genre: pick)
+          .catchError((Object _) => 0),
+    );
+  }
+
+  /// Cambio de pista en Live DJ: la anterior queda como sonada.
+  Future<void> noteTrackChange(
+    String? previous,
+    String? next,
+    List<String> queue,
+  ) async {
+    final GenreSessionDoc d = _stationsDoc;
+    final String? key = d.active;
+    final GenreSession? s = key == null ? null : d.stations[key];
+    if (key == null || s == null) return;
+    d.stations[key] = stationTrackChanged(
+      s,
+      previous: previous,
+      next: next,
+      queue: queue,
+    );
+    await _saveStations();
+  }
+
+  void _ensureTracker() {
+    if (_tracking) return;
+    _tracking = true;
+    ref.listen<String?>(
+      liveDjProvider.select((LiveDjState s) => s.currentTrackPath),
+      (String? prev, String? next) {
+        if (_loading || prev == next || prev == null) return;
+        unawaited(
+          noteTrackChange(prev, next, <String>[
+            for (final File f in ref.read(liveDjProvider).queue) f.path,
+          ]),
+        );
+      },
+    );
+  }
+
+  /// Reingreso: estacion activa con su pista y segundo. Toma la posicion
+  /// del ultimo guardado de Live DJ si es de esta estacion.
+  StationResumeInfo? resumeInfo() {
+    final GenreSessionDoc d = _stationsDoc;
+    final String? key = d.active;
+    GenreSession? s = key == null ? null : d.stations[key];
+    if (key == null || s == null) return null;
+    StationLive? l;
+    if (debugStationLive != null) {
+      l = debugStationLive!();
+    } else {
+      try {
+        final Map<String, dynamic> doc = readModeDoc(liveDjStatePath());
+        final Object? cur = doc['currentTrackPath'];
+        final Object? pos = doc['positionMs'];
+        l = StationLive(
+          cur is String && cur.isNotEmpty ? cur : null,
+          pos is int ? pos : 0,
+          <String>[
+            for (final Object? q
+                in (doc['queue'] as List?) ?? const <Object?>[])
+              if (q is String) q,
+          ],
+        );
+      } catch (_) {}
+    }
+    final String? lc = l?.current;
+    if (l != null && lc != null) {
+      final String k = stationPathKey(lc);
+      final bool mine =
+          (s.currentTrackPath != null &&
+              stationPathKey(s.currentTrackPath!) == k) ||
+          s.remainingQueuePaths.any((String p) => stationPathKey(p) == k);
+      if (mine) {
+        s = s.copyWith(
+          currentTrackPath: lc,
+          positionMs: l.positionMs,
+          remainingQueuePaths: l.queue,
+        );
+        d.stations[key] = s;
+      }
+    }
+    final String? cur = s.currentTrackPath;
+    if (cur == null) return null;
+    return StationResumeInfo(key, stationTitleOf(key), cur, s.positionMs);
+  }
+
+  /// [Seguir escuchando]: misma pista, mismo segundo, misma cola.
+  Future<int> resumeActive() async {
+    final GenreSessionDoc d = _stationsDoc;
+    final String? key = d.active;
+    final GenreSession? s = key == null ? null : d.stations[key];
+    if (key == null || s == null) return 0;
+    final List<String> subs = s.subGenresChecked.isEmpty
+        ? <String>[if (key.startsWith('g:')) key.substring(2)]
+        : s.subGenresChecked;
+    return playStation(key, subs);
+  }
+
+  /// Sesion guardada de [key] (sub-generos en visto, pista, segundo).
+  GenreSession? stationSession(String key) => _stationsDoc.stations[key];
 }
 
 final vibeHubProvider = NotifierProvider<VibeHubNotifier, VibeHubState>(
