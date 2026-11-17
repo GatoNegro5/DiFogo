@@ -160,6 +160,12 @@ void main() {
   }
 
   Future<void> curatorAt(WidgetTester t, Size size, double scale) async {
+    // 3.1.63: sin Consolas/Segoe UI (CI Linux) la fuente de prueba mide
+    // 1 em por letra y marca overflows falsos en los botones del curador.
+    if (!realFont) {
+      markTestSkipped('curador: requiere fuentes reales (Consolas y Segoe UI)');
+      return;
+    }
     setSize(t, size);
     final ProviderContainer c = ProviderContainer(
       overrides: [automixQueueProvider.overrideWith(_FakeQueue.new)],
