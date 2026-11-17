@@ -111,7 +111,9 @@ class CuratorNotifier extends Notifier<CuratorState> {
 
   /// [Buscar Mas]: pide temas nuevos del genero activo ahora mismo.
   /// 3.1.61: [genre] (sub-genero de una estacion corta) sin tocar el candado.
-  Future<int> discover({int count = 1, String? genre}) async {
+  /// 3.1.64: [query] son los terminos canonicos del sub-genero; [genre]
+  /// sigue siendo la carpeta destino al aceptar.
+  Future<int> discover({int count = 1, String? genre, String? query}) async {
     final String? g = genre ?? _vibe;
     if (g == null) {
       state = state.copyWith(message: 'Elige un genero para buscar temas.');
@@ -132,6 +134,7 @@ class CuratorNotifier extends Notifier<CuratorState> {
         count: count < room ? count : room,
         knownIds: <String>{for (final CuratorEntry e in state.entries) e.id},
         genreDir: '${vibeMusicRoot()}${Platform.pathSeparator}$g',
+        query: query,
       );
       _persist(
         state.copyWith(

@@ -238,10 +238,11 @@ class SmartDiscoveryService {
     required int count,
     required Set<String> knownIds,
     String? genreDir,
+    String? query,
   }) async {
     if (count <= 0) return const <CuratorEntry>[];
     final List<DiscoveryCandidate> found = await search(
-      discoveryQuery(genre, now().year),
+      discoveryQuery(query ?? genre, now().year),
     );
     Directory(inboxDir).createSync(recursive: true);
     final List<CuratorEntry> out = <CuratorEntry>[];

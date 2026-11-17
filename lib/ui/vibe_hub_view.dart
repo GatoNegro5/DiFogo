@@ -8,7 +8,8 @@ import 'curator_inbox_dialog.dart';
 
 const Color _hubNeon = GatoMixTheme.syncActive;
 
-/// 3.1.54 Super-Vibe Hub (3.1.62: estaciones con sub-generos en visto). En escritorio
+/// 3.1.54 Super-Vibe Hub (3.1.62: estaciones con sub-generos en visto; 3.1.64:
+/// 7 estaciones universales y descartado con X). En escritorio
 /// ocupa la columna izquierda de Live DJ; en movil se abre como hoja.
 class VibeHubView extends ConsumerStatefulWidget {
   const VibeHubView({super.key, this.onPlayed});
@@ -132,30 +133,13 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                         ),
                         if (st.key == _open)
                           for (final String g in st.subGenres)
-                            CheckboxListTile(
+                            StationSubTile(
                               key: Key('vibe-hub-cat-$g'),
-                              dense: true,
-                              visualDensity: VisualDensity.compact,
-                              contentPadding: const EdgeInsets.only(
-                                left: 22,
-                                right: 8,
-                              ),
-                              controlAffinity: ListTileControlAffinity.leading,
-                              activeColor: _hubNeon,
-                              checkColor: Colors.black,
-                              value: _checked.contains(g),
-                              onChanged: (_) => setState(() {
+                              label: g,
+                              on: _checked.contains(g),
+                              onTap: () => setState(() {
                                 if (!_checked.remove(g)) _checked.add(g);
                               }),
-                              title: Text(
-                                g,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                ),
-                              ),
                             ),
                       ],
                     ],
@@ -351,6 +335,81 @@ class LiveDjViewToggleButton extends ConsumerWidget {
         );
         c.state = !c.state;
       },
+    );
+  }
+}
+
+/// 3.1.64: sub-genero en visto (check fuego) o descartado (X sobre recuadro
+/// gris/rojo tenue). Tocar alterna entre los dos estados.
+class StationSubTile extends StatelessWidget {
+  const StationSubTile({
+    super.key,
+    required this.label,
+    required this.on,
+    required this.onTap,
+    this.indent = 22,
+    this.fontSize = 12,
+  });
+
+  final String label;
+  final bool on;
+  final VoidCallback onTap;
+  final double indent;
+  final double fontSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      checked: on,
+      button: true,
+      label: label,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 40),
+          child: Padding(
+            padding: EdgeInsets.only(left: indent, right: 8),
+            child: Row(
+              children: <Widget>[
+                if (on)
+                  const Icon(
+                    Icons.check_box,
+                    color: GatoMixTheme.fire,
+                    size: 22,
+                  )
+                else
+                  Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      color: const Color(0x33FF5252),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: const Icon(
+                      Icons.close,
+                      color: Color(0xFFFF8A80),
+                      size: 16,
+                    ),
+                  ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: on ? Colors.white : Colors.white38,
+                      fontSize: fontSize,
+                      decoration: on ? null : TextDecoration.lineThrough,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

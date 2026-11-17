@@ -45,7 +45,7 @@ void main() {
     } catch (_) {}
   });
 
-  test('3161 macro-generos agrupan las carpetas de primer nivel', () {
+  test('3161/3164 carpetas a sub-generos canonicos', () {
     final List<GenreStation> st = groupStations(<MapEntry<String, int>>[
       const MapEntry<String, int>('80s Espanol', 23),
       const MapEntry<String, int>('80s Ingles', 195),
@@ -58,20 +58,31 @@ void main() {
       const MapEntry<String, int>('Actualidad Español', 70),
       const MapEntry<String, int>('Karaoke Kids', 3),
     ]);
-    final Map<String, List<String>> by = <String, List<String>>{
-      for (final GenreStation s in st) s.title: s.subGenres,
+    final Map<String, GenreStation> by = <String, GenreStation>{
+      for (final GenreStation s in st) s.title: s,
     };
-    expect(by['Ochenteras'], <String>[
+    expect(st.length, 7);
+    expect(by['Ochenteras']!.folders['Pop'], <String>[
       '80s Espanol',
       '80s Ingles',
-      'Dance 80s',
     ]);
-    expect(by['Románticas & Baladas'], <String>['Baladas Espanol']);
-    expect(by['Tropical & Fiesta'], <String>['Bachatas', 'Guaracha']);
-    expect(by['Rock & Pop'], <String>['Nacional', 'Rock Ingles']);
-    expect(by['Actualidad'], <String>['Actualidad Español']);
-    expect(by['Karaoke Kids'], <String>['Karaoke Kids']);
-    expect(st.firstWhere((GenreStation s) => s.key == 'ochenteras').count, 258);
+    expect(by['Ochenteras']!.folders['Eurodance'], <String>['Dance 80s']);
+    expect(by['Baladas']!.folders['En Español'], <String>['Baladas Espanol']);
+    expect(by['Tropical']!.folders['Bachatas'], <String>['Bachatas']);
+    expect(by['Fiesta MIX']!.folders['Electro Fiesta & Guaracha'], <String>[
+      'Guaracha',
+    ]);
+    expect(by['Rock']!.folders['Rock Clásico en Inglés'], <String>[
+      'Rock Ingles',
+    ]);
+    expect(by['Música Nacional Bailable']!.folders['Todas'], <String>[
+      'Nacional',
+    ]);
+    expect(by['Música del Momento']!.folders['Pop'], <String>[
+      'Actualidad Español',
+    ]);
+    expect(by.containsKey('Karaoke Kids'), isFalse);
+    expect(by['Ochenteras']!.count, 258);
   });
 
   testWidgets('3161 selector: sin Icons.folder y sub-generos en visto', (
@@ -106,18 +117,15 @@ void main() {
     expect(find.text('80s Espanol'), findsNothing);
     await tester.tap(find.text('Ochenteras'));
     await tester.pumpAndSettle();
-    final List<Checkbox> boxes = tester
-        .widgetList<Checkbox>(find.byType(Checkbox))
-        .toList();
-    expect(boxes.length, 3);
-    expect(boxes.every((Checkbox c) => c.value == true), isTrue);
-    await tester.tap(find.text('Dance 80s'));
+    expect(find.byIcon(Icons.check_box), findsNWidgets(6));
+    expect(find.text('Dance 80s'), findsNothing);
+    await tester.tap(find.text('Eurodance'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Reproducir Estación en Shuffle'));
     await tester.pumpAndSettle();
     final StationPick pick = got! as StationPick;
     expect(pick.key, 'ochenteras');
-    expect(pick.subGenres, <String>['80s Espanol', '80s Ingles']);
+    expect(pick.subGenres, <String>['Disco', 'Punk', 'Pop', 'Rock', 'HipHop']);
     expect(tester.takeException(), isNull);
   });
 
@@ -180,7 +188,7 @@ void main() {
       final StationPlan p = plays.last;
       live = StationLive(p.currentTrackPath, 61000, p.queue);
       final StationResumeInfo info = hub.resumeInfo()!;
-      expect(info.title, 'Tropical & Fiesta');
+      expect(info.title, 'Tropical');
       expect(info.clock, '1:01');
       expect(info.trackPath, p.currentTrackPath);
       // Suenan las 2 de Cumbias: la estacion se agota y se reinicia.

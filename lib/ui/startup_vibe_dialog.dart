@@ -7,6 +7,7 @@ import '../core/genre_stations.dart';
 import '../providers/session_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/vibe_hub_provider.dart';
+import 'vibe_hub_view.dart';
 
 /// Solo pruebas: no abrir el flujo de inicio.
 @visibleForTesting
@@ -192,21 +193,15 @@ class _StationPickerDialogState extends State<StationPickerDialog> {
               ),
               if (s.key == _open)
                 for (final String g in s.subGenres)
-                  CheckboxListTile(
+                  StationSubTile(
                     key: Key('station-sub-$g'),
-                    dense: true,
-                    contentPadding: const EdgeInsets.only(left: 40, right: 16),
-                    controlAffinity: ListTileControlAffinity.leading,
-                    activeColor: _vibeNeon,
-                    checkColor: Colors.black,
-                    value: _checked.contains(g),
-                    onChanged: (_) => setState(() {
+                    label: g,
+                    indent: 40,
+                    fontSize: 13,
+                    on: _checked.contains(g),
+                    onTap: () => setState(() {
                       if (!_checked.remove(g)) _checked.add(g);
                     }),
-                    title: Text(
-                      g,
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
-                    ),
                   ),
             ],
           ],

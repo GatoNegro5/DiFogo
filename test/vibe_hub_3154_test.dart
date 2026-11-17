@@ -82,7 +82,7 @@ void main() {
     expect(find.byType(VibeHubView), findsOneWidget);
     expect(find.byType(LibraryTreePanel), findsNothing);
     // 3.1.62: Salsa y Merengue van dentro de la estacion Tropical.
-    expect(find.text('Tropical & Fiesta'), findsOneWidget);
+    expect(find.text('Tropical'), findsOneWidget);
     expect(find.text('Cargar Carpeta'), findsNothing);
     expect(find.byType(LiveDjCartridgePanel), findsNothing);
     await tester.tap(find.byKey(const Key('livedj-view-toggle')));
@@ -113,11 +113,7 @@ void main() {
     expect(find.byIcon(Icons.folder), findsNothing);
     await tester.tap(find.byKey(const Key('vibe-hub-st-tropical')));
     await tester.pump();
-    final Iterable<Checkbox> boxes = tester.widgetList<Checkbox>(
-      find.byType(Checkbox),
-    );
-    expect(boxes.length, 2);
-    expect(boxes.every((Checkbox c) => c.value == true), isTrue);
+    expect(find.byIcon(Icons.check_box), findsNWidgets(5));
     await tester.tap(find.byKey(const Key('vibe-hub-cat-Merengue')));
     await tester.pump();
     await tester.tap(find.text('Reproducir Estación en Shuffle'));
@@ -148,7 +144,7 @@ void main() {
     expect(doc['active'], 'tropical');
     expect(
       ((doc['stations'] as Map)['tropical'] as Map)['subGenresChecked'],
-      <String>['Salsa'],
+      <String>['Salsa', 'Cumbia', 'Bachatas', 'Vallenatos'],
     );
     expect(tester.takeException(), isNull);
   });

@@ -273,11 +273,8 @@ void main() {
       await t.pump();
       expect(t.takeException(), isNull, reason: 'overflow estacion ${e.key}');
       expectNotClipped(t, 'Reproducir Estación en Shuffle');
-      final Checkbox cb = t.widget<Checkbox>(find.byType(Checkbox).first);
-      final Color? fill = Theme.of(
-        t.element(find.byType(Checkbox).first),
-      ).checkboxTheme.fillColor?.resolve(<WidgetState>{WidgetState.selected});
-      expect(cb.activeColor ?? fill, GatoMixTheme.fire);
+      final Icon cb = t.widget<Icon>(find.byIcon(Icons.check_box).first);
+      expect(cb.color, GatoMixTheme.fire);
     });
   }
 

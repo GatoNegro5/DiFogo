@@ -314,9 +314,12 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     _loading = true;
     try {
       await freezeActive();
-      final List<String> all = await _stationTracks(subGenres);
+      final List<String> all = await _stationTracks(
+        await _stationFolders(key, subGenres),
+      );
       if (all.isEmpty) {
         state = state.copyWith(message: 'Sin canciones en lo marcado');
+        _feedShortStation(key, subGenres);
         return 0;
       }
       final GenreSessionDoc d = _stationsDoc;
@@ -364,7 +367,9 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
         activeStation: key,
         message: '${stationTitleOf(key)}: ${all.length} canciones',
       );
-      if (all.length < kStationShortTracks) _feedShortStation(subGenres);
+      if (all.length < kStationShortTracks) {
+        _feedShortStation(key, subGenres);
+      }
       return all.length;
     } finally {
       _loading = false;
@@ -372,24 +377,29 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     }
   }
 
-  /// Estacion corta: el curador busca temas del sub-genero mas pequeno
-  /// (llegan a la bandeja de revision; agregar sigue siendo del usuario).
-  void _feedShortStation(List<String> subs) {
-    if (debugStationPlay != null) return;
-    String pick = subs.first;
-    int best = 1 << 30;
-    for (final String s in subs) {
-      for (final VibeGenre g in state.genres) {
-        if (g.name.toLowerCase() == s.toLowerCase() && g.count < best) {
-          best = g.count;
-          pick = g.name;
-        }
-      }
+  /// 3.1.64: sub-generos canonicos a carpetas locales (solo interno).
+  Future<List<String>> _stationFolders(String key, List<String> subs) async {
+    if (state.genres.isEmpty && subs.any((String s) => isStationSub(key, s))) {
+      await refresh();
     }
+    return stationFolders(key, subs, <String>[
+      for (final VibeGenre g in state.genres) g.name,
+    ]);
+  }
+
+  /// Estacion corta: el curador busca temas del sub-genero en visto con
+  /// menos canciones, con sus terminos canonicos (llegan a la bandeja de
+  /// revision; agregar sigue siendo del usuario).
+  void _feedShortStation(String key, List<String> subs) {
+    if (debugStationPlay != null) return;
+    final StationFeed? f = stationFeedFor(key, subs, <String, int>{
+      for (final VibeGenre g in state.genres) g.name: g.count,
+    });
+    if (f == null) return;
     unawaited(
       ref
           .read(curatorProvider.notifier)
-          .discover(count: 3, genre: pick)
+          .discover(count: 3, genre: f.folder, query: f.query)
           .catchError((Object _) => 0),
     );
   }

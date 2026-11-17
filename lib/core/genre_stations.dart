@@ -3,52 +3,107 @@ import 'dart:math';
 
 import 'session_store.dart';
 
-/// 3.1.61 Estaciones DiFogo: macro-generos estilo Spotify que agrupan las
-/// carpetas de genero de primer nivel, y la sesion persistente de cada
+/// 3.1.61 Estaciones DiFogo (3.1.64: catalogo universal de 7 estaciones con
+/// sub-generos canonicos, sin nombres de carpeta), y la sesion persistente de cada
 /// estacion (pista, segundo, cola restante y ya sonadas). Dart puro: no
 /// toca el motor de audio ni la biblioteca.
 
 class GenreStation {
-  const GenreStation(this.key, this.title, this.subGenres, this.count);
+  const GenreStation(
+    this.key,
+    this.title,
+    this.subGenres,
+    this.count, {
+    this.folders = const <String, List<String>>{},
+    this.subCounts = const <String, int>{},
+  });
 
-  /// Clave estable en el JSON (macro fija o `g:<carpeta>`).
+  /// Clave estable en el JSON (una de las 7 estaciones universales).
   final String key;
   final String title;
 
-  /// Carpetas de primer nivel que agrupa, en orden alfabetico.
+  /// 3.1.64: sub-generos canonicos visibles (nunca nombres de carpeta).
   final List<String> subGenres;
   final int count;
+
+  /// Carpetas locales que alimentan cada sub-genero (solo interno).
+  final Map<String, List<String>> folders;
+
+  /// Canciones locales por sub-genero.
+  final Map<String, int> subCounts;
 }
 
-class _Macro {
-  const _Macro(this.key, this.title, this.words);
+/// Sub-genero canonico y los terminos que usa el Auto-Curador.
+class StationSub {
+  const StationSub(this.label, this.terms);
+  final String label;
+  final String terms;
+}
+
+class UniversalStation {
+  const UniversalStation(this.key, this.title, this.subs);
   final String key;
   final String title;
-  final List<String> words;
+  final List<StationSub> subs;
 }
 
-// El orden decide: Actualidad y los 80 ganan antes que Rock o Baladas.
-const List<_Macro> _macros = <_Macro>[
-  _Macro('actualidad', 'Actualidad', <String>['actualidad']),
-  _Macro('ochenteras', 'Ochenteras', <String>['80']),
-  _Macro('romanticas', 'Románticas & Baladas', <String>['balada', 'romant']),
-  _Macro('tropical', 'Tropical & Fiesta', <String>[
-    'bachat',
-    'cumbia',
-    'merengue',
-    'fiesta',
-    'guarach',
-    'salsa',
-    'vallenato',
-    'reggaeton',
+/// 3.1.64: catalogo universal fijo de DiFogo, en este orden. No depende de
+/// como se llamen las carpetas del disco.
+const List<UniversalStation> kUniversalStations = <UniversalStation>[
+  UniversalStation('momento', 'Música del Momento', <StationSub>[
+    StationSub('Pop', 'Pop Rock Pop Latino Pop Inglés hits'),
+    StationSub('Reggaetón', 'Reggaetón hits'),
+    StationSub('HipHop', 'Hip Hop Rap hits'),
+    StationSub('Electrónica', 'Electrónica EDM hits'),
+    StationSub('R&B', 'R&B hits'),
+    StationSub('Todas las Demás Nuevas', 'nuevos éxitos musicales'),
   ]),
-  _Macro('rockpop', 'Rock & Pop', <String>[
-    'rock',
-    'espanola',
-    'nacional',
-    'pop',
+  UniversalStation('ochenteras', 'Ochenteras', <StationSub>[
+    StationSub('Disco', 'Disco 80s hits'),
+    StationSub('Punk', 'Punk 80s'),
+    StationSub('Pop', 'Pop 80s hits'),
+    StationSub('Rock', 'Rock 80s hits'),
+    StationSub('HipHop', 'Hip Hop 80s'),
+    StationSub('Eurodance', 'Eurodance Dance 80s'),
+  ]),
+  UniversalStation('tropical', 'Tropical', <StationSub>[
+    StationSub('Salsa', 'Salsa'),
+    StationSub('Cumbia', 'Cumbia'),
+    StationSub('Merengue', 'Merengue'),
+    StationSub('Bachatas', 'Bachata'),
+    StationSub('Vallenatos', 'Vallenato'),
+  ]),
+  UniversalStation('fiesta', 'Fiesta MIX', <StationSub>[
+    StationSub('Crossover & Hora Loca', 'Crossover Hora Loca'),
+    StationSub('Electro Fiesta & Guaracha', 'Guaracha Electro Fiesta'),
+    StationSub('Hits Bailables', 'Hits bailables'),
+    StationSub('Todas', 'Fiesta mix'),
+  ]),
+  UniversalStation('rock', 'Rock', <StationSub>[
+    StationSub('Rock Clásico Español', 'Rock clásico en español'),
+    StationSub('Rock Clásico en Inglés', 'Classic Rock'),
+    StationSub('Heavy Metal', 'Heavy Metal'),
+    StationSub('Grunge', 'Grunge'),
+    StationSub('Todas', 'Rock'),
+  ]),
+  UniversalStation('baladas', 'Baladas', <StationSub>[
+    StationSub('En Inglés', 'Baladas en inglés love songs'),
+    StationSub('En Español', 'Baladas románticas en español'),
+  ]),
+  UniversalStation('nacional', 'Música Nacional Bailable', <StationSub>[
+    StationSub('Cumbia & Chicha Nacional', 'Cumbia Chicha Ecuador'),
+    StationSub('Paseíto & Sanjuanito', 'Paseíto Sanjuanito Ecuador'),
+    StationSub('Tecnocumbia', 'Tecnocumbia Ecuador'),
+    StationSub('Todas', 'Música nacional bailable Ecuador'),
   ]),
 ];
+
+// Claves de la 3.1.61/62 que pueden seguir en sesiones guardadas.
+const Map<String, String> _legacyTitles = <String, String>{
+  'actualidad': 'Actualidad',
+  'romanticas': 'Románticas & Baladas',
+  'rockpop': 'Rock & Pop',
+};
 
 String stationFold(String s) {
   const String from = 'áéíóúüñÁÉÍÓÚÜÑ';
@@ -62,54 +117,245 @@ String stationFold(String s) {
   return b.toString().toLowerCase();
 }
 
-/// Clave de la macro de [folder]; null si no encaja (estacion propia).
-String? stationMacroOf(String folder) {
+bool _has(String f, List<String> words) => words.any(f.contains);
+
+final RegExp _rapWord = RegExp(r'(^|[^a-z])(rap|hip)');
+
+/// 3.1.64: estacion y sub-genero canonico de una carpeta local, por reglas
+/// sobre su nombre; null si no encaja en ninguna (no se muestra).
+MapEntry<String, String>? stationSubOf(String folder) {
   final String f = stationFold(folder);
-  for (final _Macro m in _macros) {
-    if (m.words.any(f.contains)) return m.key;
+  MapEntry<String, String> m(String k, String s) =>
+      MapEntry<String, String>(k, s);
+  if (_has(f, <String>[
+    'nacional',
+    'chicha',
+    'sanjuan',
+    'paseit',
+    'tecnocumbia',
+  ])) {
+    if (f.contains('tecno')) return m('nacional', 'Tecnocumbia');
+    if (_has(f, <String>['sanjuan', 'paseit'])) {
+      return m('nacional', 'Paseíto & Sanjuanito');
+    }
+    if (_has(f, <String>['chicha', 'cumbia'])) {
+      return m('nacional', 'Cumbia & Chicha Nacional');
+    }
+    return m('nacional', 'Todas');
+  }
+  if (_has(f, <String>['80', 'ochent'])) {
+    if (f.contains('disco')) return m('ochenteras', 'Disco');
+    if (f.contains('punk')) return m('ochenteras', 'Punk');
+    if (_has(f, <String>['euro', 'dance'])) return m('ochenteras', 'Eurodance');
+    if (_rapWord.hasMatch(f)) return m('ochenteras', 'HipHop');
+    if (f.contains('rock')) return m('ochenteras', 'Rock');
+    return m('ochenteras', 'Pop');
+  }
+  if (_has(f, <String>[
+    'fiesta',
+    'guarach',
+    'crossover',
+    'hora loca',
+    'bailable',
+  ])) {
+    if (_has(f, <String>['crossover', 'hora loca'])) {
+      return m('fiesta', 'Crossover & Hora Loca');
+    }
+    if (_has(f, <String>['guarach', 'electro'])) {
+      return m('fiesta', 'Electro Fiesta & Guaracha');
+    }
+    if (_has(f, <String>['bailable', 'hits'])) {
+      return m('fiesta', 'Hits Bailables');
+    }
+    return m('fiesta', 'Todas');
+  }
+  if (f.contains('salsa')) return m('tropical', 'Salsa');
+  if (f.contains('cumbia')) return m('tropical', 'Cumbia');
+  if (f.contains('merengue')) return m('tropical', 'Merengue');
+  if (f.contains('bachat')) return m('tropical', 'Bachatas');
+  if (f.contains('vallenato')) return m('tropical', 'Vallenatos');
+  if (_has(f, <String>['balada', 'romant'])) {
+    return _has(f, <String>['ingl', 'english'])
+        ? m('baladas', 'En Inglés')
+        : m('baladas', 'En Español');
+  }
+  if (_has(f, <String>['rock', 'metal', 'grunge', 'espanola'])) {
+    if (f.contains('metal')) return m('rock', 'Heavy Metal');
+    if (f.contains('grunge')) return m('rock', 'Grunge');
+    if (_has(f, <String>['ingl', 'english'])) {
+      return m('rock', 'Rock Clásico en Inglés');
+    }
+    if (f.contains('espan')) return m('rock', 'Rock Clásico Español');
+    return m('rock', 'Todas');
+  }
+  if (_has(f, <String>[
+        'actualidad',
+        'pop',
+        'reggaeton',
+        'electr',
+        'r&b',
+        'rnb',
+        'nuev',
+        'urban',
+      ]) ||
+      _rapWord.hasMatch(f)) {
+    if (f.contains('reggaeton')) return m('momento', 'Reggaetón');
+    if (_rapWord.hasMatch(f)) return m('momento', 'HipHop');
+    if (f.contains('electr')) return m('momento', 'Electrónica');
+    if (_has(f, <String>['r&b', 'rnb'])) return m('momento', 'R&B');
+    if (_has(f, <String>['actualidad', 'pop'])) return m('momento', 'Pop');
+    return m('momento', 'Todas las Demás Nuevas');
   }
   return null;
 }
 
-/// Agrupa las carpetas (nombre, canciones) en estaciones: primero las
-/// macros fijas con contenido y luego cada carpeta suelta como estacion.
+UniversalStation? universalStation(String key) {
+  for (final UniversalStation u in kUniversalStations) {
+    if (u.key == key) return u;
+  }
+  return null;
+}
+
+/// true si [label] es un sub-genero canonico de la estacion [key].
+bool isStationSub(String key, String label) =>
+    universalStation(key)?.subs.any((StationSub s) => s.label == label) ??
+    false;
+
+/// Arma las 7 estaciones universales (siempre todas, en orden) con las
+/// carpetas (nombre, canciones) mapeadas a cada sub-genero.
 List<GenreStation> groupStations(List<MapEntry<String, int>> folders) {
-  final Map<String, List<MapEntry<String, int>>> by =
-      <String, List<MapEntry<String, int>>>{};
-  final List<MapEntry<String, int>> loose = <MapEntry<String, int>>[];
+  final Map<String, Map<String, List<MapEntry<String, int>>>> by =
+      <String, Map<String, List<MapEntry<String, int>>>>{};
   for (final MapEntry<String, int> f in folders) {
-    final String? k = stationMacroOf(f.key);
-    if (k == null) {
-      loose.add(f);
-    } else {
-      (by[k] ??= <MapEntry<String, int>>[]).add(f);
-    }
+    final MapEntry<String, String>? s = stationSubOf(f.key);
+    if (s == null) continue;
+    ((by[s.key] ??= <String, List<MapEntry<String, int>>>{})[s.value] ??=
+            <MapEntry<String, int>>[])
+        .add(f);
   }
   int byName(MapEntry<String, int> a, MapEntry<String, int> b) =>
       stationFold(a.key).compareTo(stationFold(b.key));
   final List<GenreStation> out = <GenreStation>[];
-  for (final _Macro m in _macros) {
-    final List<MapEntry<String, int>>? g = by[m.key];
-    if (g == null || g.isEmpty) continue;
-    g.sort(byName);
+  for (final UniversalStation u in kUniversalStations) {
+    final Map<String, List<MapEntry<String, int>>> g =
+        by[u.key] ?? const <String, List<MapEntry<String, int>>>{};
+    final Map<String, List<String>> fol = <String, List<String>>{};
+    final Map<String, int> counts = <String, int>{};
+    int total = 0;
+    for (final StationSub s in u.subs) {
+      final List<MapEntry<String, int>> l = List<MapEntry<String, int>>.from(
+        g[s.label] ?? const <MapEntry<String, int>>[],
+      )..sort(byName);
+      fol[s.label] = <String>[for (final MapEntry<String, int> e in l) e.key];
+      final int c = l.fold<int>(
+        0,
+        (int a, MapEntry<String, int> e) => a + e.value,
+      );
+      counts[s.label] = c;
+      total += c;
+    }
     out.add(
-      GenreStation(m.key, m.title, <String>[
-        for (final MapEntry<String, int> e in g) e.key,
-      ], g.fold<int>(0, (int s, MapEntry<String, int> e) => s + e.value)),
+      GenreStation(
+        u.key,
+        u.title,
+        <String>[for (final StationSub s in u.subs) s.label],
+        total,
+        folders: fol,
+        subCounts: counts,
+      ),
     );
-  }
-  loose.sort(byName);
-  for (final MapEntry<String, int> e in loose) {
-    out.add(GenreStation('g:${e.key}', e.key, <String>[e.key], e.value));
   }
   return out;
 }
 
-/// Titulo visible de una clave de estacion (macro fija o `g:<carpeta>`).
-String stationTitleOf(String key) {
-  for (final _Macro m in _macros) {
-    if (m.key == key) return m.title;
+/// Carpetas locales de los sub-generos [subs] de [key]. Lo que no es un
+/// sub-genero canonico (sesiones de la 3.1.61/62) se usa tal cual.
+List<String> stationFolders(
+  String key,
+  List<String> subs,
+  Iterable<String> library,
+) {
+  final Set<String> want = <String>{
+    for (final String s in subs)
+      if (isStationSub(key, s)) s,
+  };
+  final List<String> out = <String>[
+    for (final String s in subs)
+      if (!isStationSub(key, s)) s,
+  ];
+  if (want.isEmpty) return out;
+  for (final String f in library) {
+    final MapEntry<String, String>? m = stationSubOf(f);
+    if (m != null &&
+        m.key == key &&
+        want.contains(m.value) &&
+        !out.contains(f)) {
+      out.add(f);
+    }
   }
+  return out;
+}
+
+class StationFeed {
+  const StationFeed(this.folder, this.query);
+
+  /// Carpeta destino si el usuario acepta el tema en la bandeja.
+  final String folder;
+
+  /// Terminos canonicos de busqueda (null = el nombre de la carpeta).
+  final String? query;
+}
+
+/// Que pide el Auto-Curador para una estacion corta: el sub-genero en visto
+/// con menos canciones, con sus terminos canonicos.
+StationFeed? stationFeedFor(
+  String key,
+  List<String> subs,
+  Map<String, int> library,
+) {
+  if (subs.isEmpty) return null;
+  final UniversalStation? u = universalStation(key);
+  StationFeed? best;
+  int bestN = 1 << 30;
+  for (final String s in subs) {
+    StationSub? def;
+    for (final StationSub d in u?.subs ?? const <StationSub>[]) {
+      if (d.label == s) def = d;
+    }
+    if (def == null) {
+      final int n = library[s] ?? 0;
+      if (n < bestN) {
+        bestN = n;
+        best = StationFeed(s, null);
+      }
+      continue;
+    }
+    int n = 0;
+    String? folder;
+    int top = -1;
+    for (final MapEntry<String, int> e in library.entries) {
+      final MapEntry<String, String>? m = stationSubOf(e.key);
+      if (m == null || m.key != key || m.value != s) continue;
+      n += e.value;
+      if (e.value > top) {
+        top = e.value;
+        folder = e.key;
+      }
+    }
+    if (n < bestN) {
+      bestN = n;
+      best = StationFeed(folder ?? s, def.terms);
+    }
+  }
+  return best;
+}
+
+/// Titulo visible de una clave de estacion.
+String stationTitleOf(String key) {
+  final UniversalStation? u = universalStation(key);
+  if (u != null) return u.title;
+  final String? old = _legacyTitles[key];
+  if (old != null) return old;
   return key.startsWith('g:') ? key.substring(2) : key;
 }
 
