@@ -99,6 +99,61 @@ String _clock(Duration d) {
       '${(v.inSeconds % 60).toString().padLeft(2, '0')}';
 }
 
+/// 3.1.74: badge interactivo `FX · <MEZCLA> + <EFECTO> · AUTO|FIJO`. El
+/// mismo widget va en Spotify Pro y en la cabecera de la vista clasica y
+/// comparte `mixFormulaLockedProvider`: un toque alterna AUTO/FIJO en las dos.
+class MixFxBadge extends ConsumerWidget {
+  const MixFxBadge({super.key, required this.badgeKey});
+
+  /// Llave del area tocable (`spotify-fx-badge` / `classic-fx-badge`).
+  final Key badgeKey;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final LiveDjState s = ref.watch(liveDjProvider);
+    final MixFormula formula = ref.watch(mixFormulaProvider);
+    final bool locked = ref.watch(mixFormulaLockedProvider);
+    final String? station = ref.watch(
+      vibeHubProvider.select((VibeHubState h) => h.activeStation),
+    );
+    final GenreMixPlan plan = spotifyMixFxPlan(
+      s,
+      formula,
+      station,
+      locked: locked,
+    );
+    return GestureDetector(
+      key: badgeKey,
+      onTap: () => ref.read(mixFormulaLockedProvider.notifier).state = !locked,
+      child: Tooltip(
+        message:
+            'Mix Effect del proximo cruce segun genero y BPM. '
+            'AUTO elige curva y efecto; FIJO respeta tu tipo de '
+            'mezcla. Toca para cambiar.',
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+          decoration: BoxDecoration(
+            color: const Color(0x2200E5FF),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: GatoMixTheme.cyanAccent),
+          ),
+          child: Text(
+            genreMixBadge(plan, spotifyMixLabel(plan.formula)),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: GatoMixTheme.cyanAccent,
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.0,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// Cuerpo del reproductor de AutomixDj en Modo Spotify.
 class LiveDjSpotifyPanel extends ConsumerStatefulWidget {
   final bool compact;
@@ -131,14 +186,6 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
     final LiveDjNotifier dj = ref.read(liveDjProvider.notifier);
     final String? station = ref.watch(
       vibeHubProvider.select((VibeHubState h) => h.activeStation),
-    );
-
-    final bool fxLocked = ref.watch(mixFormulaLockedProvider);
-    final GenreMixPlan fxPlan = spotifyMixFxPlan(
-      s,
-      formula,
-      station,
-      locked: fxLocked,
     );
 
     Widget mixChip() => GestureDetector(
@@ -232,38 +279,7 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
                 ),
               ),
               mixChip(),
-              GestureDetector(
-                key: const Key('spotify-fx-badge'),
-                onTap: () => ref.read(mixFormulaLockedProvider.notifier).state =
-                    !fxLocked,
-                child: Tooltip(
-                  message:
-                      'Mix Effect del proximo cruce segun genero y BPM. '
-                      'AUTO elige curva y efecto; FIJO respeta tu tipo de '
-                      'mezcla. Toca para cambiar.',
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0x2200E5FF),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: GatoMixTheme.cyanAccent),
-                    ),
-                    child: Text(
-                      genreMixBadge(fxPlan, spotifyMixLabel(fxPlan.formula)),
-                      maxLines: 1,
-                      style: const TextStyle(
-                        color: GatoMixTheme.cyanAccent,
-                        fontSize: 10,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              const MixFxBadge(badgeKey: Key('spotify-fx-badge')),
             ],
           ),
           const SizedBox(height: 6),

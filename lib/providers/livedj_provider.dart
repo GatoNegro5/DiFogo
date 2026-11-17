@@ -3318,9 +3318,18 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       );
     }
     final GenreMixPlan genrePlan = _genrePlanFor(fadingPath, nextTrack);
+    // 3.1.74: Stealth publica la misma ventana de 10-12 s que usa el motor
+    // (BPM conocido de la entrante), para que el relevo en pantalla dure
+    // exactamente el cruce real.
+    final bool stealthAuto =
+        !isManualSkip &&
+        nextMode != LiveDjMixMode.longBypass &&
+        ref.read(mixFormulaProvider) == MixFormula.stealthGap;
     _publishedFadeMs =
         phraseFadeOverride ??
-        (dnaPlan != null && !dnaPlan.legacy ? dnaPlan.fadeMs : 0);
+        (stealthAuto
+            ? stealthWindowMs(_extractBpm(nextTrack))
+            : (dnaPlan != null && !dnaPlan.legacy ? dnaPlan.fadeMs : 0));
 
     final List<File> backfillBefore = state.queue;
     state = state.copyWith(

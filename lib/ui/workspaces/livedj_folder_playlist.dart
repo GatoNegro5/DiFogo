@@ -103,7 +103,10 @@ class _PlayerPaneState extends ConsumerState<_PlayerPane>
       bpm: bpm,
       durationMs: live.duration.inMilliseconds,
     );
-    if (formula == MixFormula.phraseGrid || formula == MixFormula.dnaEnergy) {
+    // 3.1.74: Stealth tambien toma el fundido real publicado por el motor.
+    if (formula == MixFormula.phraseGrid ||
+        formula == MixFormula.dnaEnergy ||
+        formula == MixFormula.stealthGap) {
       final int published = ref.read(liveDjProvider.notifier).publishedFadeMs;
       if (published > 0) ms = published;
     }

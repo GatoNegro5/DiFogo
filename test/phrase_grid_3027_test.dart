@@ -206,7 +206,8 @@ void main() {
     expect(GatomixStore.readMap(dir.path, 'djMetadata'), isEmpty);
   });
 
-  test('el relevo de Phrase usa el fundido nuevo y Stealth el de antes', () {
+  test('el relevo de Phrase usa el fundido nuevo y Stealth su ventana '
+      'real de 10-12 s (3.1.74)', () {
     expect(
       relevoDurationMs(
         derive: true,
@@ -223,7 +224,7 @@ void main() {
         bpm: 90,
         durationMs: 200000,
       ),
-      phraseFadeMs(incomingBpm: 90, incomingDurationMs: 200000),
+      stealthWindowMs(90),
     );
     expect(
       relevoDurationMs(

@@ -1131,6 +1131,14 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                 onAirBadge,
                 const SizedBox(width: 15),
                 Expanded(child: studioTitle),
+                // 3.1.74: el mismo badge FX de Spotify Pro en la consola
+                // clasica (estado compartido AUTO/FIJO).
+                if (!spotify) ...<Widget>[
+                  const Flexible(
+                    child: MixFxBadge(badgeKey: Key('classic-fx-badge')),
+                  ),
+                  const SizedBox(width: 10),
+                ],
                 const LiveDjSpotifyToggle(),
               ],
             ),
