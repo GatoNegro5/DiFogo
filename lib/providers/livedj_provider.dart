@@ -1416,9 +1416,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
   /// 3.1.61 Estaciones DiFogo: reemplaza la cola por la de una estacion
   /// (ya barajada y sin pistas sonadas), carga [currentPath] en el segundo
-  /// [positionMs] y suena de inmediato. La cola queda en Secuencial para
-  /// respetar el orden guardado de la estacion. Devuelve false si hay un
-  /// cruce en curso.
+  /// [positionMs] y suena de inmediato. 3.1.70: la cola queda en Shuffle
+  /// (ya viene barajada con Smart Shuffle); como _backfillEpoch queda en
+  /// null, el reorden armonico no la toca y se respeta el orden guardado.
+  /// Devuelve false si hay un cruce en curso.
   Future<bool> loadStation({
     String? currentPath,
     int positionMs = 0,
@@ -1457,7 +1458,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       currentTrackPath: cur,
       clearCurrentTrackPath: cur == null,
       position: Duration(milliseconds: pos),
-      mixStrategy: LiveDjMixStrategy.sequential,
+      mixStrategy: LiveDjMixStrategy.random,
       sortMode: LiveDjSortMode.manual,
     );
     _sessionPositionMs = pos;

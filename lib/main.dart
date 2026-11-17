@@ -545,7 +545,7 @@ class _MainWorkspaceState extends ConsumerState<MainWorkspace> {
 String _moduleTitle(int route, bool mobile) {
   switch (route) {
     case 0:
-      return "Automix";
+      return "Mix con Letra";
     case 1:
       return "Masterizar";
     case 2:
@@ -553,9 +553,9 @@ String _moduleTitle(int route, bool mobile) {
     case 3:
       return "Laboratorio";
     case 4:
-      return "LAN Sync";
+      return "Comparte Música";
     case 5:
-      return "Live DJ";
+      return "AutomixDj";
     case 6:
       return "Karaoke";
     default:
@@ -641,17 +641,19 @@ class _GatoMixNavColumn extends ConsumerWidget {
     final tiles = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        tile(
-          icon: Icons.album,
-          label: "Automix",
-          route: 0,
-          accent: GatoMixTheme.deckA,
-        ),
+        // 3.1.70: solo cambian los nombres visibles y el orden; las rutas
+        // internas (5 = Live DJ, 0 = Automix, 4 = LAN Sync) se conservan.
         tile(
           icon: Icons.radio,
-          label: "Live DJ",
+          label: "AutomixDj",
           route: 5,
           accent: GatoMixTheme.syncActive,
+        ),
+        tile(
+          icon: Icons.album,
+          label: "Mix con Letra",
+          route: 0,
+          accent: GatoMixTheme.deckA,
         ),
         tile(
           icon: Icons.cloud_download,
@@ -673,7 +675,7 @@ class _GatoMixNavColumn extends ConsumerWidget {
         ),
         tile(
           icon: Icons.wifi_tethering,
-          label: "LAN Sync",
+          label: "Comparte Música",
           route: 4,
           accent: GatoMixTheme.masterPeak,
         ),

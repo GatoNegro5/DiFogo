@@ -598,12 +598,21 @@ StationPlan planStation(
     for (final MapEntry<String, String> e in byKey.entries)
       if (!used.contains(e.key)) e.value,
   ]..sort();
-  fresh.shuffle(r);
-  queue.addAll(fresh);
+  // 3.1.70: Smart Shuffle (Fisher-Yates + artistas dispersos), tambien en
+  // la union con lo que ya estaba en la cola.
+  queue.addAll(
+    stationSmartShuffle(
+      fresh,
+      r,
+      after: queue.isNotEmpty ? queue.last : current,
+    ),
+  );
   if (current == null && queue.isEmpty && all.isNotEmpty) {
     // Ya sono el 100 %: se reinicia lo sonado y se baraja todo de nuevo.
-    final List<String> again = byKey.values.toList()..sort();
-    again.shuffle(r);
+    final List<String> again = stationSmartShuffle(
+      byKey.values.toList()..sort(),
+      r,
+    );
     return StationPlan(
       currentTrackPath: null,
       positionMs: 0,
@@ -622,6 +631,95 @@ StationPlan planStation(
     ],
     resumed: current != null,
   );
+}
+
+/// 3.1.70: artista de `Artista - Titulo` (sin acentos, minusculas, sin
+/// "feat."). Vacio si el nombre no lo trae: no cuenta como repetido.
+String stationArtistKey(String path) {
+  final String t = stationTrackTitle(path);
+  final int i = t.indexOf(' - ');
+  if (i <= 0) return '';
+  String a = stationFold(t.substring(0, i));
+  for (final String cut in const <String>[
+    ' feat',
+    ' ft.',
+    ' ft ',
+    ' featuring',
+    ' & ',
+    ' x ',
+    ' y ',
+    ',',
+  ]) {
+    final int j = a.indexOf(cut);
+    if (j > 0) a = a.substring(0, j);
+  }
+  return a.trim();
+}
+
+/// 3.1.70 Smart Shuffle: Fisher-Yates y despues dispersion de artistas, para
+/// que nunca suenen dos canciones del mismo artista seguidas (salvo que ya
+/// no quede otra). [after] es la pista que suena justo antes de la primera.
+List<String> stationSmartShuffle(
+  List<String> tracks,
+  Random rng, {
+  String? after,
+}) {
+  final List<String> pool = List<String>.from(tracks);
+  for (int i = pool.length - 1; i > 0; i--) {
+    final int j = rng.nextInt(i + 1);
+    final String t = pool[i];
+    pool[i] = pool[j];
+    pool[j] = t;
+  }
+  if (pool.isEmpty) return pool;
+  final List<String> keys = <String>[
+    for (final String p in pool) stationArtistKey(p),
+  ];
+  final Map<String, int> left = <String, int>{};
+  for (final String k in keys) {
+    if (k.isNotEmpty) left[k] = (left[k] ?? 0) + 1;
+  }
+  int maxLeft = 0;
+  for (final int v in left.values) {
+    if (v > maxLeft) maxLeft = v;
+  }
+  final List<int> idx = List<int>.generate(pool.length, (int i) => i);
+  final List<String> out = <String>[];
+  String last = after == null ? '' : stationArtistKey(after);
+  while (idx.isNotEmpty) {
+    final int r = idx.length;
+    // Un artista con mas de la mitad de lo que queda tiene que ir ya.
+    String? force;
+    if (maxLeft * 2 > r) {
+      maxLeft = 0;
+      for (final MapEntry<String, int> e in left.entries) {
+        if (e.value > maxLeft) maxLeft = e.value;
+        if (force == null && e.key != last && e.value * 2 > r) force = e.key;
+      }
+    }
+    int pick = -1;
+    for (int q = 0; q < idx.length; q++) {
+      final String k = keys[idx[q]];
+      if (force != null ? k == force : (k.isEmpty || k != last)) {
+        pick = q;
+        break;
+      }
+    }
+    if (pick < 0) pick = 0;
+    final int at = idx.removeAt(pick);
+    out.add(pool[at]);
+    final String k = keys[at];
+    if (k.isNotEmpty) {
+      final int n = left[k]! - 1;
+      if (n <= 0) {
+        left.remove(k);
+      } else {
+        left[k] = n;
+      }
+    }
+    last = k;
+  }
+  return out;
 }
 
 /// Cambio de pista en Live DJ: la anterior pasa a sonadas y la sesion
@@ -664,6 +762,9 @@ String stationTrackTitle(String path) {
 
 /// Nombre del indice rapido por cancion (`path + mtime`).
 const String kTrackGenreIndexName = 'difogo_track_genre_index.json';
+
+/// 3.1.70: version del clasificador guardada en cada entrada del indice.
+const int kTrackGenreIndexVersion = 2;
 
 String _normWords(String s) => stationFold(
   s,
@@ -1858,7 +1959,11 @@ class TrackGenreClassifier {
     for (int i = dirs.length - 1; i >= 0; i--) {
       if (isGenericMusicFolder(dirs[i])) continue;
       final MapEntry<String, String>? m = _stationSubOfRaw(dirs[i]);
-      if (m != null) return TrackGenre(m.key, m.value, 3);
+      if (m != null) {
+        // 3.1.70: el idioma de las carpetas de arriba (Espanol/Ingles en
+        // cualquier nivel) elige la variante de Baladas y Rock Clasico.
+        return TrackGenre(m.key, _subForLanguage(m.key, m.value, dirs), 3);
+      }
     }
     // Nivel 4: BPM en cache o bucket "Todas" de la estacion activa.
     if (bpm >= 88 && bpm <= 100) {
@@ -1868,6 +1973,32 @@ class TrackGenreClassifier {
       return const TrackGenre('fiesta', 'Hits Bailables', 4);
     }
     return const TrackGenre(null, null, 4);
+  }
+
+  static String _subForLanguage(String station, String sub, List<String> dirs) {
+    bool en = false;
+    bool es = false;
+    bool classic = false;
+    for (final String d in dirs) {
+      final String f = stationFold(d);
+      if (f.contains('ingl') || f.contains('english')) en = true;
+      if (f.contains('espan') || f.contains('spanish') || f.contains('latin')) {
+        es = true;
+      }
+      if (f.contains('clasic') || f.contains('classic')) classic = true;
+    }
+    if (en == es) return sub;
+    if (station == 'baladas' &&
+        (sub == 'En Inglés' || sub == 'En Español' || sub == 'Todas')) {
+      return en ? 'En Inglés' : 'En Español';
+    }
+    if (station == 'rock' &&
+        (sub == 'Rock Clásico Español' ||
+            sub == 'Rock Clásico en Inglés' ||
+            (sub == 'Todas' && classic))) {
+      return en ? 'Rock Clásico en Inglés' : 'Rock Clásico Español';
+    }
+    return sub;
   }
 
   /// Carpetas entre [root] y el archivo (sin la raiz ni el archivo).
@@ -1929,6 +2060,9 @@ class TrackGenreIndex {
   TrackGenre? lookup(String trackPath, int mtimeMs) {
     final Map<String, Object?>? e = _tracks[stationPathKey(trackPath)];
     if (e == null || e['mtime'] != mtimeMs) return null;
+    // 3.1.70: el nivel 3 ahora mira el idioma de las carpetas: las entradas
+    // de antes (sin 'v') se vuelven a clasificar una vez.
+    if (e['level'] == 3 && e['v'] != kTrackGenreIndexVersion) return null;
     final Object? s = e['stationId'];
     final Object? g = e['subGenreId'];
     final Object? l = e['level'];
@@ -1946,6 +2080,7 @@ class TrackGenreIndex {
       'stationId': g.stationId,
       'subGenreId': g.subGenreId,
       'level': g.level,
+      'v': kTrackGenreIndexVersion,
     };
     _dirty = true;
   }
@@ -1955,7 +2090,7 @@ class TrackGenreIndex {
       File(path).parent.createSync(recursive: true);
     } catch (_) {}
     await SessionStore.writeJson(path, <String, dynamic>{
-      'schema': 1,
+      'schema': kTrackGenreIndexVersion,
       'tracks': _tracks,
     });
     _dirty = false;

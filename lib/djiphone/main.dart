@@ -25,8 +25,9 @@ import 'package:gatomix/ui/workspaces/lan_sync_workspace.dart';
 import 'package:gatomix/ui/workspaces/livedj_workspace.dart';
 
 /// Entrada de DjIphone. No es lib/main.dart.
-/// Pantallas: Automix, Live DJ, Masterizar, LAN Sync, Laboratorio.
-/// Índices iguales al player de escritorio (0, 5, 1, 4, 3).
+/// Pantallas: AutomixDj (Live DJ), Mix con Letra (Automix), Masterizar,
+/// Laboratorio, Comparte Musica (LAN Sync). 3.1.70: solo cambian nombres
+/// visibles y orden; indices iguales al player de escritorio (5, 0, 1, 3, 4).
 class DjIphoneRouter extends Notifier<int> {
   // 3.1.62: abre siempre en Live DJ, igual que escritorio.
   @override
@@ -403,15 +404,15 @@ class _DjIphoneStage extends ConsumerWidget {
 String _title(int route) {
   switch (route) {
     case 0:
-      return 'Automix';
+      return 'Mix con Letra';
     case 1:
       return 'Masterizar';
     case 3:
       return 'Laboratorio';
     case 4:
-      return 'LAN Sync';
+      return 'Comparte Música';
     case 5:
-      return 'Live DJ';
+      return 'AutomixDj';
     default:
       return 'DiFogo';
   }
@@ -531,11 +532,11 @@ class _DjIphoneNav extends ConsumerWidget {
           ),
         ),
         const AppVersionLabel(),
-        tile(icon: Icons.album, label: 'Automix', route: 0),
-        tile(icon: Icons.radio, label: 'Live DJ', route: 5),
+        tile(icon: Icons.radio, label: 'AutomixDj', route: 5),
+        tile(icon: Icons.album, label: 'Mix con Letra', route: 0),
         tile(icon: Icons.settings, label: 'Masterizar', route: 1),
         tile(icon: Icons.science, label: 'Laboratorio', route: 3),
-        tile(icon: Icons.wifi_tethering, label: 'LAN Sync', route: 4),
+        tile(icon: Icons.wifi_tethering, label: 'Comparte Música', route: 4),
         motor,
       ],
     );

@@ -17,6 +17,7 @@ import '../mobile/music_picker_screen.dart';
 import 'livedj_bpm_badge.dart';
 import 'livedj_artist_card.dart';
 import 'livedj_folder_playlist.dart';
+import 'livedj_spotify_panel.dart';
 import '../../core/audio/cue_preview.dart';
 import '../../core/livedj_next.dart';
 import '../../core/queue_bpm.dart';
@@ -77,6 +78,8 @@ class LiveDjWorkspace extends ConsumerWidget {
       );
     }
     final bool classic = ref.watch(liveDjClassicFolderViewProvider);
+    // 3.1.70: en Modo Spotify el reproductor gana alto en el telefono.
+    final bool spotify = ref.watch(liveDjSpotifyModeProvider);
     final bool hasQueue = ref.watch(
       liveDjProvider.select((s) => s.queue.isNotEmpty),
     );
@@ -108,7 +111,7 @@ class LiveDjWorkspace extends ConsumerWidget {
             child: Column(
               children: [
                 Expanded(
-                  flex: compact ? 5 : 5,
+                  flex: compact ? (spotify ? 7 : 5) : 5,
                   child: const LiveDjPlayerPanel(),
                 ),
                 const Divider(height: 1, color: Colors.white10),
@@ -116,7 +119,7 @@ class LiveDjWorkspace extends ConsumerWidget {
                 // Carpeta" ni el Cartridge vacio; la cola aparece al sonar.
                 if (compact || classic || hasQueue)
                   Expanded(
-                    flex: compact ? 6 : 5,
+                    flex: compact ? (spotify ? 5 : 6) : 5,
                     child: !compact && !classic
                         ? const LiveDjCartridgePanel()
                         : compact
@@ -414,6 +417,10 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
 
     final isMixBypass = state.currentMixMode == LiveDjMixMode.longBypass;
     final mixFormula = ref.watch(mixFormulaProvider);
+    // 3.1.70: Modo Spotify por defecto (las pruebas con compactOverride
+    // siguen viendo la consola clasica).
+    final bool spotify =
+        widget.compactOverride == null && ref.watch(liveDjSpotifyModeProvider);
     final String? nextName = _nextLabel.text(
       radioOn: state.radioOn,
       radioNextPath: state.radioNextPath,
@@ -760,7 +767,9 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                     ),
                   ),
                   child: Icon(
-                    isShuffle ? Icons.shuffle : Icons.format_list_numbered,
+                    isShuffle
+                        ? Icons.shuffle_rounded
+                        : Icons.format_list_numbered,
                     size: 16,
                     color: isShuffle
                         ? const Color(0xFFFF007F)
@@ -921,7 +930,9 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                     ),
                   ),
                   child: Icon(
-                    isShuffle ? Icons.shuffle : Icons.format_list_numbered,
+                    isShuffle
+                        ? Icons.shuffle_rounded
+                        : Icons.format_list_numbered,
                     size: 26,
                     color: isShuffle
                         ? const Color(0xFFFF007F)
@@ -1110,7 +1121,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
             child: Row(
               children: [
                 GatoMixMobileModeBar(
-                  title: 'Live DJ',
+                  title: 'AutomixDj',
                   accent: GatoMixTheme.syncActive,
                   open: menuOpen,
                   expand: false,
@@ -1137,6 +1148,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                     ),
                   ),
                 ),
+                const LiveDjSpotifyToggle(),
                 Expanded(child: routingBar),
               ],
             ),
@@ -1153,11 +1165,14 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                 onAirBadge,
                 const SizedBox(width: 15),
                 Expanded(child: studioTitle),
+                const LiveDjSpotifyToggle(),
               ],
             ),
           ),
         Expanded(
-          child: compact
+          child: spotify
+              ? LiveDjSpotifyPanel(compact: compact)
+              : compact
               ? Padding(
                   padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
                   child: DecoratedBox(
@@ -1508,11 +1523,15 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                     ),
                     const SizedBox(width: 4),
                   ],
-                  const Icon(Icons.shuffle, color: Colors.pinkAccent, size: 18),
+                  const Icon(
+                    Icons.queue_music_rounded,
+                    color: Colors.pinkAccent,
+                    size: 18,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      "CARTRIDGE (${shown.length})",
+                      "COLA DE REPRODUCCIÓN (${shown.length})",
                       style: const TextStyle(
                         color: Colors.pinkAccent,
                         fontWeight: FontWeight.bold,
@@ -1599,7 +1618,7 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                   child: Text(
                     radioOn
                         ? "RADIO ▸ eligiendo…"
-                        : "CARTRIDGE VACÍO\nCola de emisión sin pistas.",
+                        : "COLA DE REPRODUCCIÓN VACÍA\nElige una estación o agrega canciones.",
                     textAlign: TextAlign.center,
                     style: const TextStyle(color: Colors.white24, fontSize: 12),
                   ),

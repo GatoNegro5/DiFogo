@@ -1560,7 +1560,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             GatoMixMobileModeBar(
-                              title: 'Automix',
+                              title: 'Mix con Letra',
                               accent: GatoMixTheme.deckA,
                               open: menuOpen,
                               expand: false,
@@ -1579,7 +1579,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           GatoMixMobileModeBar(
-                            title: 'Automix',
+                            title: 'Mix con Letra',
                             accent: GatoMixTheme.deckA,
                             open: menuOpen,
                             expand: false,

@@ -128,6 +128,9 @@ class VibeHubState {
   );
 }
 
+/// 3.1.70: cada cuantos segundos se guarda el segundo de la estacion.
+const int kStationSaveEverySec = 5;
+
 class VibeHubNotifier extends Notifier<VibeHubState> {
   String _path() => debugVibeHubStatePath ?? automixStatePath();
 
@@ -640,6 +643,43 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     await _saveStations();
   }
 
+  int _lastTickSaveMs = -1;
+
+  /// 3.1.70: guarda en la sesion activa la pista, el segundo y la cola que
+  /// suenan (pausa, o cada [kStationSaveEverySec] segundos). Solo si la
+  /// pista es de la estacion: otra musica en Live DJ no la pisa.
+  Future<void> notePlaybackTick(
+    String? current,
+    int positionMs,
+    List<String> queue, {
+    bool force = false,
+  }) async {
+    if (_loading || current == null) return;
+    final GenreSessionDoc d = _stationsDoc;
+    final String? key = d.active;
+    final GenreSession? s = key == null ? null : d.stations[key];
+    if (key == null || s == null) return;
+    final String k = stationPathKey(current);
+    final bool mine =
+        (s.currentTrackPath != null &&
+            stationPathKey(s.currentTrackPath!) == k) ||
+        s.remainingQueuePaths.any((String p) => stationPathKey(p) == k);
+    if (!mine) return;
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    if (!force &&
+        _lastTickSaveMs >= 0 &&
+        now - _lastTickSaveMs < kStationSaveEverySec * 1000) {
+      return;
+    }
+    _lastTickSaveMs = now;
+    d.stations[key] = s.copyWith(
+      currentTrackPath: current,
+      positionMs: positionMs < 0 ? 0 : positionMs,
+      remainingQueuePaths: List<String>.from(queue),
+    );
+    await _saveStations();
+  }
+
   void _ensureTracker() {
     if (_tracking) return;
     _tracking = true;
@@ -652,6 +692,32 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
             for (final File f in ref.read(liveDjProvider).queue) f.path,
           ]),
         );
+      },
+    );
+    // 3.1.70: pausa y segundo a disco (con limite), para volver al genero
+    // o reabrir la app en la misma pista y segundo.
+    void tick({required bool force}) {
+      final LiveDjState s = ref.read(liveDjProvider);
+      unawaited(
+        notePlaybackTick(
+          s.currentTrackPath,
+          s.position.inMilliseconds,
+          <String>[for (final File f in s.queue) f.path],
+          force: force,
+        ),
+      );
+    }
+
+    ref.listen<bool>(liveDjProvider.select((LiveDjState s) => s.isPlaying), (
+      bool? prev,
+      bool next,
+    ) {
+      if (prev == true && !next) tick(force: true);
+    });
+    ref.listen<int>(
+      liveDjProvider.select((LiveDjState s) => s.position.inSeconds),
+      (int? prev, int next) {
+        if (prev != next) tick(force: false);
       },
     );
   }
