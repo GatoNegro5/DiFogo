@@ -6,6 +6,7 @@ import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../core/exact_mix.dart';
 import '../core/gatomix_store.dart';
+import '../core/library_guard.dart';
 import '../core/master_skip.dart';
 import '../core/phrase_grid.dart';
 import '../core/queue_bpm.dart';
@@ -72,6 +73,17 @@ class MasterTrack {
       stopped: true,
     );
 
+    // 3.1.72: masterizar reescribe el audio en su lugar: nunca dentro de la
+    // biblioteca protegida (ReGenial).
+    if (libraryWriteBlocked(path, what: 'MasterTrack')) {
+      return MasterOutcome(
+        path: path,
+        trimHeadMs: 0,
+        lyric: null,
+        detail: 'BIBLIOTECA SOLO LECTURA: sin cambios',
+      );
+    }
+
     onStage?.call('METADATA_CLEANUP');
     final String oldPath = path;
     var current = await ref
@@ -99,7 +111,9 @@ class MasterTrack {
     }
     if (earlyPlan == AnalysisPlan.retag) {
       final double oldBpm = readTbpmSync(current);
-      final double neu = await rust_dsp.autoDetectAndInjectBpm(inputPath: current);
+      final double neu = await rust_dsp.autoDetectAndInjectBpm(
+        inputPath: current,
+      );
       try {
         await rewriteDurationTag(current);
       } catch (e) {
@@ -121,8 +135,9 @@ class MasterTrack {
       );
     }
 
-    final int durMs = (await rust_dsp.getAudioDurationMs(inputPath: current))
-        .toInt();
+    final int durMs = (await rust_dsp.getAudioDurationMs(
+      inputPath: current,
+    )).toInt();
     final bool mega = lyricLooksMegamix(
       current.replaceAll(r"\\", "/").split("/").last,
       durMs,
@@ -316,6 +331,14 @@ class MasterTrack {
 
   /// Respalda una vez en `.gatomix_original/` y reescribe solo el TLEN.
   static Future<TlenReport> rewriteDurationTag(String path) async {
+    if (libraryWriteBlocked(path, what: 'TLEN')) {
+      return const TlenReport(
+        audioMs: 0,
+        tlenMs: null,
+        mismatch: false,
+        wrote: false,
+      );
+    }
     await _ensureBackup(path);
     return TlenReport.parse(await rust_dsp.rewriteTlen(inputPath: path));
   }
@@ -339,8 +362,9 @@ class MasterTrack {
       await _mark(path, 'GMX_LYR_CHECK', 'SKIP');
       return (mark: 'SKIP', reason: skip);
     }
-    final int durationMs = (await rust_dsp.getAudioDurationMs(inputPath: path))
-        .toInt();
+    final int durationMs = (await rust_dsp.getAudioDurationMs(
+      inputPath: path,
+    )).toInt();
     final worker = ref.read(nlpWorkerProvider);
     final int? voice = await worker.probeVoiceOnsetMs(path);
     final LyricTimingVerdict v = checkLyricTiming(
@@ -487,6 +511,9 @@ class MasterTrack {
 
   /// Devuelve el audio original y deshace el desplazamiento de letra y cues.
   static Future<void> restore(WidgetRef ref, String mp3Path) async {
+    if (libraryWriteBlocked(mp3Path, what: 'Restore')) {
+      throw Exception('Biblioteca de solo lectura: no se restaura en ella');
+    }
     final File live = File(mp3Path);
     final File backup = File(
       '${live.parent.path}${Platform.pathSeparator}.gatomix_original${Platform.pathSeparator}${live.uri.pathSegments.last}',
@@ -540,6 +567,7 @@ class MasterTrack {
   }
 
   static Future<void> _mark(String path, String key, String value) async {
+    if (libraryWriteBlocked(path, what: key)) return;
     try {
       await rust_dsp.setGmxMark(inputPath: path, key: key, value: value);
     } catch (e) {
@@ -733,8 +761,9 @@ class MasterTrack {
     final db = ref.read(dbServiceProvider);
     final existing = await db.getTrackMetadata(path);
     final bool isManual = existing?.isManualCue ?? false;
-    final int physical = (await rust_dsp.getAudioDurationMs(inputPath: path))
-        .toInt();
+    final int physical = (await rust_dsp.getAudioDurationMs(
+      inputPath: path,
+    )).toInt();
     int leadMs = 0;
     int tailMs = 0;
     try {

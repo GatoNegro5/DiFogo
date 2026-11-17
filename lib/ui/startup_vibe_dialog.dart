@@ -64,6 +64,9 @@ Future<void> showStartupVibeFlow(
       savedChecked: (String k) => hub.stationSession(k)?.subGenresChecked,
       initialStation: hub.savedActiveStation(),
       onChanged: (StationPick? p) => last = p,
+      activeStation: ref.read(vibeHubProvider).activeStation,
+      playing: ref.read(stationLivePlayingProvider),
+      onTogglePause: hub.toggleStationPause,
     ),
   );
   // 3.1.67: salir del selector (fuera del cuadro o Atras) tras tocar una
@@ -133,9 +136,19 @@ class StationPickerDialog extends StatefulWidget {
     this.savedChecked,
     this.initialStation,
     this.onChanged,
+    this.activeStation,
+    this.playing = false,
+    this.onTogglePause,
   });
 
   final List<GenreStation> stations;
+
+  /// 3.1.72: estacion que suena (su Play muestra ⏸) y si esta sonando.
+  final String? activeStation;
+  final bool playing;
+
+  /// 3.1.72: ⏸/▶ de la estacion que suena sin cerrar el selector.
+  final Future<void> Function()? onTogglePause;
 
   /// Sub-generos que el usuario dejo en visto la ultima vez (si hay).
   final List<String>? Function(String key)? savedChecked;
@@ -157,6 +170,7 @@ class _StationPickerDialogState extends State<StationPickerDialog> {
   // en _checks y no se tocan al minimizar.
   String? _open;
   bool _empty = false;
+  late bool _playing = widget.playing;
   late final StationChecks _checks = StationChecks(widget.stations)
     ..seed(
       key: widget.initialStation,
@@ -180,6 +194,24 @@ class _StationPickerDialogState extends State<StationPickerDialog> {
   StationPick? _pick() {
     final MapEntry<String, List<String>>? p = _checks.pick();
     return p == null ? null : StationPick(p.key, p.value);
+  }
+
+  /// 3.1.72: Play redondo de una estacion: la que suena se pausa o
+  /// reanuda aqui; otra suena ya en Shuffle con sus vistos (o su ultima
+  /// sesion, o todo) y la anterior queda guardada donde iba.
+  Future<void> _tapStation(GenreStation s) async {
+    final Future<void> Function()? toggle = widget.onTogglePause;
+    if (s.key == widget.activeStation && toggle != null) {
+      await toggle();
+      if (mounted) setState(() => _playing = !_playing);
+      return;
+    }
+    final List<String> subs = stationTapSubs(s, <String>[
+      for (final String g in s.subGenres)
+        if (_checks.isOn(s.key, g)) g,
+    ], widget.savedChecked?.call(s.key));
+    if (subs.isEmpty) return;
+    Navigator.pop(context, StationPick(s.key, subs));
   }
 
   /// Play de arriba y de abajo: suena lo marcado (o retoma su cola); sin
@@ -241,7 +273,13 @@ class _StationPickerDialogState extends State<StationPickerDialog> {
                       contentPadding: const EdgeInsets.only(left: 16, right: 4),
                       selected: s.key == _open,
                       selectedTileColor: GatoMixTheme.surfaceHover,
-                      leading: const Icon(Icons.radio, color: _vibeNeon),
+                      // 3.1.72: Play/Pausa dinamico (antes, icono de radio).
+                      leading: StationPlayButton(
+                        key: Key('station-play-${s.key}'),
+                        playing: s.key == widget.activeStation && _playing,
+                        label: s.title,
+                        onTap: () => _tapStation(s),
+                      ),
                       title: Text(
                         s.title,
                         style: const TextStyle(

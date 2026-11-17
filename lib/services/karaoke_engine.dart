@@ -7,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
 
+import '../core/library_guard.dart';
 import '../providers/pipeline_provider.dart' show HeavyWorkGate;
 
 /// Karaoke IA 100 % en proceso (Rust + ONNX, modelo MDX-Net/UVR).
@@ -144,7 +145,8 @@ class KaraokeEngine {
       }
       final String k = karaokePathFor(p);
       // 3.1.08: un _K que llega al tope de 30:00 se revisa por duracion en run().
-      if (usableInstrumental(k, p) && !needsDurationCheck(File(k).lengthSync())) {
+      if (usableInstrumental(k, p) &&
+          !needsDurationCheck(File(k).lengthSync())) {
         continue;
       }
       out.add(p);
@@ -185,6 +187,8 @@ class KaraokeEngine {
         final label = files.length > 1
             ? '(${i + 1}/${files.length}) $name'
             : name;
+        // 3.1.72: el _K iria junto al audio: nunca en la biblioteca.
+        if (libraryWriteBlocked(src, what: 'Karaoke')) continue;
         final (KaraokeWork work, int? srcMs) = await _decide(src);
         if (work == KaraokeWork.done) continue;
         onStatus?.call('Analizando: $label');

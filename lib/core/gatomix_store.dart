@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'audio_path.dart';
+import 'library_guard.dart';
 
 /// Un solo JSON por carpeta: `.gatomix.json`.
 ///
@@ -96,10 +97,36 @@ class GatomixStore {
   /// Cierto si el documento de [dir] ya se leyó (o se escribió) en este proceso.
   static bool holdsDocument(String dir) => _docs.containsKey(dir);
 
-  static File fileOf(String dir) => File('$dir$_sep$gatomixStoreName');
+  /// 3.1.72: dentro de la biblioteca protegida el documento vive en el
+  /// espejo local; fuera, junto a la carpeta como siempre.
+  static File fileOf(String dir) => isLibraryPath(dir)
+      ? libraryMirrorFile(dir, gatomixStoreName)
+      : legacyFileOf(dir);
+
+  /// `.gatomix.json` dentro de la carpeta (en la biblioteca: solo lectura).
+  static File legacyFileOf(String dir) => File('$dir$_sep$gatomixStoreName');
+
+  /// 3.1.72: archivo a LEER: el espejo, o el `.gatomix.json` viejo de la
+  /// carpeta si el espejo aun no existe (nunca se borra ni se reescribe).
+  static File readFileOf(String dir) {
+    final File f = fileOf(dir);
+    if (f.existsSync() || !isLibraryPath(dir)) return f;
+    final File old = legacyFileOf(dir);
+    return old.existsSync() ? old : f;
+  }
+
+  /// Cierto si [dir] tiene documento (espejo o `.gatomix.json` viejo).
+  static bool hasDocument(String dir) =>
+      fileOf(dir).existsSync() || legacyFileOf(dir).existsSync();
 
   static bool migrate(String dir) {
     if (dir.isEmpty || _migratedClean.contains(dir)) return false;
+    // 3.1.72: en la biblioteca no se migra ni se borra nada; los JSON
+    // viejos se siguen leyendo con _legacySection.
+    if (isLibraryPath(dir)) {
+      _migratedClean.add(dir);
+      return false;
+    }
     final Directory folder = Directory(dir);
     if (!folder.existsSync()) return false;
     final List<File> pending = <File>[];
@@ -232,7 +259,7 @@ class GatomixStore {
     migrate(dir);
     Map<String, dynamic>? doc = _docs[dir];
     if (doc == null) {
-      final File f = fileOf(dir);
+      final File f = readFileOf(dir);
       Map<String, dynamic> read = <String, dynamic>{'schema': 1};
       if (await f.exists()) {
         try {
@@ -269,7 +296,7 @@ class GatomixStore {
       }
       if (await dest.exists()) await dest.delete();
       await tmp.rename(dest.path);
-      hideOnWindows(dest.path);
+      if (!isLibraryPath(dir)) hideOnWindows(dest.path);
       _docs[dir] = doc;
       _migratedClean.add(dir);
       debugDiskWrites++;
@@ -459,7 +486,7 @@ class GatomixStore {
   static Map<String, dynamic>? _read(String dir) {
     final Map<String, dynamic>? hit = _docs[dir];
     if (hit != null) return hit;
-    final File f = fileOf(dir);
+    final File f = readFileOf(dir);
     if (!f.existsSync()) return <String, dynamic>{'schema': 1};
     try {
       debugDiskReads++;
@@ -491,7 +518,7 @@ class GatomixStore {
       }
       if (dest.existsSync()) dest.deleteSync();
       tmp.renameSync(dest.path);
-      hideOnWindows(dest.path);
+      if (!isLibraryPath(dir)) hideOnWindows(dest.path);
       _docs[dir] = doc;
       _migratedClean.add(dir);
       debugDiskWrites++;
@@ -744,9 +771,14 @@ void hideOnWindows(String path) {
 
 /// Un solo `.gatomix.log` por carpeta. Al pasar ~200 KB se queda con la cola.
 class GatomixLog {
+  /// 3.1.72: en la biblioteca el log va al espejo local.
+  static File fileOf(String dir) => isLibraryPath(dir)
+      ? libraryMirrorFile(dir, gatomixLogName)
+      : File('$dir${Platform.pathSeparator}$gatomixLogName');
+
   static void append(String dir, String line) {
     try {
-      final File f = File('$dir${Platform.pathSeparator}$gatomixLogName');
+      final File f = fileOf(dir);
       final String prev = f.existsSync() ? f.readAsStringSync() : '';
       _write(f, '$prev${DateTime.now().toIso8601String()} $line\n');
     } catch (_) {}
@@ -757,7 +789,7 @@ class GatomixLog {
       if (!old.existsSync()) return;
       final String text = old.readAsStringSync();
       if (text.isEmpty) return;
-      final File f = File('$dir${Platform.pathSeparator}$gatomixLogName');
+      final File f = fileOf(dir);
       final String prev = f.existsSync() ? f.readAsStringSync() : '';
       final String name = old.uri.pathSegments.last;
       _write(f, '$prev--- $name ---\n$text');

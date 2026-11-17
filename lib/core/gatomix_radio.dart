@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'audio_path.dart';
 import 'gatomix_store.dart';
+import 'library_guard.dart';
 import 'livedj_order.dart';
 import 'mode_session.dart';
 import 'queue_bpm.dart';
@@ -417,7 +418,10 @@ RadioResolve radioResolveNext({
         needsAssemble: false,
       );
     }
-    memory = memory.putPlan(key, synced.plan.copy(position: synced.plan.order.length));
+    memory = memory.putPlan(
+      key,
+      synced.plan.copy(position: synced.plan.order.length),
+    );
   }
   if (!allowRebuild) {
     return RadioResolve(
@@ -467,7 +471,9 @@ RadioResolve radioResolveNext({
   );
   return RadioResolve(
     next: next,
-    memory: next == null ? memory : memory.putPlan(key, _alignPlan(fresh.plan, next)),
+    memory: next == null
+        ? memory
+        : memory.putPlan(key, _alignPlan(fresh.plan, next)),
     rebuilt: true,
     followedPlan: false,
     needsAssemble: false,
@@ -867,12 +873,22 @@ List<String> _strings(Object? raw) {
 }
 
 class GatomixRadio {
-  static File fileIn(String musicRoot) =>
+  /// 3.1.72: con la raiz dentro de la biblioteca protegida, la memoria de
+  /// la radio vive en el espejo local; el archivo viejo de la raiz solo se
+  /// lee como semilla.
+  static File fileIn(String musicRoot) => isLibraryPath(musicRoot)
+      ? libraryMirrorFile(musicRoot, '_$gatomixRadioName')
+      : legacyFileIn(musicRoot);
+
+  /// `LiveDj_Radio.json` en la raiz (en la biblioteca: solo lectura).
+  static File legacyFileIn(String musicRoot) =>
       File('$musicRoot${Platform.pathSeparator}$gatomixRadioName');
 
   /// Copia `.gatomix_radio.json` a `LiveDj_Radio.json`, verifica y solo
   /// entonces borra el viejo.
   static void _adoptLegacyName(String musicRoot) {
+    // 3.1.72: en la biblioteca no se copia ni se borra nada.
+    if (isLibraryPath(musicRoot)) return;
     final String sep = Platform.pathSeparator;
     final File neu = fileIn(musicRoot);
     final File old = File('$musicRoot$sep$gatomixRadioLegacyName');
@@ -962,8 +978,19 @@ class GatomixRadio {
     _adoptLegacyName(musicRoot);
     final File f = fileIn(musicRoot);
     RadioMemory mem = RadioMemory.empty;
+    bool seeded = false;
     if (f.existsSync()) {
       mem = _read(f) ?? RadioMemory.empty;
+    } else if (isLibraryPath(musicRoot)) {
+      // 3.1.72: semilla de solo lectura desde el archivo viejo de la raiz.
+      final File old = legacyFileIn(musicRoot);
+      if (old.existsSync()) {
+        final RadioMemory? got = _read(old);
+        if (got != null) {
+          mem = got;
+          seeded = true;
+        }
+      }
     }
     final List<String> history = List<String>.from(mem.history);
     final List<String> pairs = List<String>.from(mem.carriedPairs);
@@ -1011,7 +1038,7 @@ class GatomixRadio {
       lastPath: lastPath,
     );
     if (!hasSection && legacy.isEmpty) {
-      return f.existsSync() ? mem : RadioMemory.empty;
+      return f.existsSync() || seeded ? mem : RadioMemory.empty;
     }
     save(musicRoot, mem);
     final RadioMemory? back = _read(fileIn(musicRoot));
@@ -1024,6 +1051,7 @@ class GatomixRadio {
       if (left != null) return back;
     }
     for (final File old in legacy) {
+      if (isLibraryPath(old.path)) continue;
       try {
         if (old.existsSync()) old.deleteSync();
       } catch (_) {}
@@ -1034,8 +1062,9 @@ class GatomixRadio {
   static void save(String musicRoot, RadioMemory mem, {String? activeKey}) {
     if (musicRoot.isEmpty) return;
     try {
+      final bool lib = isLibraryPath(musicRoot);
       final Directory dir = Directory(musicRoot);
-      if (!dir.existsSync()) dir.createSync(recursive: true);
+      if (!lib && !dir.existsSync()) dir.createSync(recursive: true);
       final File dest = fileIn(musicRoot);
       final String text = jsonEncode(mem.toJson(activeKey: activeKey));
       final File tmp = File('${dest.path}.tmp');
@@ -1048,23 +1077,27 @@ class GatomixRadio {
       }
       if (dest.existsSync()) dest.deleteSync();
       tmp.renameSync(dest.path);
-      hideOnWindows(dest.path);
+      if (!lib) hideOnWindows(dest.path);
     } catch (_) {}
   }
 
   /// Escritura fuera del hilo que está sonando. No usa `writeAsStringSync`.
-  static Future<void> saveAsync(String musicRoot, Map<String, dynamic> doc) async {
+  static Future<void> saveAsync(
+    String musicRoot,
+    Map<String, dynamic> doc,
+  ) async {
     if (musicRoot.isEmpty) return;
     try {
+      final bool lib = isLibraryPath(musicRoot);
       final Directory dir = Directory(musicRoot);
-      if (!await dir.exists()) await dir.create(recursive: true);
+      if (!lib && !await dir.exists()) await dir.create(recursive: true);
       final String text = jsonEncode(doc);
       final File dest = fileIn(musicRoot);
       final File tmp = File('${dest.path}.tmp');
       await tmp.writeAsString(text, flush: true);
       if (await dest.exists()) await dest.delete();
       await tmp.rename(dest.path);
-      if (Platform.isWindows) {
+      if (!lib && Platform.isWindows) {
         try {
           await Process.run('attrib', <String>['+h', dest.path]);
         } catch (_) {}

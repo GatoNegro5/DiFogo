@@ -3,10 +3,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/audio_path.dart' show sameAudioPath;
+import '../../core/genre_stations.dart' show stationTitleOf;
 import '../../core/net/artist_info.dart';
 import '../../providers/livedj_provider.dart';
 import '../../providers/mix_formula.dart';
 import '../../providers/theme_provider.dart';
+import '../../providers/vibe_hub_provider.dart';
 
 /// 3.1.70: AutomixDj abre en Modo Spotify (portada grande, artista, barra
 /// de progreso y controles limpios). false = vista clasica de consola.
@@ -37,6 +40,31 @@ String spotifyMixLabel(MixFormula f) {
     case MixFormula.stealthGap:
       return 'STEALTH';
   }
+}
+
+/// 3.1.72: badge de la estacion (o genero) que suena.
+String spotifyStationBadge(String? stationKey) => stationKey == null
+    ? 'BIBLIOTECA LOCAL'
+    : stationTitleOf(stationKey).toUpperCase();
+
+/// 3.1.72: NEXT MIX: la proxima pista y la cuenta regresiva al punto de
+/// mezcla (customMixOutMs) de la que suena.
+String spotifyNextMixLabel(LiveDjState s) {
+  String? next;
+  for (final File f in s.queue) {
+    if (s.currentTrackPath != null &&
+        sameAudioPath(f.path, s.currentTrackPath)) {
+      continue;
+    }
+    next = f.path;
+    break;
+  }
+  if (next == null) return 'NEXT MIX · sin siguiente';
+  final String title = spotifyTrackLabels(next).title;
+  final int mixOut = s.customMixOutMs;
+  final int left = mixOut > 0 ? mixOut - s.position.inMilliseconds : -1;
+  if (s.currentTrackPath == null || left < 0) return 'NEXT MIX · $title';
+  return 'NEXT MIX en ${_clock(Duration(milliseconds: left))} · $title';
 }
 
 String _clock(Duration d) {
@@ -75,6 +103,34 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
     final double value =
         _drag ?? pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
     final LiveDjNotifier dj = ref.read(liveDjProvider.notifier);
+    final String? station = ref.watch(
+      vibeHubProvider.select((VibeHubState h) => h.activeStation),
+    );
+
+    Widget mixChip() => GestureDetector(
+      key: const Key('spotify-mix-chip'),
+      onTap: () {
+        final MixFormula next =
+            MixFormula.values[(formula.index + 1) % MixFormula.values.length];
+        ref.read(mixFormulaProvider.notifier).state = next;
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: GatoMixTheme.syncActive),
+        ),
+        child: Text(
+          spotifyMixLabel(formula),
+          style: const TextStyle(
+            color: GatoMixTheme.syncActive,
+            fontSize: 10,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.2,
+          ),
+        ),
+      ),
+    );
 
     Widget info(double width) => SizedBox(
       width: width,
@@ -82,6 +138,18 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
+          // 3.1.72 Spotify Pro: tarjeta NOW PLAYING.
+          const Text(
+            'NOW PLAYING',
+            key: Key('spotify-now-playing'),
+            style: TextStyle(
+              color: Color(0xFFFF5722),
+              fontSize: 10,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 2,
+            ),
+          ),
+          const SizedBox(height: 2),
           Text(
             labels.title,
             key: const Key('spotify-title'),
@@ -102,29 +170,33 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
             style: const TextStyle(color: Colors.white60, fontSize: 15),
           ),
           const SizedBox(height: 8),
-          GestureDetector(
-            key: const Key('spotify-mix-chip'),
-            onTap: () {
-              final MixFormula next = MixFormula
-                  .values[(formula.index + 1) % MixFormula.values.length];
-              ref.read(mixFormulaProvider.notifier).state = next;
-            },
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: GatoMixTheme.syncActive),
-              ),
-              child: Text(
-                spotifyMixLabel(formula),
-                style: const TextStyle(
-                  color: GatoMixTheme.syncActive,
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.2,
+          // 3.1.72 Spotify Pro: badge de estacion/genero + efecto de mezcla.
+          Wrap(
+            key: const Key('spotify-badge'),
+            spacing: 6,
+            runSpacing: 4,
+            children: <Widget>[
+              Container(
+                key: const Key('spotify-station-badge'),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0x22FF5722),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFFF5722)),
+                ),
+                child: Text(
+                  spotifyStationBadge(station),
+                  maxLines: 1,
+                  style: const TextStyle(
+                    color: Color(0xFFFF5722),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 1.2,
+                  ),
                 ),
               ),
-            ),
+              mixChip(),
+            ],
           ),
           const SizedBox(height: 6),
           SliderTheme(
@@ -180,7 +252,7 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
               ),
               IconButton(
                 key: const Key('spotify-play'),
-                iconSize: 56,
+                iconSize: 68,
                 onPressed: canToggle ? dj.togglePlayPause : null,
                 icon: Icon(
                   s.isPlaying
@@ -200,6 +272,30 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
               ),
             ],
           ),
+          // 3.1.72: NEXT MIX con cuenta regresiva al punto de mezcla.
+          Row(
+            children: <Widget>[
+              const Icon(
+                Icons.timer_outlined,
+                size: 14,
+                color: Color(0xFFFF5722),
+              ),
+              const SizedBox(width: 4),
+              Expanded(
+                child: Text(
+                  spotifyNextMixLabel(s),
+                  key: const Key('spotify-next-mix'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
@@ -208,7 +304,7 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
       builder: (BuildContext context, BoxConstraints c) {
         final double w = c.maxWidth.isFinite ? c.maxWidth : 400;
         final double h = c.maxHeight.isFinite ? c.maxHeight : 400;
-        const double infoH = 210;
+        const double infoH = 262;
         final bool wide = w >= 520;
         final double colSide = (h - infoH - 24).clamp(0.0, w - 48);
         // Telefono con poco alto: portada al lado en vez de encima.

@@ -1379,6 +1379,35 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     _saveSnapshot();
   }
 
+  /// 3.1.72 Radio Descubrimiento: intercala [files] (temas nuevos del
+  /// curador, en su bandeja fuera de la biblioteca) en la cola, uno cada
+  /// [every] pistas (2 locales y 1 nueva), sin re-barajar el resto ni tocar
+  /// la pista armada en el deck. Devuelve cuantos entraron.
+  int interleaveDiscovery(List<File> files, {int every = 3}) {
+    final List<File> q = List<File>.from(state.queue);
+    final List<File> fresh = <File>[];
+    for (final File f in files) {
+      if (isKaraokeAudioPath(f.path)) continue;
+      if (q.any((File e) => sameAudioPath(e.path, f.path))) continue;
+      if (fresh.any((File e) => sameAudioPath(e.path, f.path))) continue;
+      if (state.currentTrackPath != null &&
+          sameAudioPath(state.currentTrackPath, f.path)) {
+        continue;
+      }
+      fresh.add(f);
+    }
+    if (fresh.isEmpty) return 0;
+    final int step = every < 1 ? 1 : every;
+    int pos = _liveLockedPrefix() + step - 1;
+    for (final File f in fresh) {
+      if (pos > q.length) pos = q.length;
+      q.insert(pos, f);
+      pos += step;
+    }
+    state = state.copyWith(queue: q);
+    return fresh.length;
+  }
+
   void removeTrack(String path) {
     final newQueue = state.queue
         .where((f) => !sameAudioPath(f.path, path))

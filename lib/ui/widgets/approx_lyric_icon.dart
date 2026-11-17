@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../core/lyric_approx.dart';
+import '../../core/library_guard.dart';
 import '../../core/lyric_files.dart';
 import '../../src/rust/api/core_dsp.dart' as rust_dsp;
 
@@ -48,6 +49,8 @@ Future<bool> confirmApproxLyric(String audioPath) async {
   _cache.remove(f.path);
   final String owner = approxOwnerAudio(audioPath);
   try {
+    // 3.1.72: sin tag GMX_LYR dentro de la biblioteca protegida.
+    if (libraryWriteBlocked(owner, what: 'GMX_LYR')) throw StateError('ro');
     await rust_dsp.setGmxMark(
       inputPath: owner,
       key: 'GMX_LYR',

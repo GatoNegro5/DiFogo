@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 // 🛠️ INYECCIÓN: Uso estricto de la capa HAL
 import '../core/audio_path.dart';
 import '../core/gatomix_store.dart';
+import '../core/library_guard.dart';
 import '../core/hal/platform_strategy.dart';
 
 class DirectoryState {
@@ -177,6 +178,8 @@ class DirectoryNotifier extends Notifier<DirectoryState> {
         );
         if (!validAudioBases.contains(baseName) &&
             !audioCores.contains(lrcAudioCore(baseName))) {
+          // 3.1.72: en la biblioteca protegida no se borra ningun .lrc.
+          if (libraryWriteBlocked(lrc.path, what: 'LRC-purge')) continue;
           try {
             await lrc.delete();
           } catch (_) {}

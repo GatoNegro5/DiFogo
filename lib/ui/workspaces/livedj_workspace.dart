@@ -452,46 +452,9 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
     final titleSize = compact ? 13.0 : 16.0;
     final timeSize = compact ? 14.0 : 18.0;
 
-    // ON AIR Radio: encendido = rojo; apagado = rojo vino (look de apagado).
     final bool radioOn = state.radioOn;
-    final Color radioColor = radioOn
-        ? GatoMixTheme.alertCritical
-        : const Color(0xFF7A2E3E);
-    final onAirBadge = Tooltip(
-      message: radioOn
-          ? 'Radio ENCENDIDA: toma canciones de las carpetas de género. Toca para apagar.'
-          : 'Radio apagada. Toca para encender (la cola queda congelada).',
-      child: GestureDetector(
-        onTap: () => ref.read(liveDjProvider.notifier).toggleRadio(),
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: compact ? 6 : 10,
-            vertical: compact ? 2 : 4,
-          ),
-          decoration: BoxDecoration(
-            color: radioColor.withValues(alpha: radioOn ? 0.1 : 0.05),
-            border: Border.all(color: radioColor),
-            borderRadius: BorderRadius.circular(4),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.sensors, color: radioColor, size: 12),
-              const SizedBox(width: 5),
-              Text(
-                radioOn ? 'APAGA MODO RADIO' : 'PRENDE MODO RADIO',
-                style: TextStyle(
-                  color: radioColor,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 10,
-                ),
-                maxLines: 1,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    // 3.1.72: "PRENDE MODO RADIO" ahora es la Radio Descubrimiento.
+    final Widget onAirBadge = RadioDiscoveryButton(compact: compact);
 
     // Controlador de GÉNERO: visible solo con la Radio encendida.
     // Ningún chip marcado = Todo.
@@ -1463,6 +1426,7 @@ class LiveDjCartridgePanel extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final bool radioOn = ref.watch(liveDjProvider.select((s) => s.radioOn));
+    final bool spotifyQueue = ref.watch(liveDjSpotifyModeProvider);
     final List<String> radioUpcoming = ref.watch(
       liveDjProvider.select((s) => s.radioUpcoming),
     );
@@ -1642,11 +1606,21 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                         leading: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.drag_handle,
-                              color: Colors.white24,
-                              size: 16,
-                            ),
+                            // 3.1.72: Modo Spotify: indicador de play en
+                            // cada fila de la cola (toca la fila para sonar).
+                            if (spotifyQueue)
+                              Icon(
+                                Icons.play_circle_outline_rounded,
+                                key: Key('livedj-queue-play-$index'),
+                                color: const Color(0xFFFF5722),
+                                size: 16,
+                              )
+                            else
+                              const Icon(
+                                Icons.drag_handle,
+                                color: Colors.white24,
+                                size: 16,
+                              ),
                             const SizedBox(width: 6),
                             LiveDjBpmBadge(path: file.path),
                           ],

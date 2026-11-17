@@ -49,6 +49,15 @@ debugStationFeed;
 /// Estacion con menos pistas que esto: el curador busca temas nuevos.
 const int kStationShortTracks = 25;
 
+/// 3.1.72 Solo pruebas: pausa/reanuda falsa del boton Play de la estacion
+/// (sin decks reales).
+@visibleForTesting
+Future<void> Function()? debugStationToggle;
+
+/// 3.1.72 Radio Descubrimiento: 1 tema nuevo cada [kDiscoveryEvery] pistas
+/// de la cola (2 locales y 1 nueva).
+const int kDiscoveryEvery = 3;
+
 String genreSessionsPath() =>
     debugStationSessionsPath ??
     '${sessionDir()}${Platform.pathSeparator}difogo_genre_sessions.json';
@@ -92,9 +101,16 @@ class VibeHubState {
     this.loading = false,
     this.busy = false,
     this.message,
+    this.discoveryOn = false,
   });
 
   final List<VibeGenre> genres;
+
+  /// 3.1.72: 🔥 RADIO DESCUBRIMIENTO (AUTO-NUEVAS). Apagada: solo la
+  /// biblioteca local. Encendida: intercala en la cola de la estacion activa
+  /// temas nuevos del curador, tocados desde su bandeja (fuera de la
+  /// biblioteca); solo entran a la biblioteca con Aceptar.
+  final bool discoveryOn;
 
   /// 3.1.61 Macro-generos (estaciones) armados desde [genres].
   final List<GenreStation> stations;
@@ -117,6 +133,7 @@ class VibeHubState {
     bool? busy,
     String? message,
     bool clearMessage = false,
+    bool? discoveryOn,
   }) => VibeHubState(
     genres: genres ?? this.genres,
     stations: stations ?? this.stations,
@@ -125,6 +142,7 @@ class VibeHubState {
     loading: loading ?? this.loading,
     busy: busy ?? this.busy,
     message: clearMessage ? null : (message ?? this.message),
+    discoveryOn: discoveryOn ?? this.discoveryOn,
   );
 }
 
@@ -439,6 +457,9 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       if (all.length < kStationShortTracks) {
         _feedShortStation(key, subGenres);
       }
+      if (state.discoveryOn) {
+        unawaited(pumpDiscovery().catchError((Object _) => 0));
+      }
       return all.length;
     } finally {
       _loading = false;
@@ -692,6 +713,9 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
             for (final File f in ref.read(liveDjProvider).queue) f.path,
           ]),
         );
+        if (state.discoveryOn && _discoveryDry()) {
+          unawaited(pumpDiscovery().catchError((Object _) => 0));
+        }
       },
     );
     // 3.1.70: pausa y segundo a disco (con limite), para volver al genero
@@ -837,7 +861,105 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
   /// 3.1.69: estacion de la ultima seleccion (la que suena o la guardada);
   /// null la primera vez.
   String? savedActiveStation() => state.activeStation ?? _stationsDoc.active;
+
+  /// 3.1.72: boton Play redondo a la izquierda de cada estacion. Si [key] ya
+  /// es la estacion activa con algo cargado, pausa o reanuda (-1); si no,
+  /// suena esa estacion en Shuffle (playStation congela antes la anterior
+  /// con su pista y segundo) y devuelve sus pistas.
+  Future<int> tapStation(String key, List<String> subGenres) async {
+    final bool loaded =
+        debugStationToggle != null ||
+        ref.read(liveDjProvider).currentTrackPath != null;
+    if (key == state.activeStation && loaded) {
+      await toggleStationPause();
+      return -1;
+    }
+    return playStation(key, subGenres);
+  }
+
+  /// 3.1.72: pausa o reanuda la estacion que suena (Live DJ).
+  Future<void> toggleStationPause() async {
+    final Future<void> Function()? hook = debugStationToggle;
+    if (hook != null) {
+      await hook();
+      return;
+    }
+    if (ref.read(liveDjProvider).currentTrackPath == null) return;
+    await ref.read(liveDjProvider.notifier).togglePlayPause();
+  }
+
+  /// Rutas del curador ya intercaladas por la Radio Descubrimiento.
+  final Set<String> _discoveryUsed = <String>{};
+
+  @visibleForTesting
+  Set<String> get discoveryUsed => _discoveryUsed;
+
+  /// 3.1.72: enciende o apaga la Radio Descubrimiento. Encendida apaga la
+  /// radio de generos vieja (no conviven) e intercala ya los temas nuevos.
+  Future<int> setDiscovery(bool on) async {
+    state = state.copyWith(
+      discoveryOn: on,
+      message: on
+          ? 'Radio Descubrimiento: temas nuevos entre los tuyos'
+          : 'Radio Descubrimiento apagada: solo tu biblioteca',
+    );
+    if (!on) return 0;
+    if (debugStationPlay == null && ref.read(liveDjProvider).radioOn) {
+      await ref.read(liveDjProvider.notifier).toggleRadio();
+    }
+    return pumpDiscovery();
+  }
+
+  Future<int> toggleDiscovery() => setDiscovery(!state.discoveryOn);
+
+  /// Cierto si en las proximas pistas de la cola ya no hay tema nuevo.
+  bool _discoveryDry() {
+    final List<File> q = ref.read(liveDjProvider).queue;
+    for (final File f in q.take(kDiscoveryEvery + 1)) {
+      if (_discoveryUsed.contains(f.path)) return false;
+    }
+    return true;
+  }
+
+  /// 3.1.72: intercala en la cola de Live DJ los temas nuevos del curador de
+  /// la estacion activa (los pendientes de su bandeja y, si faltan, pide
+  /// mas). Los archivos siguen en la bandeja del curador, fuera de la
+  /// biblioteca: nada se escribe en ReGenial sin Aceptar.
+  Future<int> pumpDiscovery() async {
+    if (!state.discoveryOn) return 0;
+    final String? key = state.activeStation ?? _stationsDoc.active;
+    if (key == null) return 0;
+    final List<String> subs =
+        _stationsDoc.stations[key]?.subGenresChecked ?? const <String>[];
+    final List<String> ready = <String>[];
+    if (debugStationFeed == null && debugStationPlay == null) {
+      for (final CuratorEntry e in ref.read(curatorProvider).pending) {
+        if (e.stationId != key || _discoveryUsed.contains(e.file)) continue;
+        if (File(e.file).existsSync()) ready.add(e.file);
+      }
+    }
+    if (ready.length < 2) {
+      for (final String p in await _fetchFeed(key, subs, 2)) {
+        if (!_discoveryUsed.contains(p) && !ready.contains(p)) ready.add(p);
+      }
+    }
+    if (ready.isEmpty || !state.discoveryOn) return 0;
+    _discoveryUsed.addAll(ready);
+    return ref.read(liveDjProvider.notifier).interleaveDiscovery(<File>[
+      for (final String p in ready) File(p),
+    ], every: kDiscoveryEvery);
+  }
 }
+
+/// 3.1.72: Live DJ sonando (para el Play/Pausa de cada estacion). Sin
+/// decks disponibles (p. ej. pruebas sin media_kit) es false.
+final stationLivePlayingProvider = Provider<bool>((ref) {
+  try {
+    return ref.watch(liveDjProvider.select((LiveDjState s) => s.isPlaying));
+  } catch (_) {
+    return false;
+  }
+});
 
 final vibeHubProvider = NotifierProvider<VibeHubNotifier, VibeHubState>(
   VibeHubNotifier.new,

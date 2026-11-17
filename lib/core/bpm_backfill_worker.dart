@@ -9,6 +9,7 @@ import 'analysis_window.dart';
 import 'audio_path.dart';
 import 'bpm_range.dart';
 import 'gatomix_store.dart';
+import 'library_guard.dart';
 import '../services/track_tags.dart';
 
 /// 3.1.14: BPM de las pistas sin medir de la cola, de una en una, mientras
@@ -156,15 +157,25 @@ class BpmBackfillWorker {
   }
 }
 
-/// Mide con Rust (escribe TBPM) y deja en el `.gatomix.json` de la carpeta
-/// el BPM y el mtime posterior a la escritura (como dsp_provider 3.1.11),
-/// para que el escaneo de la carpeta no la vuelva a medir.
+/// Mide con Rust y deja en el `.gatomix.json` de la carpeta el BPM y el
+/// mtime (como dsp_provider 3.1.11), para que el escaneo de la carpeta no la
+/// vuelva a medir.
+///
+/// 3.1.72: dentro de la biblioteca protegida (ReGenial) mide en SOLO
+/// LECTURA (beatGrid, sin escribir TBPM) y el sello va al espejo local.
+/// Fuera de la biblioteca sigue escribiendo TBPM como antes.
 Future<double> measureAndStampBpm(String path) async {
   int durMs = 0;
   try {
     durMs = (await rust_dsp.exactDurationMs(inputPath: path)).toInt();
   } catch (_) {}
   if (!canAnalyzeFull(durMs)) return 0;
+  if (libraryWriteBlocked(path, what: 'TBPM')) {
+    final double bpm = await measureBpmReadOnly(path, durMs);
+    if (bpm > 0) TrackTags.rememberBpm(path, bpm);
+    stampBackfill(path, bpm);
+    return bpm;
+  }
   final double raw = await rust_dsp
       .autoDetectAndInjectBpm(inputPath: path)
       .timeout(analysisTimeout(durMs, const Duration(seconds: 45)));
@@ -173,12 +184,21 @@ Future<double> measureAndStampBpm(String path) async {
   return bpm;
 }
 
+/// 3.1.72: BPM medido en solo lectura (ventana de 30 s desde el 30 %),
+/// sin escribir TBPM. 0 si no se pudo medir.
+Future<double> measureBpmReadOnly(String path, int durMs) async {
+  final int from = durMs > 90000 ? durMs * 3 ~/ 10 : 0;
+  final rust_dsp.BeatGrid g = await rust_dsp
+      .beatGrid(inputPath: path, fromMs: BigInt.from(from), spanSecs: 30)
+      .timeout(const Duration(seconds: 45));
+  return g.ok ? (fixBpmRange(g.bpm) ?? 0) : 0;
+}
+
 void stampBackfill(String path, double bpm) {
   final File file = File(path);
   final String dir = file.parent.path;
   // 3.1.42: sin `.gatomix.json` se crea, pero solo si hay BPM que guardar.
-  if (bpm <= 0 &&
-      !File('$dir${Platform.pathSeparator}$gatomixStoreName').existsSync()) {
+  if (bpm <= 0 && !GatomixStore.hasDocument(dir)) {
     return;
   }
   final int mtime;

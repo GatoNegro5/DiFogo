@@ -61,6 +61,22 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
     setState(() => _open = _open == st.key ? null : st.key);
   }
 
+  /// 3.1.72: Play redondo de la estacion: pausa/reanuda la que suena o
+  /// suena esta en Shuffle (guarda donde quedo la anterior).
+  Future<void> _tapPlay(
+    GenreStation st,
+    VibeHubNotifier n,
+    StationChecks checks,
+  ) async {
+    final List<String> subs = stationTapSubs(st, <String>[
+      for (final String g in st.subGenres)
+        if (checks.isOn(st.key, g)) g,
+    ], n.stationSession(st.key)?.subGenresChecked);
+    _played = true;
+    final int got = await n.tapStation(st.key, subs);
+    if (got > 0) widget.onPlayed?.call();
+  }
+
   /// 3.1.69: la estacion que suena (o la guardada) con sus vistos; la
   /// primera vez, Musica del Momento con todo en visto.
   StationChecks _checksFor(VibeHubState s, VibeHubNotifier n) {
@@ -90,6 +106,7 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
     final VibeHubNotifier n = ref.read(vibeHubProvider.notifier);
     final StationChecks checks = _checksFor(s, n);
     final MapEntry<String, List<String>>? pick = checks.pick();
+    final bool livePlaying = ref.watch(stationLivePlayingProvider);
     _hub = n;
     return Material(
       color: GatoMixTheme.bgPanel,
@@ -162,6 +179,8 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                           station: st,
                           open: st.key == _open,
                           active: st.key == s.activeStation,
+                          playing: st.key == s.activeStation && livePlaying,
+                          onPlay: () => _tapPlay(st, n, checks),
                           master: checks.master(st.key),
                           onTap: () => _select(st),
                           onMaster: () =>
@@ -252,6 +271,8 @@ class _StationCard extends StatelessWidget {
     required this.station,
     required this.open,
     required this.active,
+    required this.playing,
+    required this.onPlay,
     required this.master,
     required this.onTap,
     required this.onMaster,
@@ -260,6 +281,8 @@ class _StationCard extends StatelessWidget {
   final GenreStation station;
   final bool open;
   final bool active;
+  final bool playing;
+  final VoidCallback onPlay;
   final bool master;
   final VoidCallback onTap;
   final VoidCallback onMaster;
@@ -287,10 +310,12 @@ class _StationCard extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
               child: Row(
                 children: <Widget>[
-                  Icon(
-                    active ? Icons.graphic_eq : Icons.radio,
-                    color: _hubNeon,
-                    size: 20,
+                  // 3.1.72: Play/Pausa dinamico (antes, icono de radio).
+                  StationPlayButton(
+                    key: Key('vibe-hub-play-${station.key}'),
+                    playing: playing,
+                    label: station.title,
+                    onTap: onPlay,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -337,6 +362,74 @@ class _StationCard extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 3.1.72: sub-generos con que suena una estacion al tocar su Play: los
+/// que estan en visto; si no hay, los de su ultima sesion; si no, todos.
+List<String> stationTapSubs(
+  GenreStation st,
+  List<String> checked,
+  List<String>? saved,
+) {
+  if (checked.isNotEmpty) return checked;
+  if (saved != null && saved.isNotEmpty) return saved;
+  return List<String>.from(st.subGenres);
+}
+
+/// 3.1.72: boton Play redondo estilo Spotify a la izquierda de cada
+/// estacion. Sin sonar: ▶. Sonando: ⏸ con halo #FF5722.
+class StationPlayButton extends StatelessWidget {
+  const StationPlayButton({
+    super.key,
+    required this.playing,
+    required this.onTap,
+    required this.label,
+    this.size = 38,
+  });
+
+  final bool playing;
+  final VoidCallback onTap;
+  final String label;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    const Color fire = Color(0xFFFF5722);
+    return Tooltip(
+      message: playing ? 'Pausar $label' : 'Reproducir $label en Shuffle',
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 180),
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: playing ? fire : const Color(0x22FF5722),
+              border: Border.all(color: fire, width: 1.5),
+              boxShadow: playing
+                  ? const <BoxShadow>[
+                      BoxShadow(
+                        color: Color(0x99FF5722),
+                        blurRadius: 14,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Icon(
+              playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
+              color: playing ? Colors.black : fire,
+              size: size * 0.62,
             ),
           ),
         ),
@@ -558,6 +651,66 @@ class StationMasterCheck extends StatelessWidget {
                       size: 16,
                     ),
                   ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 3.1.72: nuevo nombre de "PRENDE MODO RADIO".
+const String kRadioDiscoveryLabel = '🔥 RADIO DESCUBRIMIENTO (AUTO-NUEVAS)';
+
+String radioDiscoveryTooltip(bool on) => on
+    ? 'RADIO DESCUBRIMIENTO ENCENDIDA: la estación que suena intercala '
+          'canciones nuevas del curador (1 cada 3) sin abrir la bandeja. '
+          'Suenan desde la bandeja del curador, fuera de tu biblioteca: solo '
+          'entran a ReGenial si pulsas Aceptar. Toca para apagar.'
+    : 'RADIO DESCUBRIMIENTO APAGADA: solo suena tu biblioteca local. Toca '
+          'para que la estación intercale canciones nuevas del curador.';
+
+/// 3.1.72: boton 🔥 RADIO DESCUBRIMIENTO (AUTO-NUEVAS) de AutomixDj.
+class RadioDiscoveryButton extends ConsumerWidget {
+  const RadioDiscoveryButton({super.key, required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bool on = ref.watch(
+      vibeHubProvider.select((VibeHubState s) => s.discoveryOn),
+    );
+    final Color color = on ? const Color(0xFFFF5722) : const Color(0xFF7A2E3E);
+    return Tooltip(
+      message: radioDiscoveryTooltip(on),
+      child: GestureDetector(
+        key: const Key('radio-discovery-toggle'),
+        onTap: () => ref.read(vibeHubProvider.notifier).toggleDiscovery(),
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 6 : 10,
+            vertical: compact ? 2 : 4,
+          ),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: on ? 0.14 : 0.05),
+            border: Border.all(color: color),
+            borderRadius: BorderRadius.circular(4),
+          ),
+          // Telefono: se achica en vez de desbordar la cabecera.
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: compact ? 170 : 260),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                kRadioDiscoveryLabel,
+                style: TextStyle(
+                  color: on ? color : Colors.white54,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 10,
+                ),
+                maxLines: 1,
+              ),
+            ),
           ),
         ),
       ),

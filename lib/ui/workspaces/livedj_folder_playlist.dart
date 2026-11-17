@@ -19,6 +19,7 @@ import '../../providers/theme_provider.dart';
 import '../../services/id3_title_artist.dart';
 import 'livedj_bpm_badge.dart';
 import 'livedj_deck_relevo.dart';
+import '../vibe_hub_view.dart' show RadioDiscoveryButton;
 
 /// Pantalla grande de la canción que está sonando. No usa la carpeta
 /// marcada en el Explorador: sigue `currentTrackPath`.
@@ -205,8 +206,9 @@ class _PlayerPaneState extends ConsumerState<_PlayerPane>
                     : null,
                 icon: Icon(
                   playing ? Icons.pause_circle_filled : Icons.play_circle_fill,
-                  color: const Color(0xFF39FF14)
-                      .withValues(alpha: canToggle ? 1 : 0.28),
+                  color: const Color(
+                    0xFF39FF14,
+                  ).withValues(alpha: canToggle ? 1 : 0.28),
                   size: wide ? 46 : 40,
                 ),
               ),
@@ -599,47 +601,13 @@ Widget _mixMarker(double inset, int mixMs, int durMs) {
   );
 }
 
-class _OnAirBadge extends ConsumerWidget {
+class _OnAirBadge extends StatelessWidget {
   final bool compact;
   const _OnAirBadge({required this.compact});
 
+  // 3.1.72: "PRENDE MODO RADIO" ahora es la Radio Descubrimiento.
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final radioOn = ref.watch(liveDjProvider.select((s) => s.radioOn));
-    final color = radioOn
-        ? GatoMixTheme.alertCritical
-        : const Color(0xFF7A2E3E);
-    return GestureDetector(
-      onTap: () => ref.read(liveDjProvider.notifier).toggleRadio(),
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 6 : 10,
-          vertical: compact ? 2 : 4,
-        ),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: radioOn ? 0.1 : 0.05),
-          border: Border.all(color: color),
-          borderRadius: BorderRadius.circular(4),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.sensors, color: color, size: 12),
-            const SizedBox(width: 5),
-            Text(
-              radioOn ? 'APAGA MODO RADIO' : 'PRENDE MODO RADIO',
-              style: TextStyle(
-                color: color,
-                fontWeight: FontWeight.bold,
-                fontSize: 10,
-              ),
-              maxLines: 1,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) => RadioDiscoveryButton(compact: compact);
 }
 
 class _RadioChips extends ConsumerWidget {

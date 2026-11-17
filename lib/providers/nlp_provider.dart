@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart';
 import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../core/brand_paths.dart';
+import '../core/library_guard.dart';
 import '../core/gatomix_store.dart';
 import '../core/lrc_timeline.dart';
 import '../core/lyric_files.dart';
@@ -334,7 +335,8 @@ class NlpWorker {
       RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
       '.lrc',
     );
-    await File(lrcPath).writeAsString(syncedLyrics);
+    // 3.1.72: en la biblioteca protegida la letra va al espejo local.
+    await lrcWriteFile(audioPath, lrcPath).writeAsString(syncedLyrics);
     await _unmarkAuto(lrcPath); // letra fijada a mano: ya no es automática
 
     // Inyectar el Bounding Box al forzar letra manual
@@ -638,8 +640,9 @@ class NlpWorker {
         id3Album: id3.album,
         durationSec: localSec,
       );
-      final String stem = File(audioPath).uri.pathSegments.last
-          .replaceAll(RegExp(r'\.[A-Za-z0-9]+$'), '');
+      final String stem = File(
+        audioPath,
+      ).uri.pathSegments.last.replaceAll(RegExp(r'\.[A-Za-z0-9]+$'), '');
       final q = approxQuery(artist: id.artist, title: id.title, fileStem: stem);
       if (q.title.isEmpty || localSec <= 0) return false;
       final List<Map<String, dynamic>> pool = <Map<String, dynamic>>[];
@@ -949,7 +952,11 @@ class NlpWorker {
         await writeLrcKeepingBak(lrcPath, choice.fileText);
         await _markAuto(lrcPath);
         if (choice.kind == LyricKind.synced) {
-          await _processVocalBoundingBox(audioPath, choice.body, await _getLocalDurationMs(audioPath));
+          await _processVocalBoundingBox(
+            audioPath,
+            choice.body,
+            await _getLocalDurationMs(audioPath),
+          );
           lastDetail = '';
           return LyricStatus.ok;
         }
@@ -1018,7 +1025,8 @@ LyricFetchOutcome lyricFetchOutcomeFor(LyricStatus status) {
 
 int? _autoBytes(dynamic size) {
   if (size is num) return size.toInt();
-  if (size is Map && size['bytes'] is num) return (size['bytes'] as num).toInt();
+  if (size is Map && size['bytes'] is num)
+    return (size['bytes'] as num).toInt();
   return null;
 }
 

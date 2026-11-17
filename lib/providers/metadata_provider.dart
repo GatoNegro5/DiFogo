@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../core/gatomix_store.dart';
+import '../core/library_guard.dart';
 import '../core/id3_names.dart';
 import '../core/track_name_clean.dart';
 import '../services/id3_title_artist.dart';
@@ -28,6 +29,8 @@ class MetadataWorker {
     Function(String)? onCorrupt,
     bool Function()? isCancelled,
   }) async {
+    // 3.1.72: no renombra ni purga dentro de la biblioteca protegida.
+    if (libraryWriteBlocked(directoryPath, what: 'Metadata')) return;
     final dir = Directory(directoryPath);
     if (!dir.existsSync()) return;
 
@@ -79,8 +82,9 @@ class MetadataWorker {
 
         if (onCorrupt != null) {
           // Limpiamos el nombre para entregarle al Scraper de YouTube un query puro
-          final cleanQuery = _cleanFilename(filename)
-              .replaceAll(RegExp(r'\.mp3$', caseSensitive: false), '');
+          final cleanQuery = _cleanFilename(
+            filename,
+          ).replaceAll(RegExp(r'\.mp3$', caseSensitive: false), '');
           onCorrupt(cleanQuery);
         }
         continue; // Bypass atómico: El bucle jamás se detiene
@@ -160,6 +164,7 @@ class MetadataWorker {
   Future<String> processSingleFile(String filePath) async {
     final file = File(filePath);
     if (!file.existsSync()) return filePath;
+    if (libraryWriteBlocked(filePath, what: 'Metadata')) return filePath;
 
     final filename = file.uri.pathSegments.last;
     final Id3Names id3 = await loadId3TitleArtist(filePath);
@@ -207,14 +212,12 @@ class MetadataWorker {
 
   Future<void> _retargetAutoLyric(String oldMp3, String newMp3) async {
     final RegExp ext = RegExp(r'\.mp3$', caseSensitive: false);
-    final String oldBase = File(oldMp3.replaceAll(ext, '.lrc'))
-        .uri
-        .pathSegments
-        .last;
-    final String newBase = File(newMp3.replaceAll(ext, '.lrc'))
-        .uri
-        .pathSegments
-        .last;
+    final String oldBase = File(
+      oldMp3.replaceAll(ext, '.lrc'),
+    ).uri.pathSegments.last;
+    final String newBase = File(
+      newMp3.replaceAll(ext, '.lrc'),
+    ).uri.pathSegments.last;
     if (oldBase == newBase) return;
     final String folder = File(newMp3).parent.path;
     final Map<String, dynamic> map = readLyricsAuto(folder);

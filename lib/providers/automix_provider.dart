@@ -41,6 +41,7 @@ import 'db_provider.dart';
 import 'session_provider.dart';
 import 'nlp_provider.dart';
 import 'equalizer_provider.dart';
+import '../core/library_guard.dart';
 import 'mix_formula.dart' show MixFormula, kMixConLetraFormula, snapCueToBeat;
 import '../services/adaptive_eq.dart' show AdaptiveEq;
 
@@ -881,7 +882,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
         RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
         '.lrc',
       );
-      await File(lrcPath).writeAsString(syncedLyrics);
+      await lrcWriteFile(audioPath, lrcPath).writeAsString(syncedLyrics);
       if (state.currentTrackPath == audioPath) await _loadLyrics(audioPath);
     } catch (_) {}
   }
@@ -2111,7 +2112,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
       '.lrc',
     );
-    final lrcFile = File(lrcPath);
+    final lrcFile = lrcReadFile(audioPath, lrcPath);
     if (!lrcFile.existsSync()) return const [];
     try {
       final lines = await lrcFile.readAsLines();
@@ -2167,7 +2168,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
         RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
         '.lrc',
       );
-      if (!File(lrcPath).existsSync()) _fetchLyricsAsync(audioPath, lrcPath);
+      if (!lrcReadFile(audioPath, lrcPath).existsSync()) {
+        _fetchLyricsAsync(audioPath, lrcPath);
+      }
     }
   }
 
@@ -2190,7 +2193,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
       );
       _shownLyricsPath = audioPath;
       state = state.copyWith(lyrics: [], activeLyricIndex: -1);
-      if (!File(lrcPath).existsSync()) _fetchLyricsAsync(audioPath, lrcPath);
+      if (!lrcReadFile(audioPath, lrcPath).existsSync()) {
+        _fetchLyricsAsync(audioPath, lrcPath);
+      }
     }
     try {
       await _recalculateMixWindow();
@@ -2200,7 +2205,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
   void _refreshApproxFlag(String audioPath) {
     var approx = false;
     try {
-      final File f = File(
+      final File f = lrcReadFile(
+        audioPath,
         audioPath.replaceAll(
           RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
           '.lrc',
@@ -2212,14 +2218,15 @@ class AutomixNotifier extends Notifier<AutomixState> {
   }
 
   Future<void> _fetchLyricsAsync(String audioPath, String lrcPath) async {
-    if (!lyricMayDownload(lrcExists: File(lrcPath).existsSync())) return;
+    final File have = lrcReadFile(audioPath, lrcPath);
+    if (!lyricMayDownload(lrcExists: have.existsSync())) return;
     try {
       final LyricChoice choice = await ref
           .read(nlpWorkerProvider)
           .lookupSafeLyric(audioPath);
       if (!choice.hasText) return;
-      if (!lyricMayDownload(lrcExists: File(lrcPath).existsSync())) return;
-      await File(lrcPath).writeAsString(choice.fileText);
+      if (!lyricMayDownload(lrcExists: have.existsSync())) return;
+      await lrcWriteFile(audioPath, lrcPath).writeAsString(choice.fileText);
       _lyricPrime.remove(audioPath);
       if (state.currentTrackPath == audioPath) {
         await _loadLyrics(audioPath);
@@ -2480,7 +2487,10 @@ class AutomixNotifier extends Notifier<AutomixState> {
       RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
       '.lrc',
     );
-    final lrcFile = File(lrcPath);
+    // 3.1.72: en la biblioteca solo se borra el espejo local.
+    final lrcFile = isLibraryPath(path)
+        ? libraryLrcMirror(path)
+        : File(lrcPath);
     if (lrcFile.existsSync()) {
       lrcFile.deleteSync();
     }
@@ -2631,7 +2641,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
       '.lrc',
     );
-    final file = File(lrcPath);
+    final file = lrcWriteFile(audioPath, lrcPath);
     final buffer = StringBuffer();
 
     for (dynamic line in currentLyrics) {
@@ -2649,6 +2659,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
       ref.read(automixLyricApproxProvider.notifier).state = false;
       approxLyricRevision.value++;
       try {
+        // 3.1.72: sin tag GMX_LYR dentro de la biblioteca protegida.
+        if (libraryWriteBlocked(audioPath, what: 'GMX_LYR')) return;
         await rust_dsp.setGmxMark(
           inputPath: audioPath,
           key: 'GMX_LYR',
@@ -2664,7 +2676,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
       '.lrc',
     );
-    final file = File(lrcPath);
+    final file = lrcReadFile(state.currentTrackPath!, lrcPath);
     if (!file.existsSync()) return;
 
     try {
@@ -2692,7 +2704,10 @@ class AutomixNotifier extends Notifier<AutomixState> {
           newLines.add(line);
         }
       }
-      await file.writeAsString(newLines.join('\n'));
+      await lrcWriteFile(
+        state.currentTrackPath!,
+        lrcPath,
+      ).writeAsString(newLines.join('\n'));
       await _loadLyrics(state.currentTrackPath!);
     } catch (_) {}
   }
@@ -2703,7 +2718,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
       '.lrc',
     );
-    final file = File(lrcPath);
+    final file = lrcReadFile(state.currentTrackPath!, lrcPath);
     if (!file.existsSync()) return;
 
     try {
@@ -2736,7 +2751,10 @@ class AutomixNotifier extends Notifier<AutomixState> {
           newLines.add(line);
         }
       }
-      await file.writeAsString(newLines.join('\n'));
+      await lrcWriteFile(
+        state.currentTrackPath!,
+        lrcPath,
+      ).writeAsString(newLines.join('\n'));
       await _loadLyrics(state.currentTrackPath!);
     } catch (_) {}
   }

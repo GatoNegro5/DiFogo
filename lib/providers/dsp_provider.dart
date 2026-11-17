@@ -9,6 +9,8 @@ import '../core/bpm_range.dart';
 import '../core/analysis_window.dart';
 import '../services/track_tags.dart';
 import '../core/gatomix_store.dart';
+import '../core/library_guard.dart';
+import '../core/bpm_backfill_worker.dart' show measureBpmReadOnly;
 import '../core/master_skip.dart';
 import '../core/queue_bpm.dart';
 import 'pipeline_provider.dart';
@@ -161,13 +163,16 @@ class DspWorker {
       if (needsBpmScan(
         storedTimestamp: timestamps[absolutePath],
         modified: modified,
-        hasCachedBpm: cacheData.containsKey(absolutePath) ||
+        hasCachedBpm:
+            cacheData.containsKey(absolutePath) ||
             cacheData.containsKey(filename),
       )) {
         // 3.1.04: ventana por duracion exacta (Rust), no por tamano.
         int durMs = 0;
         try {
-          durMs = (await rust_dsp.exactDurationMs(inputPath: absolutePath)).toInt();
+          durMs = (await rust_dsp.exactDurationMs(
+            inputPath: absolutePath,
+          )).toInt();
         } catch (_) {}
         if (!canAnalyzeFull(durMs)) {
           debugPrint(
@@ -200,11 +205,20 @@ class DspWorker {
           try {
             final double oldBpm = readTbpmSync(absolutePath);
             // 3.1.19: candado termico global (un solo trabajo pesado a la vez).
+            // 3.1.72: en la biblioteca protegida mide sin escribir TBPM.
+            final bool readOnly = libraryWriteBlocked(
+              absolutePath,
+              what: 'TBPM',
+            );
             final detectedBpm = await HeavyWorkGate.run(
               'dsp-bpm',
-              () => rust_dsp
-                  .autoDetectAndInjectBpm(inputPath: absolutePath)
-                  .timeout(analysisTimeout(durMs, const Duration(seconds: 45))),
+              () => readOnly
+                  ? measureBpmReadOnly(absolutePath, durMs)
+                  : rust_dsp
+                        .autoDetectAndInjectBpm(inputPath: absolutePath)
+                        .timeout(
+                          analysisTimeout(durMs, const Duration(seconds: 45)),
+                        ),
             );
             final double? fixedDetected = fixBpmRange(detectedBpm);
             cacheData[absolutePath] = fixedDetected ?? 0.0;
@@ -363,6 +377,8 @@ class DspWorker {
     bool Function()? isCancelled,
     bool bypassIfWatermarked = false,
   }) async {
+    // 3.1.72: nada de sellos ni tags dentro de la biblioteca protegida.
+    if (libraryWriteBlocked(directoryPath, what: moduleName)) return;
     final dir = Directory(directoryPath);
     if (!dir.existsSync()) return;
 
@@ -418,11 +434,18 @@ class DspWorker {
         // 3.1.04: ventana por duracion exacta (Rust), no por tamano.
         int durMs = 0;
         try {
-          durMs = (await rust_dsp.exactDurationMs(inputPath: file.path)).toInt();
+          durMs = (await rust_dsp.exactDurationMs(
+            inputPath: file.path,
+          )).toInt();
         } catch (_) {}
         if (!canAnalyzeFull(durMs)) {
           debugPrint("[DSP] Duracion desconocida, sin medir: $filename");
-          pipe.updateProgress(i + 1, total, filename, "Omitido: duracion desconocida");
+          pipe.updateProgress(
+            i + 1,
+            total,
+            filename,
+            "Omitido: duracion desconocida",
+          );
           continue;
         }
 
@@ -436,7 +459,12 @@ class DspWorker {
           () => rustTask(file.path, isMegamix: false).timeout(
             analysisTimeout(durMs, const Duration(seconds: 90)),
             onTimeout: () {
-              pipe.updateProgress(i + 1, total, filename, "⚠️ Saltado: Timeout");
+              pipe.updateProgress(
+                i + 1,
+                total,
+                filename,
+                "⚠️ Saltado: Timeout",
+              );
               return false;
             },
           ),
@@ -461,10 +489,13 @@ class DspWorker {
     try {
       final file = File(filePath);
       if (!file.existsSync()) return false;
+      // 3.1.72: processFullPipeline escribe tags: nunca en la biblioteca.
+      if (libraryWriteBlocked(filePath, what: 'analyzeTrack')) return false;
       // 3.1.09: streaming en Rust: toda pista con duracion conocida se mide,
       // megamixes incluidos; timeout de 120 s por cada 15 min de audio.
-      final int durMs =
-          (await rust_dsp.exactDurationMs(inputPath: filePath)).toInt();
+      final int durMs = (await rust_dsp.exactDurationMs(
+        inputPath: filePath,
+      )).toInt();
       if (!canAnalyzeFull(durMs)) {
         debugPrint("[DSP] Duracion desconocida, sin medir: $filePath");
         return false;
