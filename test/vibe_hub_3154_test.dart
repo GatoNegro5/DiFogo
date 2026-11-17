@@ -113,7 +113,11 @@ void main() {
     expect(find.byIcon(Icons.folder), findsNothing);
     await tester.tap(find.byKey(const Key('vibe-hub-st-tropical')));
     await tester.pump();
-    expect(find.byIcon(Icons.check_box), findsNWidgets(6));
+    // 3.1.69: Tropical abre con su visto maestro apagado; al ponerlo se
+    // encienden sus 6 sub-generos (Momento sigue con su maestro).
+    await tester.tap(find.byKey(const Key('vibe-hub-master-tropical')));
+    await tester.pump();
+    expect(find.byIcon(Icons.check_box), findsNWidgets(8));
     await tester.tap(find.byKey(const Key('vibe-hub-cat-Merengue')));
     await tester.pump();
     await tester.tap(find.text('Reproducir Estación en Shuffle'));

@@ -117,7 +117,10 @@ void main() {
     expect(find.text('80s Espanol'), findsNothing);
     await tester.tap(find.text('Ochenteras'));
     await tester.pumpAndSettle();
-    expect(find.byIcon(Icons.check_box), findsNWidgets(7));
+    // 3.1.69: desplegar no marca; el visto maestro enciende los 7.
+    await tester.tap(find.byKey(const Key('station-master-ochenteras')));
+    await tester.pumpAndSettle();
+    expect(find.byIcon(Icons.check_box), findsNWidgets(9));
     expect(find.text('Dance 80s'), findsNothing);
     await tester.tap(find.text('Eurodance'));
     await tester.pumpAndSettle();

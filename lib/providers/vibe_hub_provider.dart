@@ -767,6 +767,10 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
 
   /// Sesion guardada de [key] (sub-generos en visto, pista, segundo).
   GenreSession? stationSession(String key) => _stationsDoc.stations[key];
+
+  /// 3.1.69: estacion de la ultima seleccion (la que suena o la guardada);
+  /// null la primera vez.
+  String? savedActiveStation() => state.activeStation ?? _stationsDoc.active;
 }
 
 final vibeHubProvider = NotifierProvider<VibeHubNotifier, VibeHubState>(

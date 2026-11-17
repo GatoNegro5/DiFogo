@@ -2110,3 +2110,98 @@ MapEntry<String, String>? stationSubOfCurator({
   final TrackGenre g = TrackGenreClassifier.classify('$title.mp3');
   return g.known ? MapEntry<String, String>(g.stationId!, g.subGenreId!) : null;
 }
+
+/// 3.1.69: vistos del selector de estaciones. Cada estacion tiene su visto
+/// maestro: activo si tiene al menos un sub-genero en visto. Quitarlo apaga
+/// todos sus sub-generos y ponerlo los enciende todos; si el usuario apaga
+/// uno por uno, el maestro queda apagado solo. Suena una estacion a la vez
+/// (sesiones y cola por estacion): la ultima tocada que tenga vistos o, si
+/// no, la primera marcada del catalogo.
+class StationChecks {
+  StationChecks(List<GenreStation> stations) : _stations = stations;
+
+  List<GenreStation> _stations;
+  final Map<String, Set<String>> _on = <String, Set<String>>{};
+  String? _focus;
+
+  /// Primera apertura: [key] (ultima seleccion guardada) con sus sub-generos
+  /// [saved] o todos; sin seleccion guardada, Musica del Momento con todos.
+  void seed({String? key, List<String>? saved}) {
+    _on.clear();
+    _focus = null;
+    GenreStation? st = _find(key);
+    Set<String> subs = <String>{
+      if (st != null)
+        for (final String g in saved ?? const <String>[])
+          if (st.subGenres.contains(g)) g,
+    };
+    if (subs.isEmpty) {
+      st ??= _find('momento') ?? (_stations.isEmpty ? null : _stations.first);
+      if (st == null) return;
+      subs = st.subGenres.toSet();
+    }
+    if (subs.isEmpty) return;
+    _on[st!.key] = subs;
+    _focus = st.key;
+  }
+
+  /// El Hub recarga sus estaciones sin perder los vistos.
+  void updateStations(List<GenreStation> stations) => _stations = stations;
+
+  GenreStation? _find(String? key) {
+    if (key == null) return null;
+    for (final GenreStation s in _stations) {
+      if (s.key == key) return s;
+    }
+    return null;
+  }
+
+  bool master(String key) => _on[key]?.isNotEmpty ?? false;
+
+  bool isOn(String key, String sub) => _on[key]?.contains(sub) ?? false;
+
+  bool get any => _on.values.any((Set<String> s) => s.isNotEmpty);
+
+  void toggleMaster(String key) {
+    final GenreStation? st = _find(key);
+    if (st == null) return;
+    if (master(key)) {
+      _on.remove(key);
+      if (_focus == key) _focus = null;
+      return;
+    }
+    if (st.subGenres.isEmpty) return;
+    _on[key] = st.subGenres.toSet();
+    _focus = key;
+  }
+
+  void toggleSub(String key, String sub) {
+    final Set<String> s = _on.putIfAbsent(key, () => <String>{});
+    if (!s.remove(sub)) s.add(sub);
+    if (s.isNotEmpty) {
+      _focus = key;
+      return;
+    }
+    _on.remove(key);
+    if (_focus == key) _focus = null;
+  }
+
+  /// Sub-generos en visto de [key], en el orden del catalogo.
+  List<String> picked(String key) => <String>[
+    for (final String g in _find(key)?.subGenres ?? const <String>[])
+      if (isOn(key, g)) g,
+  ];
+
+  /// Estacion que suena con Play (null si no hay nada en visto).
+  MapEntry<String, List<String>>? pick() {
+    final String? f = _focus;
+    if (f != null && master(f) && picked(f).isNotEmpty) {
+      return MapEntry<String, List<String>>(f, picked(f));
+    }
+    for (final GenreStation s in _stations) {
+      final List<String> p = picked(s.key);
+      if (p.isNotEmpty) return MapEntry<String, List<String>>(s.key, p);
+    }
+    return null;
+  }
+}

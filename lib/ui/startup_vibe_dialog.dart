@@ -62,6 +62,7 @@ Future<void> showStartupVibeFlow(
     builder: (_) => StationPickerDialog(
       stations: stations,
       savedChecked: (String k) => hub.stationSession(k)?.subGenresChecked,
+      initialStation: hub.savedActiveStation(),
       onChanged: (StationPick? p) => last = p,
     ),
   );
@@ -122,13 +123,15 @@ class StationPick {
   static const StationPick none = StationPick('', <String>[]);
 }
 
-/// Estaciones estilo Spotify: al tocar una se despliegan sus sub-generos
-/// marcados con visto por defecto y el boton de reproducir en Shuffle.
+/// Estaciones estilo Spotify (3.1.69: "Escoge Tus Generos Preferidos" con
+/// Play al lado del titulo, visto maestro por estacion en cascada, flecha que
+/// despliega o minimiza sin tocar los vistos y aviso si no hay nada marcado).
 class StationPickerDialog extends StatefulWidget {
   const StationPickerDialog({
     super.key,
     required this.stations,
     this.savedChecked,
+    this.initialStation,
     this.onChanged,
   });
 
@@ -136,6 +139,10 @@ class StationPickerDialog extends StatefulWidget {
 
   /// Sub-generos que el usuario dejo en visto la ultima vez (si hay).
   final List<String>? Function(String key)? savedChecked;
+
+  /// 3.1.69: estacion de la ultima seleccion guardada; null la primera vez
+  /// (entonces Musica del Momento abre con todo en visto).
+  final String? initialStation;
 
   /// 3.1.67: estacion y sub-generos elegidos en cada toque (null si no hay
   /// nada para sonar); el flujo la usa si el usuario sale sin confirmar.
@@ -146,100 +153,151 @@ class StationPickerDialog extends StatefulWidget {
 }
 
 class _StationPickerDialogState extends State<StationPickerDialog> {
+  // 3.1.69: la estacion desplegada solo cambia la vista; los vistos viven
+  // en _checks y no se tocan al minimizar.
   String? _open;
-  final Set<String> _checked = <String>{};
+  bool _empty = false;
+  late final StationChecks _checks = StationChecks(widget.stations)
+    ..seed(
+      key: widget.initialStation,
+      saved: widget.initialStation == null
+          ? null
+          : widget.savedChecked?.call(widget.initialStation!),
+    );
 
-  void _select(GenreStation s) {
-    final List<String>? saved = widget.savedChecked?.call(s.key);
-    final Set<String> keep = <String>{
-      for (final String g in saved ?? const <String>[])
-        if (s.subGenres.contains(g)) g,
-    };
-    setState(() {
-      _open = s.key;
-      _checked
-        ..clear()
-        ..addAll(keep.isEmpty ? s.subGenres : keep);
-    });
-    _notify();
+  void _toggleOpen(GenreStation s) {
+    setState(() => _open = _open == s.key ? null : s.key);
   }
 
-  void _notify() {
-    final ValueChanged<StationPick?>? cb = widget.onChanged;
-    if (cb == null) return;
-    for (final GenreStation s in widget.stations) {
-      if (s.key != _open) continue;
-      final List<String> subs = <String>[
-        for (final String g in s.subGenres)
-          if (_checked.contains(g)) g,
-      ];
-      cb(subs.isEmpty ? null : StationPick(s.key, subs));
+  void _change(VoidCallback f) {
+    setState(() {
+      f();
+      if (_checks.any) _empty = false;
+    });
+    widget.onChanged?.call(_pick());
+  }
+
+  StationPick? _pick() {
+    final MapEntry<String, List<String>>? p = _checks.pick();
+    return p == null ? null : StationPick(p.key, p.value);
+  }
+
+  /// Play de arriba y de abajo: suena lo marcado (o retoma su cola); sin
+  /// nada en visto no cierra y avisa.
+  void _play() {
+    final StationPick? p = _pick();
+    if (p == null) {
+      setState(() => _empty = true);
       return;
     }
-    cb(null);
+    Navigator.pop(context, p);
   }
 
   @override
   Widget build(BuildContext context) {
     final double maxH = MediaQuery.of(context).size.height * 0.62;
-    GenreStation? open;
-    for (final GenreStation s in widget.stations) {
-      if (s.key == _open) open = s;
-    }
     return AlertDialog(
       backgroundColor: GatoMixTheme.bgPanel,
-      title: const Text(
-        '¿Qué estación suena hoy?',
-        style: TextStyle(color: Colors.white, fontSize: 18),
+      title: Row(
+        children: [
+          const Flexible(
+            child: Text(
+              'Escoge Tus Géneros Preferidos',
+              style: TextStyle(color: Colors.white, fontSize: 18),
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            key: const Key('station-play-top'),
+            tooltip: 'Reproducir',
+            onPressed: _play,
+            style: IconButton.styleFrom(
+              backgroundColor: const Color(0x33FF5722),
+              side: const BorderSide(color: GatoMixTheme.fire),
+              minimumSize: const Size(44, 44),
+            ),
+            icon: const Icon(
+              Icons.play_arrow_rounded,
+              color: GatoMixTheme.fire,
+              size: 30,
+            ),
+          ),
+        ],
       ),
       contentPadding: const EdgeInsets.symmetric(vertical: 8),
       content: SizedBox(
         width: 420,
         height: maxH < 460 ? maxH : 460,
-        child: ListView(
-          key: const ValueKey('station-list'),
+        child: Column(
           children: [
-            for (final GenreStation s in widget.stations) ...[
-              ListTile(
-                key: Key('station-${s.key}'),
-                minTileHeight: 52,
-                selected: s.key == _open,
-                selectedTileColor: GatoMixTheme.surfaceHover,
-                leading: const Icon(Icons.radio, color: _vibeNeon),
-                title: Text(
-                  s.title,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                subtitle: Text(
-                  '${s.count} canciones · ${s.subGenres.length} '
-                  '${s.subGenres.length == 1 ? 'género' : 'géneros'}',
-                  style: const TextStyle(color: Colors.white54, fontSize: 12),
-                ),
-                trailing: Icon(
-                  s.key == _open ? Icons.expand_less : Icons.expand_more,
-                  color: Colors.white54,
-                ),
-                onTap: () => _select(s),
+            Expanded(
+              child: ListView(
+                key: const ValueKey('station-list'),
+                children: [
+                  for (final GenreStation s in widget.stations) ...[
+                    ListTile(
+                      key: Key('station-${s.key}'),
+                      minTileHeight: 52,
+                      contentPadding: const EdgeInsets.only(left: 16, right: 4),
+                      selected: s.key == _open,
+                      selectedTileColor: GatoMixTheme.surfaceHover,
+                      leading: const Icon(Icons.radio, color: _vibeNeon),
+                      title: Text(
+                        s.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      subtitle: Text(
+                        '${s.count} canciones · ${s.subGenres.length} '
+                        '${s.subGenres.length == 1 ? 'género' : 'géneros'}',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                        ),
+                      ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          StationMasterCheck(
+                            key: Key('station-master-${s.key}'),
+                            on: _checks.master(s.key),
+                            label: s.title,
+                            onTap: () =>
+                                _change(() => _checks.toggleMaster(s.key)),
+                          ),
+                          IconButton(
+                            key: Key('station-chevron-${s.key}'),
+                            tooltip: s.key == _open ? 'Minimizar' : 'Desplegar',
+                            onPressed: () => _toggleOpen(s),
+                            icon: Icon(
+                              s.key == _open
+                                  ? Icons.expand_less
+                                  : Icons.expand_more,
+                              color: Colors.white54,
+                            ),
+                          ),
+                        ],
+                      ),
+                      onTap: () => _toggleOpen(s),
+                    ),
+                    if (s.key == _open)
+                      for (final String g in s.subGenres)
+                        StationSubTile(
+                          key: Key('station-sub-$g'),
+                          label: g,
+                          indent: 40,
+                          fontSize: 13,
+                          on: _checks.isOn(s.key, g),
+                          onTap: () =>
+                              _change(() => _checks.toggleSub(s.key, g)),
+                        ),
+                  ],
+                ],
               ),
-              if (s.key == _open)
-                for (final String g in s.subGenres)
-                  StationSubTile(
-                    key: Key('station-sub-$g'),
-                    label: g,
-                    indent: 40,
-                    fontSize: 13,
-                    on: _checked.contains(g),
-                    onTap: () {
-                      setState(() {
-                        if (!_checked.remove(g)) _checked.add(g);
-                      });
-                      _notify();
-                    },
-                  ),
-            ],
+            ),
+            if (_empty) const GenreEmptyNotice(key: Key('station-empty-msg')),
           ],
         ),
       ),
@@ -256,15 +314,7 @@ class _StationPickerDialogState extends State<StationPickerDialog> {
             foregroundColor: Colors.black,
             minimumSize: const Size(48, 48),
           ),
-          onPressed: open == null || _checked.isEmpty
-              ? null
-              : () => Navigator.pop(
-                  context,
-                  StationPick(open!.key, <String>[
-                    for (final String g in open.subGenres)
-                      if (_checked.contains(g)) g,
-                  ]),
-                ),
+          onPressed: _play,
           icon: const Icon(Icons.play_arrow),
           label: const Text('Reproducir Estación en Shuffle'),
         ),

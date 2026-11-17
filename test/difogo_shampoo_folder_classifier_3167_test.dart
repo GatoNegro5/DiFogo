@@ -241,12 +241,14 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
       await tester.pump();
-      if (find.text('¿Qué estación suena hoy?').evaluate().isNotEmpty) break;
+      if (find.text('Escoge Tus Géneros Preferidos').evaluate().isNotEmpty) {
+        break;
+      }
     }
-    expect(find.text('¿Qué estación suena hoy?'), findsOneWidget);
+    expect(find.text('Escoge Tus Géneros Preferidos'), findsOneWidget);
     // Tropical muestra las 4 canciones sacadas de la carpeta shampoo.
     expect(find.textContaining('4 canciones'), findsOneWidget);
-    await tester.tap(find.text('Tropical'));
+    await tester.tap(find.byKey(const Key('station-master-tropical')));
     await tester.pump();
     // Sale tocando fuera del cuadro, sin el boton de reproducir.
     final Stopwatch sw = Stopwatch()..start();

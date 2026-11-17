@@ -172,7 +172,8 @@ void main() {
     expect(find.text('Actualidad Ingles'), findsNothing);
     await tester.tap(find.byKey(const Key('vibe-hub-st-momento')));
     await tester.pump();
-    expect(find.byIcon(Icons.check_box), findsNWidgets(6));
+    // 3.1.69: visto maestro de Momento + sus 6 sub-generos.
+    expect(find.byIcon(Icons.check_box), findsNWidgets(7));
     expect(find.text('Actualidad Espanol'), findsNothing);
     expect(find.text('Actualidad Ingles'), findsNothing);
     final Finder pop = find.byKey(const Key('vibe-hub-cat-Pop'));
@@ -194,7 +195,9 @@ void main() {
     );
     await tester.tap(find.byKey(const Key('vibe-hub-st-tropical')));
     await tester.pump();
-    expect(find.byIcon(Icons.check_box), findsNWidgets(6));
+    await tester.tap(find.byKey(const Key('vibe-hub-master-tropical')));
+    await tester.pump();
+    expect(find.byIcon(Icons.check_box), findsNWidgets(8));
     final Finder mer = find.byKey(const Key('vibe-hub-cat-Merengue'));
     await tester.tap(mer);
     await tester.pump();

@@ -179,7 +179,15 @@ void main() {
         matching: find.byType(Scrollable),
       );
       for (final String t in <String>['Ochenteras', 'Tropical', 'Baladas']) {
-        await tester.scrollUntilVisible(find.text(t), 60, scrollable: list);
+        // 3.1.69: el visto maestro enciende todos sus sub-generos y el
+        // titulo solo despliega (y al final minimiza).
+        final Finder master = find.byKey(
+          Key('station-master-${t.toLowerCase()}'),
+        );
+        await tester.ensureVisible(master);
+        await tester.pumpAndSettle();
+        await tester.tap(master);
+        await tester.pumpAndSettle();
         await tester.tap(find.text(t));
         await tester.pumpAndSettle();
         final Finder todas = find.byKey(const Key('station-sub-Todas'));
@@ -190,6 +198,11 @@ void main() {
           findsOneWidget,
           reason: t,
         );
+        await tester.ensureVisible(find.text(t));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(t));
+        await tester.pumpAndSettle();
+        expect(todas, findsNothing, reason: t);
       }
       expect(tester.takeException(), isNull);
     },
