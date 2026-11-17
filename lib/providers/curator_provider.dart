@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/genre_stations.dart' show registerSavedTrack;
 import '../services/smart_discovery_service.dart';
 import '../ui/workspaces/yt_workspace.dart' show moveFile;
 import 'automix_provider.dart';
@@ -86,6 +87,12 @@ class CuratorNotifier extends Notifier<CuratorState> {
 
   String? get _vibe => ref.read(vibeProvider).active;
 
+  /// 3.1.67: carpeta destino de [genre]; acepta rutas canonicas relativas
+  /// `<Estacion>/<Sub>` (p. ej. `Tropical/Salsa`).
+  String _dirOf(String genre) =>
+      '${vibeMusicRoot()}${Platform.pathSeparator}'
+      '${genre.replaceAll('/', Platform.pathSeparator)}';
+
   /// Corrida diaria tras [delay] (la app sigue arrancando mientras tanto).
   void startDailyWorker({Duration delay = const Duration(seconds: 90)}) {
     if (debugDisableCuratorWorker) return;
@@ -133,7 +140,7 @@ class CuratorNotifier extends Notifier<CuratorState> {
         genre: g,
         count: count < room ? count : room,
         knownIds: <String>{for (final CuratorEntry e in state.entries) e.id},
-        genreDir: '${vibeMusicRoot()}${Platform.pathSeparator}$g',
+        genreDir: _dirOf(g),
         query: query,
       );
       _persist(
@@ -174,7 +181,7 @@ class CuratorNotifier extends Notifier<CuratorState> {
   Future<String?> accept(String id) async {
     final CuratorEntry? e = _find(id);
     if (e == null || !File(e.file).existsSync()) return null;
-    final String dir = '${vibeMusicRoot()}${Platform.pathSeparator}${e.genre}';
+    final String dir = _dirOf(e.genre);
     Directory(dir).createSync(recursive: true);
     final String dst = discoveryFreePath(dir, discoverySafeName(e.title));
     moveFile(e.file, dst);
@@ -189,6 +196,14 @@ class CuratorNotifier extends Notifier<CuratorState> {
       }
     } catch (err) {
       debugPrint('[CURATOR] base local: $err');
+    }
+    // 3.1.67: estacion y sub-genero al indice por cancion apenas se guarda.
+    if (debugCuratorRegister == null || trackGenreIndexInTemp()) {
+      try {
+        await registerSavedTrack(trackGenreIndexPath(), vibeMusicRoot(), dst);
+      } catch (err) {
+        debugPrint('[CURATOR] indice de generos: $err');
+      }
     }
     ref.read(automixQueueProvider.notifier).addTrack(File(dst));
     _replace(e.copyWith(status: CuratorStatus.accepted, finalPath: dst));

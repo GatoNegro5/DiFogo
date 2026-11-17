@@ -16,6 +16,19 @@ String? debugVibeRootOverride;
 @visibleForTesting
 String? debugVibeStatePath;
 
+/// 3.1.67 Solo pruebas: indice de generos por cancion en %TEMP%.
+@visibleForTesting
+String? debugTrackGenreIndexPath;
+
+/// 3.1.67 `difogo_track_genre_index.json` en la carpeta de datos de la app
+/// (junto a `difogo_genre_sessions.json`), nunca en la biblioteca.
+String trackGenreIndexPath() =>
+    debugTrackGenreIndexPath ??
+    '${sessionDir()}${Platform.pathSeparator}difogo_track_genre_index.json';
+
+/// true si las pruebas apuntan el indice a %TEMP%.
+bool trackGenreIndexInTemp() => debugTrackGenreIndexPath != null;
+
 String vibeMusicRoot() {
   final String? o = debugVibeRootOverride;
   if (o != null) return o;

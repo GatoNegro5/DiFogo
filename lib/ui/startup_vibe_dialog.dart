@@ -45,21 +45,30 @@ Future<void> showStartupVibeFlow(
     await hub.freezeActive();
   }
   if (!context.mounted) return;
-  final List<VibeGenre> genres = await (scan ?? scanVibeGenres)(
-    root ?? vibeMusicRoot(),
-  );
-  if (genres.isEmpty || !context.mounted) return;
-  final List<GenreStation> stations = groupStations(<MapEntry<String, int>>[
-    for (final VibeGenre g in genres) MapEntry<String, int>(g.name, g.count),
-  ]);
-  final StationPick? pick = await showDialog<StationPick>(
+  final String r = root ?? vibeMusicRoot();
+  final List<VibeGenre> genres = await (scan ?? scanVibeGenres)(r);
+  if (!context.mounted) return;
+  // 3.1.67: el Hub reusa este escaneo (sin otro recorrido antes de sonar) y
+  // clasifica cancion por cancion las carpetas genericas.
+  await hub.adoptGenres(genres, root: r);
+  if (!context.mounted) return;
+  final List<GenreStation> stations = ref.read(vibeHubProvider).stations;
+  if (genres.isEmpty && stations.every((GenreStation s) => s.count == 0)) {
+    return;
+  }
+  StationPick? last;
+  final StationPick? chosen = await showDialog<StationPick>(
     context: context,
     builder: (_) => StationPickerDialog(
       stations: stations,
       savedChecked: (String k) => hub.stationSession(k)?.subGenresChecked,
+      onChanged: (StationPick? p) => last = p,
     ),
   );
-  if (pick == null) return;
+  // 3.1.67: salir del selector (fuera del cuadro o Atras) tras tocar una
+  // estacion tambien la hace sonar; solo [Ahora no] la descarta.
+  final StationPick? pick = chosen ?? last;
+  if (pick == null || pick.subGenres.isEmpty) return;
   onStation?.call();
   await hub.playStation(pick.key, pick.subGenres);
 }
@@ -108,6 +117,9 @@ class StationPick {
   const StationPick(this.key, this.subGenres);
   final String key;
   final List<String> subGenres;
+
+  /// 3.1.67: [Ahora no]: cierra sin sonar.
+  static const StationPick none = StationPick('', <String>[]);
 }
 
 /// Estaciones estilo Spotify: al tocar una se despliegan sus sub-generos
@@ -117,12 +129,17 @@ class StationPickerDialog extends StatefulWidget {
     super.key,
     required this.stations,
     this.savedChecked,
+    this.onChanged,
   });
 
   final List<GenreStation> stations;
 
   /// Sub-generos que el usuario dejo en visto la ultima vez (si hay).
   final List<String>? Function(String key)? savedChecked;
+
+  /// 3.1.67: estacion y sub-generos elegidos en cada toque (null si no hay
+  /// nada para sonar); el flujo la usa si el usuario sale sin confirmar.
+  final ValueChanged<StationPick?>? onChanged;
 
   @override
   State<StationPickerDialog> createState() => _StationPickerDialogState();
@@ -144,6 +161,22 @@ class _StationPickerDialogState extends State<StationPickerDialog> {
         ..clear()
         ..addAll(keep.isEmpty ? s.subGenres : keep);
     });
+    _notify();
+  }
+
+  void _notify() {
+    final ValueChanged<StationPick?>? cb = widget.onChanged;
+    if (cb == null) return;
+    for (final GenreStation s in widget.stations) {
+      if (s.key != _open) continue;
+      final List<String> subs = <String>[
+        for (final String g in s.subGenres)
+          if (_checked.contains(g)) g,
+      ];
+      cb(subs.isEmpty ? null : StationPick(s.key, subs));
+      return;
+    }
+    cb(null);
   }
 
   @override
@@ -199,9 +232,12 @@ class _StationPickerDialogState extends State<StationPickerDialog> {
                     indent: 40,
                     fontSize: 13,
                     on: _checked.contains(g),
-                    onTap: () => setState(() {
-                      if (!_checked.remove(g)) _checked.add(g);
-                    }),
+                    onTap: () {
+                      setState(() {
+                        if (!_checked.remove(g)) _checked.add(g);
+                      });
+                      _notify();
+                    },
                   ),
             ],
           ],
@@ -210,7 +246,7 @@ class _StationPickerDialogState extends State<StationPickerDialog> {
       actionsOverflowButtonSpacing: 8,
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => Navigator.pop(context, StationPick.none),
           child: const Text('Ahora no'),
         ),
         FilledButton.icon(

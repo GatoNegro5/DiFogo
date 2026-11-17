@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -25,6 +27,25 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
   // 3.1.62: estacion desplegada y sus sub-generos en visto.
   String? _open;
   final Set<String> _checked = <String>{};
+
+  // 3.1.67: movil: cerrar la hoja tras tocar una estacion la hace sonar.
+  VibeHubNotifier? _hub;
+  List<String> _picked = const <String>[];
+  bool _played = false;
+
+  @override
+  void dispose() {
+    final VibeHubNotifier? hub = _hub;
+    final String? open = _open;
+    if (widget.onPlayed != null &&
+        !_played &&
+        hub != null &&
+        open != null &&
+        _picked.isNotEmpty) {
+      unawaited(hub.playStation(open, List<String>.from(_picked)));
+    }
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -67,6 +88,8 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
       for (final String g in open?.subGenres ?? const <String>[])
         if (_checked.contains(g)) g,
     ];
+    _hub = n;
+    _picked = picked;
     return Material(
       color: GatoMixTheme.bgPanel,
       child: Column(
@@ -164,6 +187,7 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                 onPressed: open == null || picked.isEmpty || s.busy
                     ? null
                     : () async {
+                        _played = true;
                         final int got = await n.playStation(open!.key, picked);
                         if (got > 0) widget.onPlayed?.call();
                       },

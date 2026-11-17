@@ -9,6 +9,8 @@ import '../core/genre_stations.dart';
 import '../core/mode_session.dart';
 import '../ui/mobile/music_picker_screen.dart'
     show musicPickerShowsFile, musicPickerTechFolder;
+import '../services/smart_discovery_service.dart' show CuratorEntry;
+import '../services/track_tags.dart' show TrackTags;
 import 'curator_provider.dart';
 import 'livedj_provider.dart';
 import 'session_provider.dart';
@@ -37,6 +39,12 @@ StationLive Function()? debugStationLive;
 Future<List<String>> Function(List<String> subGenres)? debugStationCollect;
 @visibleForTesting
 Random? debugStationRng;
+
+/// 3.1.67 Solo pruebas: Auto-Curador falso (sin red). Devuelve las rutas de
+/// los temas nuevos que llegaron para [feed].
+@visibleForTesting
+Future<List<String>> Function(String key, StationFeed feed, int count)?
+debugStationFeed;
 
 /// Estacion con menos pistas que esto: el curador busca temas nuevos.
 const int kStationShortTracks = 25;
@@ -141,6 +149,13 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     return VibeHubState(checked: checked);
   }
 
+  /// 3.1.67: canciones de carpetas genericas clasificadas una a una.
+  TrackGenreBuckets _virtual = TrackGenreBuckets();
+
+  /// 3.1.67: sube con cada estacion elegida; un auto-arranque del curador
+  /// viejo no pisa una eleccion nueva.
+  int _playEpoch = 0;
+
   /// Lee las categorias de la raiz (sin bloquear la UI: listado async).
   Future<void> refresh() async {
     if (state.loading) return;
@@ -149,6 +164,32 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     try {
       genres = await (debugVibeHubScan ?? scanVibeGenres)(vibeMusicRoot());
     } catch (_) {}
+    await _applyGenres(
+      genres,
+      vibeMusicRoot(),
+      classify: debugVibeHubScan == null,
+    );
+  }
+
+  /// 3.1.67: el arranque ya escaneo la biblioteca: el Hub la reusa y no
+  /// vuelve a recorrer el disco antes de sonar.
+  Future<void> adoptGenres(List<VibeGenre> genres, {String? root}) async {
+    state = state.copyWith(loading: true, clearMessage: true);
+    await _applyGenres(genres, root ?? vibeMusicRoot(), classify: true);
+  }
+
+  Future<void> _applyGenres(
+    List<VibeGenre> genres,
+    String root, {
+    required bool classify,
+  }) async {
+    TrackGenreBuckets virt = TrackGenreBuckets();
+    if (classify) {
+      try {
+        virt = await _classifyLoose(root, genres);
+      } catch (_) {}
+    }
+    _virtual = virt;
     final Set<String> names = <String>{
       for (final VibeGenre g in genres) g.name.toLowerCase(),
     };
@@ -157,13 +198,60 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       stations: groupStations(<MapEntry<String, int>>[
         for (final VibeGenre g in genres)
           MapEntry<String, int>(g.name, g.count),
-      ]),
+      ], extra: virt.counts()),
       checked: <String>{
         for (final String c in state.checked)
           if (names.contains(c.toLowerCase())) c,
       },
       loading: false,
     );
+  }
+
+  /// 3.1.67: canciones de carpetas sin genero en el nombre (Descargas, Mix,
+  /// raices canonicas `<Estacion>/`) y sueltas en la raiz, clasificadas una
+  /// a una con el indice rapido (solo las nuevas pasan por la cascada).
+  /// Solo lectura de la biblioteca: el indice vive en la carpeta de datos.
+  Future<TrackGenreBuckets> _classifyLoose(
+    String root,
+    List<VibeGenre> genres,
+  ) async {
+    final String sep = Platform.pathSeparator;
+    final List<String> paths = <String>[];
+    Future<void> walk(Directory d, bool deep) async {
+      if (!await d.exists()) return;
+      try {
+        await for (final FileSystemEntity f in d.list(
+          recursive: deep,
+          followLinks: false,
+        )) {
+          if (f is! File || !musicPickerShowsFile(f.path)) continue;
+          if (musicPickerTechFolder(f.parent.path)) continue;
+          paths.add(f.path);
+        }
+      } catch (_) {}
+    }
+
+    for (final VibeGenre g in genres) {
+      if (stationSubOf(g.name) != null) continue;
+      if (stationFold(g.name).contains('karaoke')) continue;
+      await walk(Directory('$root$sep${g.name}'), true);
+    }
+    await walk(Directory(root), false);
+    if (paths.isEmpty) return TrackGenreBuckets();
+    paths.sort();
+    final TrackGenreIndex idx = TrackGenreIndex.read(trackGenreIndexPath());
+    final TrackGenreBuckets b = await classifyTracks(
+      paths,
+      root: root,
+      index: idx,
+      bpmOf: (String p) => TrackTags.peek(p)?.bpm ?? 0,
+    );
+    if (idx.dirty) {
+      try {
+        await idx.write();
+      } catch (_) {}
+    }
+    return b;
   }
 
   Future<void> toggle(String genre) async {
@@ -312,14 +400,22 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     if (state.busy || subGenres.isEmpty) return 0;
     state = state.copyWith(busy: true, clearMessage: true);
     _loading = true;
+    final int epoch = ++_playEpoch;
     try {
-      await freezeActive();
-      final List<String> all = await _stationTracks(
-        await _stationFolders(key, subGenres),
+      // 3.1.67: congelar y guardar no frenan el arranque (la cadena de
+      // escritura conserva el orden); se esperan despues de sonar.
+      final Future<void> frozen = freezeActive();
+      final List<String> all = _withVirtual(
+        await _stationTracks(await _stationFolders(key, subGenres)),
+        key,
+        subGenres,
       );
       if (all.isEmpty) {
-        state = state.copyWith(message: 'Sin canciones en lo marcado');
-        _feedShortStation(key, subGenres);
+        await frozen;
+        state = state.copyWith(
+          message: 'Sin canciones locales: el curador busca temas',
+        );
+        _autoStartFromCurator(key, subGenres, epoch);
         return 0;
       }
       final GenreSessionDoc d = _stationsDoc;
@@ -331,38 +427,8 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
             ? null
             : (String p) => File(p).existsSync(),
       );
-      final List<String> queue = List<String>.from(plan.queue);
-      final String? current =
-          plan.currentTrackPath ?? (queue.isEmpty ? null : queue.removeAt(0));
-      d.active = key;
-      d.stations[key] = GenreSession(
-        subGenresChecked: List<String>.from(subGenres),
-        currentTrackPath: current,
-        positionMs: plan.positionMs,
-        remainingQueuePaths: queue,
-        playedPaths: plan.played,
-      ).copyWith();
-      await _saveStations();
-      final StationPlan run = StationPlan(
-        currentTrackPath: current,
-        positionMs: plan.positionMs,
-        queue: queue,
-        played: plan.played,
-        resumed: plan.resumed,
-      );
-      final Future<void> Function(StationPlan)? hook = debugStationPlay;
-      if (hook != null) {
-        await hook(run);
-      } else {
-        await ref
-            .read(liveDjProvider.notifier)
-            .loadStation(
-              currentPath: current,
-              positionMs: plan.positionMs,
-              queue: <File>[for (final String p in queue) File(p)],
-            );
-        _ensureTracker();
-      }
+      await _startPlan(key, subGenres, plan);
+      await frozen;
       state = state.copyWith(
         activeStation: key,
         message: '${stationTitleOf(key)}: ${all.length} canciones',
@@ -377,9 +443,144 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     }
   }
 
+  /// Arma la sesion de [key] con [plan] y la hace sonar en Live DJ ya.
+  Future<void> _startPlan(
+    String key,
+    List<String> subGenres,
+    StationPlan plan,
+  ) async {
+    final GenreSessionDoc d = _stationsDoc;
+    final List<String> queue = List<String>.from(plan.queue);
+    final String? current =
+        plan.currentTrackPath ?? (queue.isEmpty ? null : queue.removeAt(0));
+    d.active = key;
+    d.stations[key] = GenreSession(
+      subGenresChecked: List<String>.from(subGenres),
+      currentTrackPath: current,
+      positionMs: plan.positionMs,
+      remainingQueuePaths: queue,
+      playedPaths: plan.played,
+    ).copyWith();
+    final Future<void> saved = _saveStations();
+    final StationPlan run = StationPlan(
+      currentTrackPath: current,
+      positionMs: plan.positionMs,
+      queue: queue,
+      played: plan.played,
+      resumed: plan.resumed,
+    );
+    final Future<void> Function(StationPlan)? hook = debugStationPlay;
+    if (hook != null) {
+      await hook(run);
+    } else {
+      await ref
+          .read(liveDjProvider.notifier)
+          .loadStation(
+            currentPath: current,
+            positionMs: plan.positionMs,
+            queue: <File>[for (final String p in queue) File(p)],
+          );
+      _ensureTracker();
+    }
+    await saved;
+  }
+
+  /// 3.1.67: pistas de las carpetas de genero mas las clasificadas una a
+  /// una (carpetas genericas), sin repetir.
+  List<String> _withVirtual(
+    List<String> fromFolders,
+    String key,
+    List<String> subs,
+  ) {
+    final List<String> extra = _virtual.tracksFor(key, subs);
+    if (extra.isEmpty) return fromFolders;
+    final Set<String> seen = <String>{
+      for (final String p in fromFolders) stationPathKey(p),
+    };
+    return <String>[
+      ...fromFolders,
+      for (final String p in extra)
+        if (seen.add(stationPathKey(p))) p,
+    ];
+  }
+
+  /// 3.1.67: estacion con 0 canciones locales: el curador busca ya el
+  /// sub-genero en visto mas corto y la primera pista que llega entra a la
+  /// cola de Live DJ y suena sola. El tema queda en la bandeja: [Agregar]
+  /// lo guarda en su carpeta canonica; nada se escribe en la biblioteca
+  /// sin el usuario.
+  void _autoStartFromCurator(String key, List<String> subs, int epoch) {
+    Future<void> run() async {
+      final List<String> first = await _fetchFeed(key, subs, 1);
+      if (first.isEmpty || epoch != _playEpoch) return;
+      _loading = true;
+      try {
+        await _startPlan(
+          key,
+          subs,
+          StationPlan(
+            currentTrackPath: first.first,
+            positionMs: 0,
+            queue: first.sublist(1),
+            played: const <String>[],
+            resumed: false,
+          ),
+        );
+      } finally {
+        _loading = false;
+      }
+      state = state.copyWith(
+        activeStation: key,
+        message: '${stationTitleOf(key)}: sonando lo nuevo del curador',
+      );
+      final List<String> more = await _fetchFeed(key, subs, 2);
+      if (more.isEmpty || epoch != _playEpoch || debugStationPlay != null) {
+        return;
+      }
+      ref.read(liveDjProvider.notifier).addAllTracks(<File>[
+        for (final String p in more) File(p),
+      ]);
+    }
+
+    unawaited(run().catchError((Object _) {}));
+  }
+
+  StationFeed? _feedFor(String key, List<String> subs) => stationFeedFor(
+    key,
+    subs,
+    <String, int>{for (final VibeGenre g in state.genres) g.name: g.count},
+    extra: _virtual.counts(),
+  );
+
+  /// Temas nuevos del curador para [key] (rutas en la bandeja).
+  Future<List<String>> _fetchFeed(
+    String key,
+    List<String> subs,
+    int count,
+  ) async {
+    final StationFeed? f = _feedFor(key, subs);
+    if (f == null) return const <String>[];
+    final Future<List<String>> Function(String, StationFeed, int)? hook =
+        debugStationFeed;
+    if (hook != null) return hook(key, f, count);
+    if (debugStationPlay != null) return const <String>[];
+    final Set<String> before = <String>{
+      for (final CuratorEntry e in ref.read(curatorProvider).entries) e.id,
+    };
+    await ref
+        .read(curatorProvider.notifier)
+        .discover(count: count, genre: f.folder, query: f.query);
+    return <String>[
+      for (final CuratorEntry e in ref.read(curatorProvider).pending)
+        if (!before.contains(e.id) && File(e.file).existsSync()) e.file,
+    ];
+  }
+
   /// 3.1.64: sub-generos canonicos a carpetas locales (solo interno).
   Future<List<String>> _stationFolders(String key, List<String> subs) async {
-    if (state.genres.isEmpty && subs.any((String s) => isStationSub(key, s))) {
+    if (state.genres.isEmpty &&
+        _virtual.isEmpty &&
+        subs.any((String s) => isStationSub(key, s))) {
       await refresh();
     }
     return stationFolders(key, subs, <String>[
@@ -391,11 +592,15 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
   /// menos canciones, con sus terminos canonicos (llegan a la bandeja de
   /// revision; agregar sigue siendo del usuario).
   void _feedShortStation(String key, List<String> subs) {
-    if (debugStationPlay != null) return;
-    final StationFeed? f = stationFeedFor(key, subs, <String, int>{
-      for (final VibeGenre g in state.genres) g.name: g.count,
-    });
+    final Future<List<String>> Function(String, StationFeed, int)? hook =
+        debugStationFeed;
+    if (debugStationPlay != null && hook == null) return;
+    final StationFeed? f = _feedFor(key, subs);
     if (f == null) return;
+    if (hook != null) {
+      unawaited(hook(key, f, 3).catchError((Object _) => <String>[]));
+      return;
+    }
     unawaited(
       ref
           .read(curatorProvider.notifier)
