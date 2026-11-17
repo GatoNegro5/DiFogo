@@ -880,6 +880,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         'mixMode': state.currentMixMode.index,
         'mixStrategy': state.mixStrategy.index,
         'mixFormula': ref.read(mixFormulaProvider).index,
+        'mixFormulaV': kMixFormulaSchema,
         'wasPlaying': restart
             ? false
             : (_freezePersist ? _sessionWasPlaying : state.isPlaying),
@@ -1174,11 +1175,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
       final mixModeIdx = restored.mixModeIndex;
       final mixStrategyIdx = restored.mixStrategyIndex;
-      final mixFormulaIdx = data['mixFormula'] as int? ?? 0;
-      if (mixFormulaIdx >= 0 && mixFormulaIdx < MixFormula.values.length) {
-        ref.read(mixFormulaProvider.notifier).state =
-            MixFormula.values[mixFormulaIdx];
-      }
+      // 3.1.71: sesiones viejas (sin mixFormulaV) abren en Active
+      // Beatmatching; las nuevas respetan el tipo elegido.
+      ref.read(mixFormulaProvider.notifier).state = mixFormulaFromSession(data);
 
       // Radio: géneros en la sesión. La lista de cada opción vive en
       // `LiveDj_Radio.json`, en la raíz de Música.
@@ -3130,9 +3129,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     }
 
     _incomingNatBpm = incomingBpm;
-    // En el cruce las dos suenan en el punto medio. Vale también para eco y filtro.
+    // 3.1.71 master lock: A sigue a su tempo; B entra al BPM de A (rate a/b)
+    // puesto en silencio antes de subir su fader. Vale para eco y filtro.
     final double outRate = fadingPlayer.state.rate;
-    final MidpointEntry entry = midpointEntry(fadingBpm, incomingBpm);
+    final MidpointEntry entry = masterLockEntry(fadingBpm, incomingBpm);
     if (entry.blocked) {
       _djTrace('MIDPOINT FUERA ${entry.note}');
     } else {
@@ -3268,18 +3268,21 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     if (!isManualSkip &&
         nextMode != LiveDjMixMode.longBypass &&
         ref.read(mixFormulaProvider) == MixFormula.phraseGrid) {
-      phraseFadeOverride = phraseGridFadeMs(
-        bpm: phraseSoundingBpm(
-          incomingBpm: incomingBpm,
-          incomingRate: incomingRate,
+      // 3.1.71: Equal-Power de 6-8 s (antes 8-18 s).
+      phraseFadeOverride = equalPowerFadeMs(
+        phraseGridFadeMs(
+          bpm: phraseSoundingBpm(
+            incomingBpm: incomingBpm,
+            incomingRate: incomingRate,
+          ),
+          instrumental: phraseCrossIsInstrumental(
+            outgoing: PhraseGridMemory.peek(fadingPath),
+            incoming: PhraseGridMemory.peek(nextTrack),
+            outMs: fadingMixOut,
+            inMs: cueInMs,
+          ),
+          durationMs: trackDur.inMilliseconds,
         ),
-        instrumental: phraseCrossIsInstrumental(
-          outgoing: PhraseGridMemory.peek(fadingPath),
-          incoming: PhraseGridMemory.peek(nextTrack),
-          outMs: fadingMixOut,
-          inMs: cueInMs,
-        ),
-        durationMs: trackDur.inMilliseconds,
       );
     }
     _publishedFadeMs =
@@ -3415,18 +3418,20 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
     try {
       // El deck entrante ya quedó preparado antes de sonar (_prepareIncomingDeck).
-      platformOut?.setProperty('audio-pitch-correction', 'yes');
-      platformOut?.setProperty(
-        'af',
-        dnaOutExtra == null
-            ? outBase()
-            : AfCaps.sanitize(
-                [
-                  outBase(),
-                  dnaOutExtra,
-                ].where((String s) => s.isNotEmpty).join(','),
-              ),
-      );
+      // 3.1.71: la saliente no se toca al abrir el cruce (ni tono ni
+      // cadena af): rehacer su `af` sonaba como un cambio antes de que B
+      // se oyera. Solo los efectos DNA propios del cruce la cambian.
+      if (dnaOutExtra != null) {
+        platformOut?.setProperty(
+          'af',
+          AfCaps.sanitize(
+            [
+              outBase(),
+              dnaOutExtra,
+            ].where((String s) => s.isNotEmpty).join(','),
+          ),
+        );
+      }
 
       await AdaptiveEq.setDeckVolume(incomingPlayer, 0.0);
 
@@ -3450,10 +3455,17 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
                                         state.duration.inMilliseconds,
                                   )
                                 : 18000))));
+      // 3.1.71: Phrase 8 y Stealth, Equal-Power real de 6-8 s.
+      final bool equalPower =
+          !isManualSkip &&
+          mixProfile != LiveDjMixMode.longBypass &&
+          (phraseNow || stealthNow);
       final FittedFade fitted = fitMixFade(
         exactDurationMs: outgoingDurationMs,
         mixOutMs: outgoingMixOutMs,
-        wantedFadeMs: fadeOutDurationMs,
+        wantedFadeMs: equalPower
+            ? equalPowerFadeMs(fadeOutDurationMs)
+            : fadeOutDurationMs,
       );
       if (fitted.shortened) _djTrace(fitted.note);
       final int fadeMs = fitted.fadeMs;
@@ -3471,8 +3483,14 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         );
 
         // 🎛️ SUPER MEZCLA DAWN (Alta Energía / Cero Huecos Acústicos)
-        final smoothRateIn = dawnCrossfadeGain(progress);
-        final smoothRateOut = dawnCrossfadeGain(1.0 - progress);
+        // 3.1.71: Phrase 8/Stealth en Equal-Power (sin/cos en amplitud,
+        // pasado a la escala cubica del volumen de mpv).
+        final double volIn = equalPower
+            ? mpvVolumeForGain(equalPowerInGain(progress))
+            : dawnCrossfadeGain(progress) * 100.0;
+        final double volOut = equalPower
+            ? mpvVolumeForGain(equalPowerOutGain(progress))
+            : dawnCrossfadeGain(1.0 - progress) * 100.0;
 
         if (useBassSwap && !bassSwapped && progress >= 0.5) {
           bassSwapped = true;
@@ -3503,14 +3521,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         }
 
         // 3.1.20: respeta la rampa de AdaptiveEq en curso.
-        await AdaptiveEq.setDeckVolume(
-          incomingPlayer,
-          (smoothRateIn * 100.0).clamp(0.0, 100.0),
-        );
-        await AdaptiveEq.setDeckVolume(
-          fadingPlayer,
-          (smoothRateOut * 100.0).clamp(0.0, 100.0),
-        );
+        await AdaptiveEq.setDeckVolume(incomingPlayer, volIn.clamp(0.0, 100.0));
+        await AdaptiveEq.setDeckVolume(fadingPlayer, volOut.clamp(0.0, 100.0));
 
         await _mix.slice(32, fadeClock);
       }
@@ -3518,7 +3530,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       debugPrint("🔴 [ERROR DSP]: $e");
     } finally {
       final double? matched = await _dropPhase();
-      // B arrancó en el punto medio. Los pasos de vuelta los aplica TempoDrift.
+      // 3.1.71: B arranco al BPM de A; ya con su fader arriba (100 %, por
+      // encima del 60 % del cruce) TempoDrift la lleva gradual a su BPM.
       _drift.begin(_incomingNatBpm, matched ?? incomingRate);
       final String? blocked = _drift.takeBlockedReport();
       if (blocked != null) _djTrace('MIDPOINT FUERA $blocked');

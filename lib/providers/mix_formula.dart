@@ -11,6 +11,37 @@ final mixFormulaProvider = StateProvider<MixFormula>(
   (ref) => MixFormula.dnaEnergy,
 );
 
+/// 3.1.71: Mix con Letra (Automix) mezcla solo y siempre en Active
+/// Beatmatching; no tiene selector de tipo de mezcla.
+const MixFormula kMixConLetraFormula = MixFormula.dnaEnergy;
+
+/// 3.1.71: version del campo `mixFormula` en `liveDj.json`. Las sesiones
+/// sin `mixFormulaV` (anteriores) abren en Active Beatmatching, el nuevo
+/// valor por defecto de AutomixDj; desde aqui se respeta la eleccion.
+const int kMixFormulaSchema = 2;
+
+MixFormula mixFormulaFromSession(Map<dynamic, dynamic> data) {
+  final Object? v = data['mixFormulaV'];
+  final Object? idx = data['mixFormula'];
+  if (v is! int || v < kMixFormulaSchema) return MixFormula.dnaEnergy;
+  if (idx is int && idx >= 0 && idx < MixFormula.values.length) {
+    return MixFormula.values[idx];
+  }
+  return MixFormula.dnaEnergy;
+}
+
+/// 3.1.71: Phrase 8 y Stealth cruzan en Equal-Power real de 6 a 8 s (antes
+/// 8-18 s con la curva DAWN, que en la escala cubica de mpv dejaba el cambio
+/// audible en ~2 s: la saliente caia y la entrante subia de golpe).
+const int kEqualPowerMinMs = 6000;
+const int kEqualPowerMaxMs = 8000;
+
+bool mixFormulaEqualPower(MixFormula f) =>
+    f == MixFormula.phraseGrid || f == MixFormula.stealthGap;
+
+int equalPowerFadeMs(int wantedMs) =>
+    wantedMs.clamp(kEqualPowerMinMs, kEqualPowerMaxMs);
+
 int snapPhraseGridMixOut({
   required int durationMs,
   required int dnaMixOutMs,

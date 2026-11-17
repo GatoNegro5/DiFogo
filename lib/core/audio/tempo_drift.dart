@@ -54,7 +54,8 @@ MidpointTempoPlan midpointTempoPlan(double a, double b) {
   final double d = (a - b).abs();
   final double outRate = a.abs() < 1e-9 ? 1 : m / a;
   final double inRate = b.abs() < 1e-9 ? 1 : m / b;
-  final bool limited = a > 0 &&
+  final bool limited =
+      a > 0 &&
       b > 0 &&
       (outRate < TempoDrift.minRate ||
           outRate > TempoDrift.maxRate ||
@@ -124,6 +125,23 @@ class MidpointEntry {
 
 bool _musicalBpm(double bpm) => bpm >= 40 && bpm <= 250;
 
+/// 3.1.71 Master lock (Active Beatmatching): A (saliente) no cambia de
+/// tempo; B entra al BPM de A con rate a/b, puesto en silencio antes de que
+/// su fader suba. Fuera de 0.88-1.12 B entra a su tempo (rate 1, blocked).
+MidpointEntry masterLockEntry(double a, double b) {
+  if (!_musicalBpm(a) || !_musicalBpm(b)) {
+    return const MidpointEntry(incomingRate: 1, blocked: false, note: '');
+  }
+  final double rate = a / b;
+  final String note =
+      'lock a=${a.toStringAsFixed(3)} b=${b.toStringAsFixed(3)} '
+      'rateB=${rate.toStringAsFixed(4)}';
+  if (rate < TempoDrift.minRate || rate > TempoDrift.maxRate) {
+    return MidpointEntry(incomingRate: 1, blocked: true, note: note);
+  }
+  return MidpointEntry(incomingRate: rate, blocked: false, note: note);
+}
+
 MidpointEntry midpointEntry(double a, double b) {
   if (!_musicalBpm(a) || !_musicalBpm(b)) {
     return const MidpointEntry(incomingRate: 1, blocked: false, note: '');
@@ -146,11 +164,7 @@ List<int> _outgoingOffsets(int n) {
 
 List<int> _incomingOffsets(int n) {
   if (n <= 2) return const <int>[5000, 10000];
-  return <int>[
-    5000,
-    10000,
-    for (int i = 2; i < n; i++) 14000 + (i - 2) * 4000,
-  ];
+  return <int>[5000, 10000, for (int i = 2; i < n; i++) 14000 + (i - 2) * 4000];
 }
 
 List<double> _portions(int n, double half, {required bool weighted}) {
@@ -191,6 +205,28 @@ double dawnCrossfadeGain(double progress) {
   return pow(x, 1.2).toDouble();
 }
 
+/// 3.1.71 Equal-Power: amplitud de la entrante, sin(p * pi / 2).
+double equalPowerInGain(double progress) =>
+    sin(progress.clamp(0.0, 1.0) * pi / 2);
+
+/// 3.1.71 Equal-Power: amplitud de la saliente, cos(p * pi / 2). La suma de
+/// potencias de las dos es 1 en todo el cruce: sin hueco ni bajon.
+double equalPowerOutGain(double progress) =>
+    cos(progress.clamp(0.0, 1.0) * pi / 2);
+
+/// 3.1.71: mpv aplica el volumen en escala cubica (ganancia = (v/100)^3).
+/// Volumen 0-100 que da la amplitud [gain] real.
+double mpvVolumeForGain(double gain) {
+  if (gain <= 0) return 0.0;
+  return 100.0 * pow(gain.clamp(0.0, 1.0), 1 / 3).toDouble();
+}
+
+/// Ganancia real (amplitud) de un volumen mpv 0-100.
+double mpvGainForVolume(double volume) {
+  final double v = (volume / 100.0).clamp(0.0, 1.0);
+  return v * v * v;
+}
+
 /// Rampa de tempo al punto medio (Live DJ, incluido Stealth, y Automix).
 ///
 /// Antes del cruce A camina hacia el punto medio. B arranca ahí, en fase,
@@ -204,6 +240,11 @@ class TempoDrift {
   int rampMs = 5000;
   bool midpointBlocked = false;
   String midpointNote = '';
+
+  /// 3.1.71 master lock: false = la saliente no se toca antes del cruce (ni
+  /// rate ni tono). Solo las pruebas del plan viejo al punto medio la ponen
+  /// en true.
+  bool outgoingRamp = false;
 
   int _gen = 0;
   int _rampGen = 0;
@@ -278,7 +319,12 @@ class TempoDrift {
     return _clamp(rate);
   }
 
-  int _gap(List<TempoMark> steps, int index, int rel, {required bool untilMix}) {
+  int _gap(
+    List<TempoMark> steps,
+    int index,
+    int rel, {
+    required bool untilMix,
+  }) {
     if (index + 1 < steps.length) {
       return steps[index + 1].offsetMs - rel;
     }
@@ -326,12 +372,7 @@ class TempoDrift {
           _phaseIn = false;
         }
         final double target = _inPlan!.incoming[due].bpm / natural;
-        final int gap = _gap(
-          _inPlan!.incoming,
-          due,
-          rel,
-          untilMix: false,
-        );
+        final int gap = _gap(_inPlan!.incoming, due, rel, untilMix: false);
         if ((target - rate).abs() >= 0.002 &&
             target >= minRate &&
             target <= maxRate) {
@@ -341,6 +382,10 @@ class TempoDrift {
       if (_phaseIn) return null;
     }
 
+    // 3.1.71: antes la saliente bajaba/subia su rate en pasos a -10/-5 s (o
+    // -12/-9/-6/-3 s) del punto de mezcla: el cambio de sonido de 6-7 s
+    // antes de la mezcla. Ahora B se ajusta a A en silencio.
+    if (!outgoingRamp) return null;
     if (!_musicalBpm(nextBpm) || mixOutMs <= 0) return null;
     if (_outPlan == null || (_outPlan!.b - nextBpm).abs() > 0.05) {
       _outPlan = midpointTempoPlan(natural, nextBpm);
@@ -358,10 +403,7 @@ class TempoDrift {
     final double target = _outPlan!.outgoing[due].bpm / natural;
     if (target < minRate || target > maxRate) return null;
     if ((target - rate).abs() < 0.002) return null;
-    return _arm(
-      target,
-      _gap(_outPlan!.outgoing, due, rel, untilMix: true),
-    );
+    return _arm(target, _gap(_outPlan!.outgoing, due, rel, untilMix: true));
   }
 
   /// Rampa lenta (senoidal) del rate. El temporizador es propio: no depende

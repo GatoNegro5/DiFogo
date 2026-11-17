@@ -12,6 +12,9 @@ void _expectMidpoint(String mode) {
   expect(plan.incomingRate, closeTo(131 / 134, 1e-12), reason: mode);
 
   final TempoDrift before = TempoDrift();
+  // 3.1.71: el plan viejo al punto medio queda solo para esta prueba; por
+  // defecto la saliente ya no cambia de tempo (master lock).
+  before.outgoingRamp = true;
   before.begin(outBpm, 1.0);
   final double? toward = before.tick(
     posMs: 170000,

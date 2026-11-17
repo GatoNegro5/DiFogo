@@ -41,7 +41,7 @@ import 'db_provider.dart';
 import 'session_provider.dart';
 import 'nlp_provider.dart';
 import 'equalizer_provider.dart';
-import 'mix_formula.dart' show snapCueToBeat;
+import 'mix_formula.dart' show MixFormula, kMixConLetraFormula, snapCueToBeat;
 import '../services/adaptive_eq.dart' show AdaptiveEq;
 
 // 🛡️ FIX: Dependencia para dspWorkerProvider
@@ -156,6 +156,9 @@ class AutomixState {
 }
 
 class AutomixNotifier extends Notifier<AutomixState> {
+  /// 3.1.71: Mix con Letra mezcla siempre en Active Beatmatching.
+  MixFormula get mixFormula => kMixConLetraFormula;
+
   late final Player _playerA;
   late final Player _playerB;
   bool _usePlayerA = true;
@@ -1720,11 +1723,11 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
     try {
       platformIn?.setProperty('audio-pitch-correction', 'yes');
-      platformOut?.setProperty('audio-pitch-correction', 'yes');
       // La entrante nace sin graves para que nunca convivan dos líneas de bajo
       // sumando energía en el cruce. Inaudible: su volumen todavía es 0.
       platformIn?.setProperty('af', useBassSwap ? lowCutIn : inBase());
-      platformOut?.setProperty('af', outBase());
+      // 3.1.71 Active Beatmatching: la saliente no se toca al abrir el cruce
+      // (ni tono ni cadena af); su `af` cambia solo en la permuta de graves.
 
       // 3.1.33 (Hueco F): volumen por setDeckVolume (respeta la rampa de
       // sonoridad de AdaptiveEq si el perfil llega a mitad del cruce).
@@ -1775,7 +1778,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
       debugPrint("🔴 [ERROR DSP AUTOMIX]: $e");
     } finally {
       final double? matched = await _dropPhase();
-      // B arrancó en el punto medio. La vuelta a su BPM la hace TempoDrift.
+      // 3.1.71: B arranco al BPM de A; con su fader arriba TempoDrift la
+      // lleva gradual a su BPM.
       _drift.begin(
         _extractBpm(state.currentTrackPath),
         matched ?? incomingRate,
@@ -1879,8 +1883,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
     );
   }
 
+  /// 3.1.71 master lock: B al BPM de A (rate a/b); A no cambia de tempo.
   double _midpointRate(double fadingBpm, double incomingBpm) {
-    final MidpointEntry entry = midpointEntry(fadingBpm, incomingBpm);
+    final MidpointEntry entry = masterLockEntry(fadingBpm, incomingBpm);
     if (entry.blocked) djTrace('MIDPOINT FUERA ${entry.note}');
     return entry.incomingRate;
   }
