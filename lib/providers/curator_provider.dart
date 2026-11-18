@@ -243,6 +243,10 @@ class CuratorNotifier extends Notifier<CuratorState> {
     Directory(dir).createSync(recursive: true);
     final String dst = discoveryFreePath(dir, discoverySafeName(e.title));
     moveFile(e.file, dst);
+    // 3.1.88: igual que Guardar en 1 clic: huella al anti-duplicados y
+    // letra `.lrc` en 2do plano (sin esperar).
+    ref.read(discoveryDedupProvider).addLibraryPath(dst);
+    lastAcceptLyrics = radioStartLyrics(dst, _lyricJob);
     try {
       final Future<void> Function(String, String)? reg = debugCuratorRegister;
       if (reg != null) {
@@ -339,11 +343,17 @@ class CuratorNotifier extends Notifier<CuratorState> {
   @visibleForTesting
   static RadioLyricFetcher? debugLyricFetcher;
 
+  /// 3.1.88: job de letra del ultimo Aceptar (diagnostico y pruebas).
+  Future<void> lastAcceptLyrics = Future<void>.value();
+
+  /// Letra en 2do plano: la falsa de las pruebas, ninguna en pruebas con
+  /// registro falso (sin red), o la real.
+  RadioLyricFetcher? get _lyricJob =>
+      debugLyricFetcher ?? (debugCuratorRegister != null ? null : _fetchLyricFor);
+
   /// Letra de [audioPath] en 2do plano, junto al audio (o en el espejo si
   /// el audio estuviera en la biblioteca protegida).
   Future<void> _fetchLyricFor(String audioPath) async {
-    final RadioLyricFetcher? hook = debugLyricFetcher;
-    if (hook != null) return hook(audioPath);
     final choice = await ref.read(nlpWorkerProvider).lookupSafeLyric(audioPath);
     if (!choice.hasText) return;
     final String lrc = lrcPathForAudio(audioPath);
@@ -371,7 +381,7 @@ class CuratorNotifier extends Notifier<CuratorState> {
       tempPath: e.file,
       targetDir: dir,
       stem: discoverySafeName(e.title),
-      fetchLyrics: _fetchLyricFor,
+      fetchLyrics: _lyricJob,
     );
     ref.read(discoveryDedupProvider).addLibraryPath(r.path);
     try {

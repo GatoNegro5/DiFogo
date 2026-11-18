@@ -12,6 +12,8 @@ import 'package:file_selector/file_selector.dart';
 import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../core/audio_path.dart';
+import '../core/automix_genre_session.dart' show kAutomixSyncLimit;
+import '../core/genre_track_pool.dart';
 import '../core/gatomix_radio.dart';
 import '../core/gatomix_store.dart';
 import '../core/hal/platform_strategy.dart';
@@ -1044,24 +1046,15 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       isPaused: () => _isCrossfading,
       onBatch: (_) => _backfillBatch(),
     );
-    worker.enqueue(
-      backfillCandidates(
-        <String>[for (final File f in state.queue) f.path],
-        _liveFixedCount(),
-        knownBpm,
-      ),
-    );
+    // 3.1.88: solo la ventana de 48 desde la cabeza (O(1) por transicion).
+    final int fixed = _liveFixedCount();
+    worker.enqueue(liveDjBackfillCandidates(state.queue, fixed, knownBpm));
   }
 
   int _liveFixedCount() {
     var fixed = 1;
-    final String? armed = _standbyArmedPath;
-    if (armed != null) {
-      final int at = state.queue.indexWhere(
-        (File f) => sameAudioPath(f.path, armed),
-      );
-      if (at + 1 > fixed) fixed = at + 1;
-    }
+    final int at = liveDjWindowIndexOf(state.queue, _standbyArmedPath);
+    if (at + 1 > fixed) fixed = at + 1;
     return fixed;
   }
 
@@ -1072,8 +1065,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     // 3.1.73: Phrase 8 respeta el orden del Shuffle / estacion.
     if (!mixFormulaMayReorderQueue(ref.read(mixFormulaProvider))) return;
     if (!sameQueueEpoch(_backfillEpoch, state.queue)) return;
-    final List<String>? ordered = reorderQueueTail(
-      <String>[for (final File f in state.queue) f.path],
+    // 3.1.88: reorden armonico solo en la ventana; la cabeza (siguiente)
+    // y el resto de la cola no se tocan.
+    final List<File>? ordered = liveDjReorderWindow(
+      state.queue,
       _liveFixedCount(),
       (List<String> tail, String? from) => buildHarmonicShuffle(
         tail,
@@ -1083,7 +1078,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       ).tracks,
     );
     if (ordered == null) return;
-    state = state.copyWith(queue: ordered.map(File.new).toList());
+    state = state.copyWith(queue: ordered);
     _backfillEpoch = state.queue;
     _saveSnapshot();
   }
@@ -1160,11 +1155,19 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           .toList();
       // Pistas renombradas por Masterizar se reencuentran. Duplicados de
       // la misma ruta (mayúsculas, separadores) y las _K se quitan al abrir.
-      final LiveDjSessionRestore restored = restoreLiveDjSession(
-        data,
-        strategyCount: LiveDjMixStrategy.values.length,
-        modeCount: LiveDjMixMode.values.length,
-      );
+      // 3.1.88: una estacion grande se resuelve en un isolate (antes un
+      // existsSync por pista en el hilo de la interfaz).
+      final LiveDjSessionRestore restored = queuePaths.length > kAutomixSyncLimit
+          ? await restoreLiveDjSessionAsync(
+              Map<String, dynamic>.from(data),
+              LiveDjMixStrategy.values.length,
+              LiveDjMixMode.values.length,
+            )
+          : restoreLiveDjSession(
+              data,
+              strategyCount: LiveDjMixStrategy.values.length,
+              modeCount: LiveDjMixMode.values.length,
+            );
       final List<File> queueFiles = dedupeAudioFiles(
         restored.queue.map(File.new).toList(),
       );
@@ -1300,9 +1303,12 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       ..._queueAddPending,
     };
     final List<File> newFiles = <File>[];
+    // 3.1.88: listas grandes sin canonicalAudioPath (existsSync y
+    // resolveSymbolicLinksSync por pista); la clave ya iguala grafias.
+    final bool big = files.length > kAutomixSyncLimit;
     for (final File f in files) {
       if (isKaraokeAudioPath(f.path)) continue;
-      final File kept = File(canonicalAudioPath(f.path));
+      final File kept = big ? f : File(canonicalAudioPath(f.path));
       if (currentPaths.add(audioPathKey(kept.path))) newFiles.add(kept);
     }
     if (newFiles.isEmpty) return;
@@ -1325,9 +1331,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     if (state.queue.isEmpty) return 0;
     if (_isCrossfading) return 1;
     if (_standbyArmedPath == null) return 0;
-    final int i = state.queue.indexWhere(
-      (File f) => sameAudioPath(f.path, _standbyArmedPath),
-    );
+    final int i = liveDjWindowIndexOf(state.queue, _standbyArmedPath);
     if (i >= 0) return i + 1;
     return 0;
   }
@@ -1339,17 +1343,15 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       }
       return;
     }
-    final List<File> fresh = <File>[];
     for (final File f in files) {
       _queueAddPending.remove(audioPathKey(f.path));
-      if (isKaraokeAudioPath(f.path)) continue;
-      if (state.queue.any((File e) => sameAudioPath(e.path, f.path))) continue;
-      if (state.currentTrackPath != null &&
-          sameAudioPath(state.currentTrackPath, f.path)) {
-        continue;
-      }
-      fresh.add(f);
     }
+    // 3.1.88: Set de claves (antes queue.any(sameAudioPath) por pista).
+    final List<File> fresh = liveDjFreshTracks(
+      state.queue,
+      files,
+      state.currentTrackPath,
+    );
     if (fresh.isEmpty) return;
     final List<String> paths = fresh.map((File f) => f.path).toList();
     try {
@@ -1400,17 +1402,11 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   /// la pista armada en el deck. Devuelve cuantos entraron.
   int interleaveDiscovery(List<File> files, {int every = 3}) {
     final List<File> q = List<File>.from(state.queue);
-    final List<File> fresh = <File>[];
-    for (final File f in files) {
-      if (isKaraokeAudioPath(f.path)) continue;
-      if (q.any((File e) => sameAudioPath(e.path, f.path))) continue;
-      if (fresh.any((File e) => sameAudioPath(e.path, f.path))) continue;
-      if (state.currentTrackPath != null &&
-          sameAudioPath(state.currentTrackPath, f.path)) {
-        continue;
-      }
-      fresh.add(f);
-    }
+    final List<File> fresh = liveDjFreshTracks(
+      q,
+      files,
+      state.currentTrackPath,
+    );
     if (fresh.isEmpty) return 0;
     final int step = every < 1 ? 1 : every;
     int pos = _liveLockedPrefix() + step - 1;
@@ -1482,9 +1478,12 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     _radioFreeze = null;
     final List<File> kept = <File>[];
     final Set<String> seen = <String>{};
+    // 3.1.88: estacion grande sin canonicalAudioPath por pista (I/O
+    // sincrono); las rutas ya vienen del listado del disco.
+    final bool big = queue.length > kAutomixSyncLimit;
     for (final File f in queue) {
       if (isKaraokeAudioPath(f.path)) continue;
-      final File c = File(canonicalAudioPath(f.path));
+      final File c = big ? f : File(canonicalAudioPath(f.path));
       if (seen.add(audioPathKey(c.path))) kept.add(c);
     }
     String? cur;
@@ -1492,7 +1491,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     if (currentPath != null && File(currentPath).existsSync()) {
       cur = canonicalAudioPath(currentPath);
       pos = positionMs < 0 ? 0 : positionMs;
-      kept.removeWhere((File f) => sameAudioPath(f.path, cur!));
+      final String ck = audioPathKey(cur);
+      kept.removeWhere((File f) => audioPathKey(f.path) == ck);
     } else if (kept.isNotEmpty) {
       cur = kept.removeAt(0).path;
     }
@@ -2981,12 +2981,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
   /// 3.1.84: la siguiente es siempre la cabeza de la cola anunciada; la
   /// tecnica (DNA, Phrase 8, Stealth, fija o AUTO) nunca la cambia.
-  int _nextQueueIndex() {
-    return offAirNextIndex(
-      paths: <String>[for (final File f in state.queue) f.path],
-      currentPath: state.currentTrackPath,
-    );
-  }
+  int _nextQueueIndex() => liveDjHeadIndex(state.queue, state.currentTrackPath);
 
   String? _queueHeadPath() {
     final int i = _nextQueueIndex();
@@ -3028,9 +3023,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       if (queueIndex == null &&
           _nextFromCompletion &&
           _standbyArmedPath != null) {
-        final int ai = state.queue.indexWhere(
-          (f) => sameAudioPath(f.path, _standbyArmedPath),
-        );
+        final int ai = liveDjWindowIndexOf(state.queue, _standbyArmedPath);
         if (ai >= 0) nextIdx = ai;
       }
       _nextFromCompletion = false;
@@ -3741,6 +3734,95 @@ final liveDjBpmCacheProvider = Provider<Map<String, double>>((ref) {
 
 final liveDjProvider = NotifierProvider<LiveDjNotifier, LiveDjState>(
   LiveDjNotifier.new,
+);
+
+// ---- 3.1.88: ventana deslizante de AutomixDj (paridad con Mix con Letra) ----
+
+/// Siguiente con la radio apagada: la cabeza de la cola (regla 3.1.84),
+/// buscada solo en las primeras [kRollingWindowSize] pistas.
+int liveDjHeadIndex(List<File> queue, String? currentPath) => offAirNextIndex(
+  paths: <String>[
+    for (var i = 0; i < queue.length && i < kRollingWindowSize; i++)
+      queue[i].path,
+  ],
+  currentPath: currentPath,
+);
+
+/// Indice de [path] dentro de la ventana (-1 si no esta o es null).
+int liveDjWindowIndexOf(List<File> queue, String? path) {
+  if (path == null || path.isEmpty) return -1;
+  final String k = audioPathKey(path);
+  final int end = min(queue.length, kRollingWindowSize);
+  for (var i = 0; i < end; i++) {
+    if (audioPathKey(queue[i].path) == k) return i;
+  }
+  return -1;
+}
+
+/// Pistas sin BPM a medir: solo `queue[fixed..fixed+48)`.
+List<String> liveDjBackfillCandidates(
+  List<File> queue,
+  int fixed,
+  double Function(String path) bpmOf,
+) {
+  final int start = fixed < 0 ? 0 : fixed;
+  final int end = min(queue.length, start + kRollingWindowSize);
+  return backfillWindow(
+    <String>[for (var i = 0; i < end; i++) queue[i].path],
+    start,
+    bpmOf,
+    window: kRollingWindowSize,
+  );
+}
+
+/// Reorden armonico de `queue[fixed..fixed+48)`; la cabeza fija y el resto
+/// de la cola (mismos `File`) quedan igual. Null si no hay que mover.
+List<File>? liveDjReorderWindow(
+  List<File> queue,
+  int fixed,
+  List<String> Function(List<String> tail, String? continueFrom) order,
+) {
+  final int head = fixed < 0 ? 0 : fixed;
+  final int end = min(queue.length, head + kRollingWindowSize);
+  final List<String>? part = reorderQueueWindow(
+    <String>[for (var i = 0; i < end; i++) queue[i].path],
+    head,
+    order,
+    window: kRollingWindowSize,
+  );
+  if (part == null) return null;
+  return <File>[for (final String p in part) File(p), ...queue.sublist(end)];
+}
+
+/// [incoming] sin karaoke, sin repetidas y sin las que ya estan en [queue]
+/// o suenan (Set de `audioPathKey`, O(1) por pista).
+List<File> liveDjFreshTracks(
+  List<File> queue,
+  List<File> incoming,
+  String? currentPath,
+) {
+  final Set<String> seen = <String>{
+    for (final File f in queue) audioPathKey(f.path),
+    if (currentPath != null && currentPath.isNotEmpty) audioPathKey(currentPath),
+  };
+  return <File>[
+    for (final File f in incoming)
+      if (!isKaraokeAudioPath(f.path) && seen.add(audioPathKey(f.path))) f,
+  ];
+}
+
+/// Restauracion de una sesion grande de Live DJ fuera del hilo de la
+/// interfaz (funcion top-level: el isolate no captura el Notifier).
+Future<LiveDjSessionRestore> restoreLiveDjSessionAsync(
+  Map<String, dynamic> data,
+  int strategyCount,
+  int modeCount,
+) => Isolate.run(
+  () => restoreLiveDjSession(
+    data,
+    strategyCount: strategyCount,
+    modeCount: modeCount,
+  ),
 );
 
 /// Lo pesado del Shuffle, fuera del hilo de la interfaz: migrar el JSON de

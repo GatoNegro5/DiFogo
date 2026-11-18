@@ -74,12 +74,18 @@ Future<RadioSaveResult> radioSaveTrack({
       : '.mp3';
   final String dst = await radioFreePath(targetDir, stem, ext: ext);
   await File(tempPath).copy(dst);
-  Future<void> lyrics = Future<void>.value();
-  if (fetchLyrics != null) {
-    lyrics = Future<void>(() => fetchLyrics(dst)).catchError((Object _) {});
-    unawaited(lyrics);
-  }
-  return RadioSaveResult(dst, lyrics);
+  return RadioSaveResult(dst, radioStartLyrics(dst, fetchLyrics));
+}
+
+/// 3.1.88: lanza sin esperar (`unawaited`) la letra de [audioPath]; un
+/// fallo no sube. Lo usan Guardar en 1 clic y Aceptar de la bandeja.
+Future<void> radioStartLyrics(String audioPath, RadioLyricFetcher? fetch) {
+  if (fetch == null) return Future<void>.value();
+  final Future<void> job = Future<void>(
+    () => fetch(audioPath),
+  ).catchError((Object _) {});
+  unawaited(job);
+  return job;
 }
 
 /// Borra el temporal; si el deck aun lo tiene abierto (Windows) reintenta.

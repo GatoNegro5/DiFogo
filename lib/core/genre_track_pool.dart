@@ -11,6 +11,9 @@ import 'bpm_backfill_worker.dart' show reorderQueueTail;
 /// el mismo con 20 o con 5000 canciones.
 const int kAutomixHydrateWindow = 48;
 
+/// 3.1.88: la misma ventana para AutomixDj (Live DJ, vista de inicio).
+const int kRollingWindowSize = kAutomixHydrateWindow;
+
 /// Letras en memoria: la actual, la siguiente y un margen corto.
 const int kLyricPrimeKeep = 4;
 
