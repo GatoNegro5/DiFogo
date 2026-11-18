@@ -120,7 +120,8 @@ void main() {
       ).readAsBytesSync();
       final _Px i256 = await _decode(_ico256(ico));
       expect(i256.w, 256);
-      _checkFill(i256, 'app_icon.ico 256');
+      // 3.1.82: el .ico ahora es la cara a sangre (sin esquinas
+      // transparentes); su forma la verifica difogo_launcher_icons_3182.
     });
   });
 }
