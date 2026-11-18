@@ -10,6 +10,7 @@ import '../../core/net/artist_info.dart';
 import '../../providers/livedj_provider.dart';
 import '../../providers/mix_formula.dart';
 import '../../providers/theme_provider.dart';
+import 'livedj_mix_marker.dart';
 import '../../providers/vibe_hub_provider.dart';
 
 /// 3.1.70: AutomixDj abre en Modo Spotify (portada grande, artista, barra
@@ -292,19 +293,27 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
               overlayShape: SliderComponentShape.noOverlay,
               thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
             ),
-            child: Slider(
-              key: const Key('spotify-progress'),
-              value: value,
-              min: 0.0,
-              max: maxMs,
-              onChangeStart: (double v) => setState(() => _drag = v),
-              onChanged: (double v) => setState(() => _drag = v),
-              onChangeEnd: (double v) {
-                if (dur.inMilliseconds > 0) {
-                  dj.seek(Duration(milliseconds: v.round()));
-                }
-                setState(() => _drag = null);
-              },
+            // 3.1.83: la misma linea roja del punto de mezcla que la consola
+            // clasica y la vista de la carpeta (customMixOutMs).
+            child: Stack(
+              alignment: Alignment.center,
+              children: <Widget>[
+                Slider(
+                  key: const Key('spotify-progress'),
+                  value: value,
+                  min: 0.0,
+                  max: maxMs,
+                  onChangeStart: (double v) => setState(() => _drag = v),
+                  onChanged: (double v) => setState(() => _drag = v),
+                  onChangeEnd: (double v) {
+                    if (dur.inMilliseconds > 0) {
+                      dj.seek(Duration(milliseconds: v.round()));
+                    }
+                    setState(() => _drag = null);
+                  },
+                ),
+                liveDjMixMarker(6, s.customMixOutMs, dur.inMilliseconds),
+              ],
             ),
           ),
           Row(

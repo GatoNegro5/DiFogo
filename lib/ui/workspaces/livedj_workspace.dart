@@ -17,6 +17,7 @@ import '../mobile/music_picker_screen.dart';
 import 'livedj_bpm_badge.dart';
 import 'livedj_artist_card.dart';
 import 'livedj_folder_playlist.dart';
+import 'livedj_mix_marker.dart';
 import 'livedj_spotify_panel.dart';
 import '../../core/audio/cue_preview.dart';
 import '../../core/genre_mix_fx.dart' show mixFormulaLockedProvider;
@@ -369,34 +370,6 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
   double? _dragPosition;
   final LiveDjNextLabel _nextLabel = LiveDjNextLabel();
 
-  /// Línea vertical en la barra: punto donde arranca la mezcla (DNA / Phrase 8 /
-  /// Stealth). `mixMs` = `customMixOutMs` del provider (mismo valor que dispara).
-  Widget _mixMarker(double inset, int mixMs, int durMs) {
-    if (mixMs <= 0 || durMs <= 0 || mixMs >= durMs) {
-      return const SizedBox.shrink();
-    }
-    return Positioned.fill(
-      child: IgnorePointer(
-        child: LayoutBuilder(
-          builder: (context, c) {
-            final double w = c.maxWidth - inset * 2;
-            final double x = inset + w * (mixMs / durMs).clamp(0.0, 1.0);
-            return Stack(
-              children: [
-                Positioned(
-                  left: x - 1,
-                  top: 0,
-                  bottom: 0,
-                  child: Container(width: 2, color: Colors.redAccent),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(liveDjProvider);
@@ -683,7 +656,11 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                           });
                         },
                       ),
-                      _mixMarker(8, state.customMixOutMs, dur.inMilliseconds),
+                      liveDjMixMarker(
+                        8,
+                        state.customMixOutMs,
+                        dur.inMilliseconds,
+                      ),
                     ],
                   ),
                 ),
@@ -851,7 +828,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                       });
                     },
                   ),
-                  _mixMarker(12, state.customMixOutMs, dur.inMilliseconds),
+                  liveDjMixMarker(12, state.customMixOutMs, dur.inMilliseconds),
                 ],
               ),
             ),

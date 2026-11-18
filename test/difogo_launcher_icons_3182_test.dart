@@ -9,6 +9,8 @@ import 'package:flutter_test/flutter_test.dart';
 // gato a sangre (sin margenes vacios), recortada de
 // assets/branding/difogo_logo.png: cuadro de 800 px en (112,160)-(912,960)
 // con audifonos completos; los huecos del arte se tapan con su azul #0E152A.
+// 3.1.83: los huecos y el fondo adaptativo pasan a negro #000000 y el .ico
+// de Windows toma el estilo de macOS (cara a sangre, esquinas redondeadas).
 // Solo lectura de archivos del repo.
 
 const String _res = 'android/app/src/main/res/mipmap-';
@@ -48,6 +50,40 @@ const Set<int> _oldHashes = <int>{
   0xfced017d,
 };
 
+// 3.1.83: FNV-1a 32 de los 30 PNG distintos de 3.1.82 (huecos en azul).
+const Set<int> _navy3182 = <int>{
+  0x17e02f95,
+  0x271efa83,
+  0x2d4c9718,
+  0x2d4f2a77,
+  0x382d57b2,
+  0x40a3f806,
+  0x4dcd0cef,
+  0x50c5c42c,
+  0x50e3d686,
+  0x52954573,
+  0x585f9a49,
+  0x624a07b9,
+  0x62a88131,
+  0x6652542b,
+  0x6939d5ae,
+  0x6ccd6d4f,
+  0x76989be6,
+  0x92de452b,
+  0xad51afac,
+  0xae964467,
+  0xbd1fb639,
+  0xcbac1573,
+  0xcc86a0fc,
+  0xd5776e54,
+  0xd7795359,
+  0xf4f3e903,
+  0xf755d568,
+  0xfa648f5b,
+  0xfd21a1d3,
+  0xffac3094,
+};
+
 int _fnv(Uint8List b) {
   int h = 0x811c9dc5;
   for (final int x in b) {
@@ -75,6 +111,7 @@ Future<_Px> _decode(Uint8List bytes) async {
 Future<_Px> _load(String path) {
   final Uint8List bytes = File(path).readAsBytesSync();
   expect(_oldHashes.contains(_fnv(bytes)), isFalse, reason: '$path viejo');
+  expect(_navy3182.contains(_fnv(bytes)), isFalse, reason: '$path 3.1.82');
   return _decode(bytes);
 }
 
@@ -121,7 +158,7 @@ Map<int, Uint8List> _icoEntries(Uint8List b) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('3182 Windows: app_icon.ico a sangre en sus 6 tamanos', (
+  testWidgets('3183 Windows: app_icon.ico redondeado como macOS', (
     WidgetTester tester,
   ) async {
     await tester.runAsync(() async {
@@ -131,8 +168,11 @@ void main() {
       expect(e.keys.toSet(), <int>{16, 32, 48, 64, 128, 256});
       final _Px p = await _decode(e[256]!);
       expect(p.w, 256);
-      _opaque(p, 'ico 256');
-      _fills(p, 'ico 256', minCover: 1);
+      _fills(p, 'ico 256');
+      expect(p.alpha(0, 0), 0, reason: 'ico 256 esquina');
+      expect(p.alpha(255, 255), 0, reason: 'ico 256 esquina');
+      expect(p.alpha(128, 0), 255, reason: 'ico 256 borde superior');
+      expect(p.alpha(0, 128), 255, reason: 'ico 256 borde izquierdo');
     });
   });
 
@@ -162,7 +202,8 @@ void main() {
       final String colors = File(
         'android/app/src/main/res/values/colors.xml',
       ).readAsStringSync();
-      expect(colors.contains('#0E152A'), isTrue);
+      expect(colors.contains('#000000'), isTrue);
+      expect(colors.contains('#0E152A'), isFalse);
       final String adaptive = File(
         'android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml',
       ).readAsStringSync();

@@ -19,6 +19,7 @@ import '../../providers/theme_provider.dart';
 import '../../services/id3_title_artist.dart';
 import 'livedj_bpm_badge.dart';
 import 'livedj_deck_relevo.dart';
+import 'livedj_mix_marker.dart';
 import '../vibe_hub_view.dart' show RadioDiscoveryButton;
 
 /// Pantalla grande de la canción que está sonando. No usa la carpeta
@@ -578,32 +579,6 @@ class _RadioSlot extends ConsumerWidget {
   }
 }
 
-Widget _mixMarker(double inset, int mixMs, int durMs) {
-  if (mixMs <= 0 || durMs <= 0 || mixMs >= durMs) {
-    return const SizedBox.shrink();
-  }
-  return Positioned.fill(
-    child: IgnorePointer(
-      child: LayoutBuilder(
-        builder: (context, c) {
-          final w = c.maxWidth - inset * 2;
-          final x = inset + w * (mixMs / durMs).clamp(0.0, 1.0);
-          return Stack(
-            children: [
-              Positioned(
-                left: x - 1,
-                top: 0,
-                bottom: 0,
-                child: Container(width: 2, color: Colors.redAccent),
-              ),
-            ],
-          );
-        },
-      ),
-    ),
-  );
-}
-
 class _OnAirBadge extends StatelessWidget {
   final bool compact;
   const _OnAirBadge({required this.compact});
@@ -767,7 +742,7 @@ class _PlayClock extends ConsumerWidget {
                     onDrag(null);
                   },
                 ),
-                _mixMarker(12, mixOutMs, durMs),
+                liveDjMixMarker(12, mixOutMs, durMs),
               ],
             ),
           ),
