@@ -116,10 +116,14 @@ class LiveDjWorkspace extends ConsumerWidget {
             flex: compact ? 1 : (classic ? 19 : 18),
             child: Column(
               children: [
-                Expanded(
-                  flex: compact ? (spotify ? 7 : 5) : 5,
-                  child: const LiveDjPlayerPanel(),
-                ),
+                // 3.1.85: Lista en telefono: el reproductor sin alto fijo.
+                if (compact && !spotify)
+                  const LiveDjPlayerPanel()
+                else
+                  Expanded(
+                    flex: compact ? (spotify ? 7 : 5) : 5,
+                    child: const LiveDjPlayerPanel(),
+                  ),
                 const Divider(height: 1, color: Colors.white10),
                 // 3.1.62: en modo estaciones (escritorio) no va "Cargar
                 // Carpeta" ni el Cartridge vacio; la cola aparece al sonar.
@@ -938,7 +942,70 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
       ),
     );
 
+    // 3.1.85: Lista en telefono: la tarjeta mide solo lo que ocupa (sin
+    // Expanded ni hueco bajo la barra y los controles); la cola gana el resto.
+    final Widget compactListCard = Padding(
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: GatoMixTheme.bgPanel,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white10),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(10, 12, 4, 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, c) {
+                    return FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: SizedBox(
+                        width: c.maxWidth,
+                        child: nowPlayingBody,
+                      ),
+                    );
+                  },
+                ),
+              ),
+              if (!compact)
+                Tooltip(
+                  message: playlistOn
+                      ? 'Volver a Explorador y Cartridge'
+                      : 'Vista de la carpeta',
+                  child: GestureDetector(
+                    onTap: () {
+                      ref
+                              .read(
+                                liveDjPlaylistViewProvider.notifier,
+                              )
+                              .state =
+                          !playlistOn;
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: Icon(
+                        Icons.album,
+                        size: 26,
+                        color: playlistOn
+                            ? GatoMixTheme.syncActive
+                            : Colors.white70,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    final bool tightList = compact && !spotify;
     return Column(
+      mainAxisSize: tightList ? MainAxisSize.min : MainAxisSize.max,
       children: [
         if (compact)
           ColoredBox(
@@ -1009,68 +1076,14 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
               ],
             ),
           ),
-        Expanded(
+        if (tightList)
+          compactListCard
+        else
+          Expanded(
           child: spotify
               ? LiveDjSpotifyPanel(compact: compact)
               : compact
-              ? Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: GatoMixTheme.bgPanel,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: Colors.white10),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(10, 6, 4, 4),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, c) {
-                                return FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  alignment: Alignment.centerLeft,
-                                  child: SizedBox(
-                                    width: c.maxWidth,
-                                    child: nowPlayingBody,
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          if (!compact)
-                            Tooltip(
-                              message: playlistOn
-                                  ? 'Volver a Explorador y Cartridge'
-                                  : 'Vista de la carpeta',
-                              child: GestureDetector(
-                                onTap: () {
-                                  ref
-                                          .read(
-                                            liveDjPlaylistViewProvider.notifier,
-                                          )
-                                          .state =
-                                      !playlistOn;
-                                },
-                                child: Padding(
-                                  padding: const EdgeInsets.all(6),
-                                  child: Icon(
-                                    Icons.album,
-                                    size: 26,
-                                    color: playlistOn
-                                        ? GatoMixTheme.syncActive
-                                        : Colors.white70,
-                                  ),
-                                ),
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                )
+              ? compactListCard
               : SingleChildScrollView(child: songCard),
         ),
         // 3.1.84: sin franja con el nombre de archivo de la siguiente (la

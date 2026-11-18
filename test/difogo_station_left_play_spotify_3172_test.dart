@@ -288,7 +288,7 @@ void main() {
       () => c.read(vibeHubProvider.notifier).playStation(a, <String>['Salsa']),
     );
     // 3.1.84: chip compacto.
-    expect(kRadioDiscoveryLabel, '🔥 Radio');
+    expect(kRadioDiscoveryLabel, 'Radio');
     expect(radioDiscoveryTooltip(false), contains('solo suena tu biblioteca'));
     expect(radioDiscoveryTooltip(true), contains('Aceptar'));
     await t.pumpWidget(

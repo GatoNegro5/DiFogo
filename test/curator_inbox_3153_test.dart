@@ -181,7 +181,7 @@ void main() {
         ),
       ),
     );
-    expect(find.text('✨ Nuevas (2)'), findsOneWidget);
+    expect(find.text('Nuevas (2)'), findsOneWidget);
     await t.tap(find.text('abrir'));
     await t.pumpAndSettle();
     // 3.1.68: caja agrupada por estacion y sub-genero.

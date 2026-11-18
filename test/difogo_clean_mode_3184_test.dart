@@ -63,8 +63,20 @@ void main() {
     final LiveDjState s = _seed();
     expect(spotifyCleanNextLabel(s), 'Siguiente: Daddy Yankee · Ghosting');
     expect(spotifyTrackLabels(s.currentTrackPath).title, 'Fuego');
-    expect(kRadioDiscoveryLabel, '🔥 Radio');
-    expect(acceptNewMusicLabel(1), '✨ Nuevas (1)');
+    // 3.1.85: iconos vectoriales en lugar de emoji.
+    expect(kRadioDiscoveryLabel, 'Radio');
+    expect(acceptNewMusicLabel(1), 'Nuevas (1)');
+  });
+
+  test('3.1.85 chips Radio y Nuevas con Icon vectorial, sin emoji', () {
+    final String hub = File('lib/ui/vibe_hub_view.dart').readAsStringSync();
+    final String cur = File(
+      'lib/ui/curator_inbox_dialog.dart',
+    ).readAsStringSync();
+    expect(hub.contains('Icons.local_fire_department_rounded'), isTrue);
+    expect(cur.contains('Icons.auto_awesome_rounded'), isTrue);
+    expect(hub.contains("'🔥 Radio'"), isFalse);
+    expect(cur.contains('✨ Nuevas'), isFalse);
   });
 
   for (final bool spotify in <bool>[true, false]) {
@@ -108,6 +120,13 @@ void main() {
           expect(find.textContaining('.mp3'), findsNothing);
           expect(find.textContaining('BPM)'), findsNothing);
           expect(find.textContaining('RADIO DESCUBRIMIENTO'), findsNothing);
+          if (!spotify && phone) {
+            // 3.1.85: tarjeta compacta: sin hueco bajo barra y controles.
+            expect(
+              t.getSize(find.byType(LiveDjPlayerPanel)).height,
+              lessThan(300),
+            );
+          }
           await t.tap(find.byKey(const Key('livedj-mode-dj-button')));
           await t.pump();
           await t.pump(const Duration(milliseconds: 400));

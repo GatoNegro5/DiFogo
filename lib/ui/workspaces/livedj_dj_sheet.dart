@@ -14,7 +14,8 @@ import 'livedj_spotify_panel.dart';
 /// "Modo DJ" que se abre desde el boton de sliders de la cabecera de
 /// AutomixDj. Reusa los mismos providers: no hay estado duplicado.
 
-const String kModoDjLabel = '🎛️ Modo DJ';
+// 3.1.85: sin emoji; el icono de sliders va como Icon vectorial.
+const String kModoDjLabel = 'Modo DJ';
 
 /// Texto del tipo de mezcla (antes en la barra "TIPO DE MEZCLA").
 String liveDjMixTypeLabel(MixFormula f, {bool bypass = false}) {
@@ -148,13 +149,19 @@ class LiveDjModeDjPanel extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 12),
-          const Text(
-            kModoDjLabel,
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-            ),
+          const Row(
+            children: <Widget>[
+              Icon(Icons.tune_rounded, size: 18, color: Colors.white),
+              SizedBox(width: 6),
+              Text(
+                kModoDjLabel,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
           section(
             'TIPO DE MEZCLA',

@@ -22,8 +22,9 @@ const Color _curCard = Color(0xFF1C1C1C);
 
 /// Texto del boton protagonista (con el conteo de pendientes si hay).
 // 3.1.84 Consumer Clean Mode: badge compacto junto a "+ Agregar".
+// 3.1.85: sin emoji; el destello es un Icon vectorial en el boton.
 String acceptNewMusicLabel(int pending) =>
-    pending > 0 ? '✨ Nuevas ($pending)' : '✨ Nuevas';
+    pending > 0 ? 'Nuevas ($pending)' : 'Nuevas';
 
 Future<void> showCuratorInbox(BuildContext context) => showDialog<void>(
   context: context,
@@ -56,10 +57,20 @@ class CuratorInboxButton extends ConsumerWidget {
         ),
         child: FittedBox(
           fit: BoxFit.scaleDown,
-          child: Text(
-            acceptNewMusicLabel(n),
-            maxLines: 1,
-            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Icon(Icons.auto_awesome_rounded, size: 14),
+              const SizedBox(width: 3),
+              Text(
+                acceptNewMusicLabel(n),
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
           ),
         ),
       ),

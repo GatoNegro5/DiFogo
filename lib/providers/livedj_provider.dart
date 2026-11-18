@@ -3503,9 +3503,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     final String? dnaOutMid = dnaKind == DnaKind.filterSweep
         ? dnaHighpassHard
         : null;
-    final String lowCutIn = AfCaps.sanitize(
-      [inBase(), _bassKillFilter].where((s) => s.isNotEmpty).join(','),
-    );
+    // 3.1.85: la cadena de corte de graves de la entrante no se usaba
+    // (aviso de analyze). Se conserva la llamada a inBase(): filterFor anota
+    // la base de la rampa del EQ adaptativo; asi el DSP no cambia.
+    inBase();
     final String lowCutOut = AfCaps.sanitize(
       [outBase(), _bassKillFilter].where((s) => s.isNotEmpty).join(','),
     );

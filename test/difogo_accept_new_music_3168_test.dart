@@ -292,7 +292,7 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    expect(find.text('✨ Nuevas (3)'), findsOneWidget);
+    expect(find.text('Nuevas (3)'), findsOneWidget);
     expect(find.text('ESTACIONES & GÉNEROS'), findsOneWidget);
     expect(find.text('SMART VIBE'), findsNothing);
     final OutlinedButton b = tester.widget<OutlinedButton>(
@@ -341,7 +341,7 @@ void main() {
     final ProviderContainer c = ProviderScope.containerOf(
       tester.element(find.byType(CuratorInboxButton)),
     );
-    expect(find.text('✨ Nuevas (4)'), findsOneWidget);
+    expect(find.text('Nuevas (4)'), findsOneWidget);
     await tester.tap(
       find.byKey(const ValueKey<String>('curator-inbox-button')),
     );

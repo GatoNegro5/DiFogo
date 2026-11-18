@@ -657,7 +657,9 @@ class StationMasterCheck extends StatelessWidget {
 
 /// 3.1.72: nuevo nombre de "PRENDE MODO RADIO".
 /// 3.1.84 Consumer Clean Mode: chip compacto en la cabecera de la cola.
-const String kRadioDiscoveryLabel = '🔥 Radio';
+/// 3.1.85: sin emoji; el fuego es un Icon vectorial (nitido en las 4
+/// plataformas y en los tests).
+const String kRadioDiscoveryLabel = 'Radio';
 
 String radioDiscoveryTooltip(bool on) => on
     ? 'RADIO DESCUBRIMIENTO ENCENDIDA: la estación que suena intercala '
@@ -699,14 +701,25 @@ class RadioDiscoveryButton extends ConsumerWidget {
             constraints: BoxConstraints(maxWidth: compact ? 90 : 120),
             child: FittedBox(
               fit: BoxFit.scaleDown,
-              child: Text(
-                kRadioDiscoveryLabel,
-                style: TextStyle(
-                  color: on ? color : Colors.white54,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                ),
-                maxLines: 1,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(
+                    Icons.local_fire_department_rounded,
+                    size: 14,
+                    color: on ? color : Colors.white54,
+                  ),
+                  const SizedBox(width: 3),
+                  Text(
+                    kRadioDiscoveryLabel,
+                    style: TextStyle(
+                      color: on ? color : Colors.white54,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                    maxLines: 1,
+                  ),
+                ],
               ),
             ),
           ),
