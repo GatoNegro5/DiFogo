@@ -4,12 +4,18 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/discovery_dedup_controller.dart';
 import '../core/genre_stations.dart'
     show isStationSub, registerSavedTrack, stationSaveDir, stationSubOf;
+import '../core/library_guard.dart' show lrcWriteFile;
+import '../core/lyric_files.dart' show lrcPathForAudio;
+import '../core/mode_session.dart' show sessionDir;
+import '../core/radio_one_click.dart';
 import '../services/smart_discovery_service.dart';
 import '../ui/workspaces/yt_workspace.dart' show moveFile;
 import 'automix_provider.dart';
 import 'db_provider.dart';
+import 'nlp_provider.dart';
 import 'session_provider.dart';
 
 /// 3.1.53 Curator Inbox: estado de la bandeja de revision y acciones del
@@ -26,6 +32,44 @@ Future<void> Function(String path, String genre)? debugCuratorRegister;
 /// Solo pruebas: no programar el worker diario.
 @visibleForTesting
 bool debugDisableCuratorWorker = false;
+
+/// 3.1.87 Solo pruebas: JSON de descartes de la Radio en %TEMP%.
+@visibleForTesting
+String? debugDiscoveryDiscardPath;
+
+/// 3.1.87: biblioteca en %TEMP% (pruebas): nada se lee ni escribe en las
+/// carpetas reales del usuario.
+bool _inTemp(String path) => path
+    .replaceAll('\\', '/')
+    .toLowerCase()
+    .startsWith(Directory.systemTemp.path.replaceAll('\\', '/').toLowerCase());
+
+/// 3.1.87: huellas descartadas (null con la biblioteca en %TEMP% y sin
+/// ruta propia: solo en memoria, nunca la carpeta real de sesiones).
+String? discoveryDiscardPath() {
+  final String? o = debugDiscoveryDiscardPath;
+  if (o != null) return o;
+  if (_inTemp(vibeMusicRoot())) return null;
+  return '${sessionDir()}${Platform.pathSeparator}difogo_discovery_discards.json';
+}
+
+/// 3.1.87: anti-duplicados de la Radio Descubrimiento (biblioteca local +
+/// descartes, O(1)).
+final discoveryDedupProvider = Provider<DiscoveryDedupController>(
+  (ref) => DiscoveryDedupController(discardPath: discoveryDiscardPath()),
+);
+
+/// 3.1.87: arma una vez el indice de huellas de la biblioteca (listado
+/// async y huellas en isolate; solo lectura) y de la carpeta de guardado de
+/// la Radio.
+Future<void> ensureDiscoveryLibrary(DiscoveryDedupController d) =>
+    d.ensureLibrary(
+      () => listLibraryAudioAsync(<String>[
+        vibeMusicRoot(),
+        if (!_inTemp(vibeMusicRoot()) || _inTemp(radioFallbackRoot()))
+          radioFallbackRoot(),
+      ]),
+    );
 
 class CuratorState {
   const CuratorState({
@@ -145,7 +189,10 @@ class CuratorNotifier extends Notifier<CuratorState> {
     }
     state = state.copyWith(busy: true);
     try {
+      final DiscoveryDedupController dedup = ref.read(discoveryDedupProvider);
+      await ensureDiscoveryLibrary(dedup);
       final List<CuratorEntry> got = await _service.discover(
+        skipTitle: (String title) => dedup.blocksCandidate(filename: title),
         genre: g,
         count: count < room ? count : room,
         knownIds: <String>{for (final CuratorEntry e in state.entries) e.id},
@@ -258,6 +305,7 @@ class CuratorNotifier extends Notifier<CuratorState> {
   }
 
   /// [Descartar]: borra el temporal; el id queda para no volver a bajarlo.
+  /// 3.1.87: su huella queda en el anti-duplicados de la Radio.
   void reject(String id) {
     final CuratorEntry? e = _find(id);
     if (e == null) return;
@@ -267,6 +315,111 @@ class CuratorNotifier extends Notifier<CuratorState> {
       debugPrint('[CURATOR] no se pudo borrar: $err');
     }
     _replace(e.copyWith(status: CuratorStatus.rejected));
+    unawaited(
+      ref
+          .read(discoveryDedupProvider)
+          .discard(title: e.title, filename: e.file)
+          .catchError((Object _) => false),
+    );
+  }
+
+  /// 3.1.87: tema pendiente de la bandeja que es [path] (pista temporal de
+  /// la Radio Descubrimiento); null si [path] no es de la Radio.
+  CuratorEntry? radioEntryFor(String? path) {
+    if (path == null || path.isEmpty) return null;
+    final String k = path.replaceAll('\\', '/').toLowerCase();
+    for (final CuratorEntry e in state.entries) {
+      if (e.status != CuratorStatus.pending) continue;
+      if (e.file.replaceAll('\\', '/').toLowerCase() == k) return e;
+    }
+    return null;
+  }
+
+  /// 3.1.87 Solo pruebas: letra falsa (sin red).
+  @visibleForTesting
+  static RadioLyricFetcher? debugLyricFetcher;
+
+  /// Letra de [audioPath] en 2do plano, junto al audio (o en el espejo si
+  /// el audio estuviera en la biblioteca protegida).
+  Future<void> _fetchLyricFor(String audioPath) async {
+    final RadioLyricFetcher? hook = debugLyricFetcher;
+    if (hook != null) return hook(audioPath);
+    final choice = await ref.read(nlpWorkerProvider).lookupSafeLyric(audioPath);
+    if (!choice.hasText) return;
+    final String lrc = lrcPathForAudio(audioPath);
+    await lrcWriteFile(audioPath, lrc).writeAsString(choice.fileText);
+  }
+
+  /// 3.1.87 [Guardar] en 1 clic: copia la pista de la Radio que suena a
+  /// `<Biblioteca>/<Estacion>/<SubGenero>` (si esa carpeta es la biblioteca
+  /// protegida, a `Musica/Descargas/<Estacion>/<SubGenero>`), la registra
+  /// como de la biblioteca y baja su `.lrc` en 2do plano sin pausar.
+  Future<String?> saveFromRadio(String id) async {
+    final CuratorEntry? e = _find(id);
+    if (e == null || !File(e.file).existsSync()) return null;
+    final String? st = e.stationId;
+    final String? sub = e.subGenreId;
+    final String fallback = st != null && sub != null && isStationSub(st, sub)
+        ? stationSaveDir(radioFallbackRoot(), st, sub)
+        : '${radioFallbackRoot()}${Platform.pathSeparator}'
+              '${e.genre.replaceAll('/', Platform.pathSeparator)}';
+    final String dir = radioSaveDir(
+      libraryDir: _destOf(e),
+      fallbackDir: fallback,
+    );
+    final RadioSaveResult r = await radioSaveTrack(
+      tempPath: e.file,
+      targetDir: dir,
+      stem: discoverySafeName(e.title),
+      fetchLyrics: _fetchLyricFor,
+    );
+    ref.read(discoveryDedupProvider).addLibraryPath(r.path);
+    try {
+      final Future<void> Function(String, String)? reg = debugCuratorRegister;
+      if (reg != null) {
+        await reg(r.path, e.genre);
+      } else {
+        await ref
+            .read(dbServiceProvider)
+            .saveTrackMetadata(path: r.path, genre: e.genre);
+      }
+    } catch (err) {
+      debugPrint('[CURATOR] base local: $err');
+    }
+    if (debugCuratorRegister == null || trackGenreIndexInTemp()) {
+      try {
+        await registerSavedTrack(
+          trackGenreIndexPath(),
+          vibeMusicRoot(),
+          r.path,
+          stationId: e.stationId,
+          subGenreId: e.subGenreId,
+        );
+      } catch (err) {
+        debugPrint('[CURATOR] indice de generos: $err');
+      }
+    }
+    _replace(e.copyWith(status: CuratorStatus.accepted, finalPath: r.path));
+    // El temporal sigue abierto en el deck: se borra cuando lo suelte.
+    unawaited(radioDeleteTemp(e.file).catchError((Object _) => false));
+    return r.path;
+  }
+
+  /// 3.1.87 [Descartar] en 1 clic: bloquea la huella, salta a la siguiente
+  /// con [skip] (siguiente normal del motor, con cruce) y borra el temporal.
+  Future<bool> discardFromRadio(
+    String id, {
+    required Future<void> Function() skip,
+  }) async {
+    final CuratorEntry? e = _find(id);
+    if (e == null) return false;
+    _replace(e.copyWith(status: CuratorStatus.rejected));
+    return radioDiscardTrack(
+      tempPath: e.file,
+      title: e.title,
+      dedup: ref.read(discoveryDedupProvider),
+      skip: skip,
+    );
   }
 }
 

@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/discovery_dedup_controller.dart';
 import '../core/genre_stations.dart';
 import '../core/mode_session.dart';
 import '../ui/mobile/music_picker_screen.dart'
@@ -433,9 +434,9 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       );
       if (all.isEmpty) {
         await frozen;
-        state = state.copyWith(
-          message: 'Sin canciones locales: el curador busca temas',
-        );
+        // 3.1.87: 0 canciones locales: Radio Descubrimiento encendida para
+        // este genero, sin error de carpeta vacia.
+        await _autoDiscovery(key);
         _autoStartFromCurator(key, subGenres, epoch);
         return 0;
       }
@@ -535,7 +536,9 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
   /// sin el usuario.
   void _autoStartFromCurator(String key, List<String> subs, int epoch) {
     Future<void> run() async {
-      final List<String> first = await _fetchFeed(key, subs, 1);
+      final List<String> first = await _dedupRadio(
+        await _fetchFeed(key, subs, 1),
+      );
       if (first.isEmpty || epoch != _playEpoch) return;
       _loading = true;
       try {
@@ -557,7 +560,9 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
         activeStation: key,
         message: '${stationTitleOf(key)}: sonando lo nuevo del curador',
       );
-      final List<String> more = await _fetchFeed(key, subs, 2);
+      final List<String> more = await _dedupRadio(
+        await _fetchFeed(key, subs, 2),
+      );
       if (more.isEmpty || epoch != _playEpoch || debugStationPlay != null) {
         return;
       }
@@ -567,6 +572,49 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     }
 
     unawaited(run().catchError((Object _) {}));
+  }
+
+  /// 3.1.87: genero sin canciones locales: enciende la Radio Descubrimiento
+  /// para [key] (apaga la radio de generos vieja, como [setDiscovery]).
+  Future<void> _autoDiscovery(String key) async {
+    state = state.copyWith(
+      discoveryOn: true,
+      activeStation: key,
+      message:
+          '${stationTitleOf(key)}: sin canciones locales, Radio '
+          'Descubrimiento busca temas nuevos',
+    );
+    if (debugStationPlay != null || debugStationFeed != null) return;
+    try {
+      if (ref.read(liveDjProvider).radioOn) {
+        await ref.read(liveDjProvider.notifier).toggleRadio();
+      }
+    } catch (_) {}
+  }
+
+  /// 3.1.87: Mix con Letra con un genero sin canciones locales: Radio
+  /// Descubrimiento de ese genero y sus primeros temas (rutas temporales de
+  /// la bandeja, ya sin duplicados de la biblioteca ni descartes).
+  Future<List<String>> startZeroLocalRadio(
+    String key,
+    List<String> subs,
+  ) async {
+    await _autoDiscovery(key);
+    return _dedupRadio(await _fetchFeed(key, subs, 2));
+  }
+
+  /// 3.1.87: quita los temas que el usuario ya tiene o ya descarto (huella
+  /// normalizada, O(1) por tema) antes de que entren a la cola.
+  Future<List<String>> _dedupRadio(List<String> paths) async {
+    if (paths.isEmpty) return paths;
+    final DiscoveryDedupController d = ref.read(discoveryDedupProvider);
+    try {
+      await ensureDiscoveryLibrary(d);
+    } catch (_) {}
+    return <String>[
+      for (final String p in paths)
+        if (!d.blocksCandidate(filename: p)) p,
+    ];
   }
 
   StationFeed? _feedFor(String key, List<String> subs) => stationFeedFor(
@@ -953,6 +1001,11 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
         if (!_discoveryUsed.contains(p) && !ready.contains(p)) ready.add(p);
       }
     }
+    // 3.1.87: nada que el usuario ya tenga o ya descarto entra a la cola.
+    final List<String> fresh = await _dedupRadio(ready);
+    ready
+      ..clear()
+      ..addAll(fresh);
     if (ready.isEmpty || !state.discoveryOn) return 0;
     _discoveryUsed.addAll(ready);
     return ref.read(liveDjProvider.notifier).interleaveDiscovery(<File>[

@@ -22,6 +22,7 @@ import 'livedj_deck_relevo.dart';
 import 'livedj_mix_marker.dart';
 import '../vibe_hub_view.dart' show RadioDiscoveryButton;
 import '../curator_inbox_dialog.dart' show CuratorInboxButton;
+import '../widgets/radio_track_actions.dart';
 
 /// Pantalla grande de la canción que está sonando. No usa la carpeta
 /// marcada en el Explorador: sigue `currentTrackPath`.
@@ -213,6 +214,12 @@ class _PlayerPaneState extends ConsumerState<_PlayerPane>
                   color: canSkip ? Colors.white70 : Colors.white24,
                   size: wide ? 30 : 26,
                 ),
+              ),
+              // 3.1.87: Guardar / Descartar de la pista actual (Radio).
+              RadioTrackActions(
+                path: track,
+                onSkip: () => ref.read(liveDjProvider.notifier).forceNext(),
+                size: wide ? 24 : 20,
               ),
             ],
           ),

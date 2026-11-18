@@ -260,6 +260,8 @@ class SmartDiscoveryService {
   /// Busca y baja hasta [count] temas nuevos de [genre] a la bandeja.
   /// Salta ids ya vistos (pendientes, aceptados o descartados) y temas cuyo
   /// nombre ya existe en [genreDir]. Un fallo de descarga no corta el resto.
+  /// 3.1.87: [skipTitle] (anti-duplicados) salta titulos que el usuario ya
+  /// tiene o ya descarto.
   Future<List<CuratorEntry>> discover({
     required String genre,
     required int count,
@@ -268,6 +270,7 @@ class SmartDiscoveryService {
     String? query,
     String? stationId,
     String? subGenreId,
+    bool Function(String title)? skipTitle,
   }) async {
     if (count <= 0) return const <CuratorEntry>[];
     final List<DiscoveryCandidate> found = await search(
@@ -284,6 +287,11 @@ class SmartDiscoveryService {
         continue;
       }
       final String stem = discoverySafeName(ytTitleToStem(c.title));
+      // 3.1.87: anti-duplicados (biblioteca local y descartes) antes de
+      // bajar nada: el candidato no entra a la cola.
+      if (skipTitle != null && (skipTitle(c.title) || skipTitle(stem))) {
+        continue;
+      }
       if (genreDir != null &&
           File('$genreDir${Platform.pathSeparator}$stem.mp3').existsSync()) {
         continue;

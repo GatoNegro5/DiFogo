@@ -12,6 +12,7 @@ import '../../core/brand_paths.dart';
 import '../../core/display_bpm.dart';
 import '../../core/lab_quarantine.dart';
 import '../../core/track_name_clean.dart';
+import '../widgets/radio_track_actions.dart';
 import '../../djiphone/iphone_library.dart';
 import '../../providers/directory_provider.dart';
 import '../../providers/automix_provider.dart';
@@ -1765,6 +1766,13 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                   ),
                                   Row(
                                     children: [
+                                      // 3.1.87: Guardar / Descartar en 1
+                                      // clic (solo pista de la Radio).
+                                      RadioTrackActions(
+                                        path: currentTrackPath,
+                                        onSkip: automixNotifier.skipToNext,
+                                        size: 18,
+                                      ),
                                       IconButton(
                                         onPressed: currentTrackPath == null
                                             ? null
@@ -1940,11 +1948,13 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                         durationMs: duration.inMilliseconds,
                                         triggerRemainingMs: triggerRemainingMs,
                                         lyrics: lyrics,
-                                        // 3.1.86: titulo limpio, sin
-                                        // .mp3 ni (115 BPM).
+                                        // 3.1.87: titulo limpio, sin
+                                        // .mp3, (1990) ni (115 BPM).
                                         nextTrackName: nextTrackPath == null
                                             ? null
-                                            : cleanTrackTitle(nextTrackPath),
+                                            : cleanNextTrackLabel(
+                                                nextTrackPath,
+                                              ),
                                         customCueInMs: customCueInMs,
                                         customMixOutMs: customMixOutMs,
                                         customMixDurationMs:
@@ -2881,6 +2891,7 @@ class SemanticDeckPainter extends CustomPainter {
         customMixOutMs != oldDelegate.customMixOutMs ||
         customMixDurationMs != oldDelegate.customMixDurationMs ||
         autoMixArmed != oldDelegate.autoMixArmed ||
+        nextTrackName != oldDelegate.nextTrackName ||
         lyrics.length != oldDelegate.lyrics.length) {
       return true;
     }

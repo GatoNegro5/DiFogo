@@ -207,6 +207,6 @@ void main() {
     expect(ws.contains('paths.any((String path) => sameAudioPath'), isFalse);
     expect(ws.contains(".split('/')\n                                            .last,"),
         isFalse);
-    expect(ws.contains('cleanTrackTitle(nextTrackPath)'), isTrue);
+    expect(ws.contains('cleanNextTrackLabel('), isTrue);
   });
 }

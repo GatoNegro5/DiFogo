@@ -271,6 +271,32 @@ String cleanTrackTitle(String path) {
   return name.isEmpty ? raw : name;
 }
 
+final RegExp _labelAudioExt = RegExp(
+  r'\.(?:mp3|m4a|wav|webm|flac|ogg|aac|opus)$',
+  caseSensitive: false,
+);
+final RegExp _labelNumTag = RegExp(r'\s*[\(\[]\s*\d{1,4}\s*[\)\]]');
+
+/// 3.1.87: rotulo de la siguiente pista bajo la onda de Mix con Letra:
+/// [cleanTrackTitle] sin ninguna extension (tambien `.m4a.mp3`), sin
+/// `(115 BPM)`, sin anos `(1990)` ni numeros sueltos `(102)`.
+String cleanNextTrackLabel(String path) {
+  String name = path.replaceAll('\\', '/');
+  final int slash = name.lastIndexOf('/');
+  if (slash >= 0) name = name.substring(slash + 1);
+  final String raw = name;
+  name = name.replaceFirst(_displayExt, '');
+  while (_labelAudioExt.hasMatch(name)) {
+    name = name.replaceFirst(_labelAudioExt, '');
+  }
+  name = name.replaceFirst(_displayKaraoke, '');
+  name = name.replaceAll(_displayBpm, ' ');
+  name = name.replaceAll(_labelNumTag, ' ');
+  name = name.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+  if (name.endsWith(' -')) name = name.substring(0, name.length - 2).trim();
+  return name.isEmpty ? raw : name;
+}
+
 /// 3.1.84: quita la etiqueta ` (91 BPM)` de un texto ya armado (portada y
 /// cola de la vista de carpeta).
 String stripBpmTag(String text) =>

@@ -25,6 +25,7 @@ import '../../core/track_name_clean.dart';
 import '../curator_inbox_dialog.dart';
 import '../vibe_hub_view.dart';
 import '../../providers/vibe_hub_provider.dart';
+import '../widgets/radio_track_actions.dart';
 
 /// Texto del buscador de la cola (solo filtra la vista; la cola real no cambia).
 final liveDjQueueSearchProvider = StateProvider<String>((ref) => '');
@@ -510,6 +511,12 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                       fontWeight: FontWeight.bold,
                       fontSize: titleSize,
                     ),
+                  ),
+                  // 3.1.87: Guardar / Descartar (solo pista de la Radio).
+                  RadioTrackActions(
+                    path: state.currentTrackPath,
+                    onSkip: () => ref.read(liveDjProvider.notifier).forceNext(),
+                    size: compact ? 18 : 22,
                   ),
                 ],
               ),

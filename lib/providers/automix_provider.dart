@@ -26,6 +26,7 @@ import '../core/audio_path.dart';
 import '../core/automix_genre_session.dart';
 import '../core/dna_mix.dart';
 import '../core/gatomix_store.dart';
+import '../core/genre_track_pool.dart';
 import '../services/track_tags.dart';
 import '../core/bpm_backfill_worker.dart';
 import '../core/livedj_order.dart';
@@ -903,7 +904,18 @@ class AutomixNotifier extends Notifier<AutomixState> {
     } catch (_) {
       return action;
     }
-    if (paths.isEmpty) return action;
+    if (paths.isEmpty) {
+      // 3.1.87: genero sin canciones locales: Radio Descubrimiento de ese
+      // genero, sin error de carpeta vacia.
+      List<String> radio = const <String>[];
+      try {
+        radio = await ref
+            .read(vibeHubProvider.notifier)
+            .startZeroLocalRadio(key, subs);
+      } catch (_) {}
+      if (radio.isNotEmpty) await loadGenreQueue(sig, radio);
+      return action;
+    }
     await loadGenreQueue(sig, paths);
     return action;
   }
@@ -1059,9 +1071,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
       isPaused: () => _isCrossfading,
       onBatch: (_) => _backfillBatch(),
     );
-    worker.enqueue(
-      backfillCandidates(state.playlist, _autoFixedCount(), knownBpm),
-    );
+    // 3.1.87: solo la ventana desde la actual (O(1) por transicion).
+    worker.enqueue(backfillWindow(state.playlist, _autoFixedCount(), knownBpm));
   }
 
   // 3.1.42: el reorden sigue solo en Aleatorio; la cache de la carpeta
@@ -1080,10 +1091,15 @@ class AutomixNotifier extends Notifier<AutomixState> {
     var fixed = (state.currentIndex < 0 ? 0 : state.currentIndex) + 2;
     final String? next = state.nextTrackPath;
     if (next != null) {
-      final int at = state.playlist.indexWhere(
-        (String p) => sameAudioPath(p, next),
-      );
-      if (at + 1 > fixed) fixed = at + 1;
+      // 3.1.87: la siguiente se busca solo dentro de la ventana (fuera de
+      // ella el reorden no la mueve).
+      final int end = min(state.playlist.length, fixed + kAutomixHydrateWindow);
+      for (var i = 0; i < end; i++) {
+        if (sameAudioPath(state.playlist[i], next)) {
+          if (i + 1 > fixed) fixed = i + 1;
+          break;
+        }
+      }
     }
     return fixed;
   }
@@ -1093,7 +1109,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
   void _backfillReorder() {
     if (state.mixStrategy != MixStrategy.random) return;
     if (!sameQueueEpoch(_backfillEpoch, state.playlist)) return;
-    final List<String>? ordered = reorderQueueTail(
+    final List<String>? ordered = reorderQueueWindow(
       state.playlist,
       _autoFixedCount(),
       (List<String> tail, String? from) => buildHarmonicShuffle(
@@ -1361,6 +1377,17 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
   Future<void> forceTransition(int index) async {
     await jumpToTrack(index);
+  }
+
+  /// 3.1.87: Descartar de la Radio Descubrimiento: la siguiente por el cruce
+  /// normal del motor (sin tocar los decks a mano).
+  Future<void> skipToNext() async {
+    final int next = _calculateNextIndex();
+    if (next < 0) {
+      await _stopWhenNoNext();
+      return;
+    }
+    await jumpToTrack(next);
   }
 
   /// LAB: fundido a la siguiente con el motor de mezcla; el archivo sale
@@ -2279,10 +2306,22 @@ class AutomixNotifier extends Notifier<AutomixState> {
     }
   }
 
+  /// 3.1.87: en memoria solo la letra de la actual, la siguiente y [keep]
+  /// (la cache no crece con la cola).
+  void _pruneLyricPrime(String keep) {
+    if (_lyricPrime.length <= kLyricPrimeKeep) return;
+    final String? cur = state.currentTrackPath;
+    final String? nxt = state.nextTrackPath;
+    _lyricPrime.removeWhere(
+      (String k, _) => k != keep && k != cur && k != nxt,
+    );
+  }
+
   Future<void> _primeLyrics(String audioPath) async {
     if (_lyricPrime.containsKey(audioPath)) return;
     final parsed = await _parseLyricsFile(audioPath);
     _lyricPrime[audioPath] = parsed;
+    _pruneLyricPrime(audioPath);
     if (parsed.isEmpty) {
       final lrcPath = audioPath.replaceAll(
         RegExp(r'\.mp3$|\.webm$', caseSensitive: false),

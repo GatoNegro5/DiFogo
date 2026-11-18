@@ -13,6 +13,7 @@ import '../../providers/mix_formula.dart';
 import '../../providers/theme_provider.dart';
 import 'livedj_mix_marker.dart';
 import '../../providers/vibe_hub_provider.dart';
+import '../widgets/radio_track_actions.dart';
 
 /// 3.1.70: AutomixDj abre en Modo Spotify (portada grande, artista, barra
 /// de progreso y controles limpios). false = vista clasica de consola.
@@ -238,6 +239,11 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Colors.white60, fontSize: 15),
+          ),
+          // 3.1.87: Guardar / Descartar en 1 clic (solo pista de la Radio).
+          RadioTrackActions(
+            path: s.currentTrackPath,
+            onSkip: () => dj.forceNext(),
           ),
           // 3.1.84 Consumer Clean Mode: sin chips de mezcla ni FX bajo el
           // titulo (viven en la hoja Modo DJ de la cabecera).
