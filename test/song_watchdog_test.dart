@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/song_watchdog.dart';
+import 'package:difogo/core/song_watchdog.dart';
 
 void main() {
   final DateTime t0 = DateTime(2026, 10, 25, 11);

@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_timing_check.dart';
-import 'package:gatomix/core/lrc_timeline.dart';
+import 'package:difogo/core/lyric_timing_check.dart';
+import 'package:difogo/core/lrc_timeline.dart';
 
 String lrc(List<int> secs) => secs
     .map(

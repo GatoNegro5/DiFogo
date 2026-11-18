@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_ai_align.dart';
+import 'package:difogo/core/lyric_ai_align.dart';
 
 // Letra sintética (sin letras con copyright): 30 versos de 4 palabras
 // inventadas, uno cada 6 s desde los 20 s.

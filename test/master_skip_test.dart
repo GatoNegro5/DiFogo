@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/master_skip.dart';
-import 'package:gatomix/services/track_tags.dart';
+import 'package:difogo/core/master_skip.dart';
+import 'package:difogo/services/track_tags.dart';
 
 List<int> _ss(int n) => <int>[
   (n >> 21) & 0x7f,

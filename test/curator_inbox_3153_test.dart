@@ -4,11 +4,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/providers/automix_provider.dart';
-import 'package:gatomix/providers/curator_provider.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/services/smart_discovery_service.dart';
-import 'package:gatomix/ui/curator_inbox_dialog.dart';
+import 'package:difogo/providers/automix_provider.dart';
+import 'package:difogo/providers/curator_provider.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/services/smart_discovery_service.dart';
+import 'package:difogo/ui/curator_inbox_dialog.dart';
 
 /// Cola falsa: no lee ni escribe el estado real de Automix.
 class _FakeQueue extends AutomixQueueNotifier {

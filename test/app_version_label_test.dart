@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/widgets/app_version_label.dart';
+import 'package:difogo/ui/widgets/app_version_label.dart';
 
 void main() {
   test('formato de versión con build y commit corto', () {

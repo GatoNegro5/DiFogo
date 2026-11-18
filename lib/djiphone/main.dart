@@ -7,23 +7,23 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 
-import 'package:gatomix/src/rust/frb_generated.dart';
-import 'package:gatomix/core/brand_paths.dart' show migrateBrandCache;
-import 'package:gatomix/core/audio/dj_audio_handler.dart';
-import 'package:gatomix/djiphone/iphone_library.dart';
-import 'package:gatomix/providers/automix_provider.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/providers/pipeline_provider.dart';
-import 'package:gatomix/providers/theme_provider.dart';
-import 'package:gatomix/services/audio_interruption.dart';
-import 'package:gatomix/services/lyric_retry_queue.dart';
-import 'package:gatomix/ui/widgets/app_version_label.dart';
-import 'package:gatomix/ui/widgets/ticker_stack.dart';
-import 'package:gatomix/ui/workspaces/automix_workspace.dart';
-import 'package:gatomix/ui/workspaces/dsp_workspace.dart';
-import 'package:gatomix/ui/workspaces/lab_workspace.dart';
-import 'package:gatomix/ui/workspaces/lan_sync_workspace.dart';
-import 'package:gatomix/ui/workspaces/livedj_workspace.dart';
+import 'package:difogo/src/rust/frb_generated.dart';
+import 'package:difogo/core/brand_paths.dart' show migrateBrandCache;
+import 'package:difogo/core/audio/dj_audio_handler.dart';
+import 'package:difogo/djiphone/iphone_library.dart';
+import 'package:difogo/providers/automix_provider.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/pipeline_provider.dart';
+import 'package:difogo/providers/theme_provider.dart';
+import 'package:difogo/services/audio_interruption.dart';
+import 'package:difogo/services/lyric_retry_queue.dart';
+import 'package:difogo/ui/widgets/app_version_label.dart';
+import 'package:difogo/ui/widgets/ticker_stack.dart';
+import 'package:difogo/ui/workspaces/automix_workspace.dart';
+import 'package:difogo/ui/workspaces/dsp_workspace.dart';
+import 'package:difogo/ui/workspaces/lab_workspace.dart';
+import 'package:difogo/ui/workspaces/lan_sync_workspace.dart';
+import 'package:difogo/ui/workspaces/livedj_workspace.dart';
 
 /// Entrada de DjIphone. No es lib/main.dart.
 /// Pantallas: AutomixDj (Live DJ), Mix con Letra (Automix), Masterizar,

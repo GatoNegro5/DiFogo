@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lab_quarantine.dart';
-import 'package:gatomix/core/pipeline_controller.dart';
+import 'package:difogo/core/lab_quarantine.dart';
+import 'package:difogo/core/pipeline_controller.dart';
 
 void main() {
   Directory scratch(String name) {

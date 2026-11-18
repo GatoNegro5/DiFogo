@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/workspaces/yt_workspace.dart';
+import 'package:difogo/ui/workspaces/yt_workspace.dart';
 
 void main() {
   test('rename en el mismo volumen no deja el origen', () {

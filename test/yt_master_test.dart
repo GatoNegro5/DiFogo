@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/gatomix_store.dart';
-import 'package:gatomix/ui/workspaces/yt_workspace.dart';
+import 'package:difogo/core/gatomix_store.dart';
+import 'package:difogo/ui/workspaces/yt_workspace.dart';
 
 void main() {
   test('bitrate según la fuente, sin inflar un AAC de 128 a 320', () {

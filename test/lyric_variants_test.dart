@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_match.dart';
-import 'package:gatomix/core/lyric_timing_check.dart';
+import 'package:difogo/core/lyric_match.dart';
+import 'package:difogo/core/lyric_timing_check.dart';
 
 void main() {
   test('Etapa 2: título sin ruido de versiones y YouTube', () {

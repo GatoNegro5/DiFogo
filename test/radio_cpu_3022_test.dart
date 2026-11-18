@@ -2,12 +2,12 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio_path.dart';
-import 'package:gatomix/core/gatomix_radio.dart';
-import 'package:gatomix/core/livedj_next.dart';
-import 'package:gatomix/core/net/artist_info.dart';
-import 'package:gatomix/core/session_store.dart';
-import 'package:gatomix/services/adaptive_eq.dart';
+import 'package:difogo/core/audio_path.dart';
+import 'package:difogo/core/gatomix_radio.dart';
+import 'package:difogo/core/livedj_next.dart';
+import 'package:difogo/core/net/artist_info.dart';
+import 'package:difogo/core/session_store.dart';
+import 'package:difogo/services/adaptive_eq.dart';
 
 double bpmOf(String p) {
   final RegExpMatch? m = RegExp(r'(\d+)bpm').firstMatch(p);

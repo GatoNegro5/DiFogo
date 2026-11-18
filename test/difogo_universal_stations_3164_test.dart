@@ -5,10 +5,10 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/genre_stations.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/ui/vibe_hub_view.dart';
+import 'package:difogo/core/genre_stations.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/ui/vibe_hub_view.dart';
 
 // 3.1.64 Catalogo universal de 7 estaciones: sub-generos canonicos (nunca
 // nombres de carpeta), visto/descartado y mapeo interno de carpetas.

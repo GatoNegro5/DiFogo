@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/vocal_bounds.dart';
+import 'package:difogo/core/vocal_bounds.dart';
 
 // Casos con los números reales medidos el 2026-11-12 (T152).
 void main() {

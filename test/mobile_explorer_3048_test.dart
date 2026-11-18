@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/ui/mobile/music_picker_screen.dart';
-import 'package:gatomix/ui/workspaces/livedj_workspace.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/ui/mobile/music_picker_screen.dart';
+import 'package:difogo/ui/workspaces/livedj_workspace.dart';
 
 class _FakeLiveDj extends LiveDjNotifier {
   @override

@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/gatomix_store.dart';
-import 'package:gatomix/providers/dsp_provider.dart' show enCarpetaOriginal;
-import 'package:gatomix/providers/pipeline_provider.dart' show HeavyWorkGate;
+import 'package:difogo/core/gatomix_store.dart';
+import 'package:difogo/providers/dsp_provider.dart' show enCarpetaOriginal;
+import 'package:difogo/providers/pipeline_provider.dart' show HeavyWorkGate;
 
 // 3.1.19: el candado termico serializa los trabajos pesados y el escaneo de
 // BPM ignora `.gatomix_original` (sinteticos en %TEMP%, sin Rust).

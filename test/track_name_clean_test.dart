@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/track_name_clean.dart';
+import 'package:difogo/core/track_name_clean.dart';
 
 void main() {
   test('quita prefijo BPM, Camelot, sufijo y basura de YouTube', () {

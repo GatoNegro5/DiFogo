@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lan_sync_plan.dart';
+import 'package:difogo/core/lan_sync_plan.dart';
 
 void main() {
   const List<String> dir = <String>[

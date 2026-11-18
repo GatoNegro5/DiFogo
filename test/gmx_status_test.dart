@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/gmx_status.dart';
+import 'package:difogo/core/gmx_status.dart';
 
 SongAudit _row(GmxSnapshot snap) =>
     auditSong('/music/Tema.mp3', 'Tema.mp3', snap);

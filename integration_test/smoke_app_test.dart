@@ -10,10 +10,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:media_kit/media_kit.dart';
 
-import 'package:gatomix/core/audio/dj_audio_handler.dart';
-import 'package:gatomix/main.dart';
-import 'package:gatomix/providers/theme_provider.dart';
-import 'package:gatomix/src/rust/frb_generated.dart';
+import 'package:difogo/core/audio/dj_audio_handler.dart';
+import 'package:difogo/main.dart';
+import 'package:difogo/providers/theme_provider.dart';
+import 'package:difogo/src/rust/frb_generated.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();

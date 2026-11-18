@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/widgets/theater_lyrics_view.dart';
+import 'package:difogo/ui/widgets/theater_lyrics_view.dart';
 
 Widget _host(int idx, List<String> lines, {double h = 400}) => MaterialApp(
   home: Scaffold(

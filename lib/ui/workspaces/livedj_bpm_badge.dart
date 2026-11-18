@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:gatomix/core/gatomix_store.dart';
-import 'package:gatomix/services/track_tags.dart';
+import 'package:difogo/core/gatomix_store.dart';
+import 'package:difogo/services/track_tags.dart';
 import 'package:flutter/material.dart';
 
 /// BPM para el Cartridge de Live DJ. Código propio: no comparte caché con

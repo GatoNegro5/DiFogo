@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/analysis_window.dart';
+import 'package:difogo/core/analysis_window.dart';
 
 void main() {
   test('3.1.04: ventana por duracion exacta (datos reales Paso 0)', () {

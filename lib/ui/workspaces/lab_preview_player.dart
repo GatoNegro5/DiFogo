@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 
-import 'package:gatomix/core/lyric_match.dart';
-import 'package:gatomix/providers/automix_provider.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
+import 'package:difogo/core/lyric_match.dart';
+import 'package:difogo/providers/automix_provider.dart';
+import 'package:difogo/providers/livedj_provider.dart';
 
 /// `mm:ss` de una posición en milisegundos.
 String labClock(int ms) {

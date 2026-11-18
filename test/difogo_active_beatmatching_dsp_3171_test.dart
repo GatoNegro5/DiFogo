@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio/tempo_drift.dart';
-import 'package:gatomix/providers/mix_formula.dart';
-import 'package:gatomix/ui/workspaces/livedj_spotify_panel.dart';
+import 'package:difogo/core/audio/tempo_drift.dart';
+import 'package:difogo/providers/mix_formula.dart';
+import 'package:difogo/ui/workspaces/livedj_spotify_panel.dart';
 
 // 3.1.71: Active Beatmatching sin cambio de sonido antes de la mezcla,
 // AutomixDj por defecto en Active Beatmatching, Phrase 8/Stealth en

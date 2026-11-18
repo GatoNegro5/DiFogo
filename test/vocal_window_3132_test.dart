@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/providers/mix_formula.dart';
+import 'package:difogo/providers/mix_formula.dart';
 
 // 3.1.45: la ventana activa y el hueco sin voz de Live DJ (3.1.31/3.1.32)
 // se retiraron; queda solo el golpe exacto del Set In de Automix.

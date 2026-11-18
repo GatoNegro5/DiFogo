@@ -2,12 +2,12 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio_path.dart';
-import 'package:gatomix/core/gatomix_radio.dart';
-import 'package:gatomix/core/gatomix_store.dart';
-import 'package:gatomix/core/livedj_next.dart';
-import 'package:gatomix/core/queue_bpm.dart';
-import 'package:gatomix/services/track_tags.dart';
+import 'package:difogo/core/audio_path.dart';
+import 'package:difogo/core/gatomix_radio.dart';
+import 'package:difogo/core/gatomix_store.dart';
+import 'package:difogo/core/livedj_next.dart';
+import 'package:difogo/core/queue_bpm.dart';
+import 'package:difogo/services/track_tags.dart';
 
 void main() {
   test('radio apagada: la siguiente es la cabeza, no el BPM más cercano', () {

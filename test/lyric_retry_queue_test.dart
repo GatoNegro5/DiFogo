@@ -2,8 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_match.dart';
-import 'package:gatomix/services/lyric_retry_queue.dart';
+import 'package:difogo/core/lyric_match.dart';
+import 'package:difogo/services/lyric_retry_queue.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();

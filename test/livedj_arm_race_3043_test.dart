@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/livedj_next.dart';
+import 'package:difogo/core/livedj_next.dart';
 
 void main() {
   const String now = '/m/now.mp3';

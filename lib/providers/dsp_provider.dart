@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 // 🛠️ INYECTADO: Backend FFI Nativo
-import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
+import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../core/bpm_range.dart';
 import '../core/brand_paths.dart' show pathInOriginalDir;

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/workspaces/lab_preview_player.dart';
+import 'package:difogo/ui/workspaces/lab_preview_player.dart';
 
 void main() {
   test('reloj mm:ss', () {

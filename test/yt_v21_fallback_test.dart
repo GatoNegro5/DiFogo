@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_match.dart';
-import 'package:gatomix/core/track_name_clean.dart';
+import 'package:difogo/core/lyric_match.dart';
+import 'package:difogo/core/track_name_clean.dart';
 
 Map<String, dynamic> row(String a, String t, double d) => <String, dynamic>{
   'artistName': a,

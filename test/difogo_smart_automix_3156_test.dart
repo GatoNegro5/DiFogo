@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/providers/theme_provider.dart';
+import 'package:difogo/providers/theme_provider.dart';
 
 // 3.1.56 DiFogo Smart AutoMix: paleta mate y AutoMix sin neon fijo.
 void main() {

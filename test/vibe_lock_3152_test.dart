@@ -3,9 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/ui/startup_vibe_dialog.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/ui/startup_vibe_dialog.dart';
 
 void main() {
   late Directory tmp;

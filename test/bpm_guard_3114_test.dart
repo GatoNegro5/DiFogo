@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/queue_bpm.dart';
+import 'package:difogo/core/queue_bpm.dart';
 
 void main() {
   // Carpeta inexistente en %TEMP%: sin .gatomix.json ni tags, solo el nombre.

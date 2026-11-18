@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/headless_args.dart';
+import 'package:difogo/core/headless_args.dart';
 
 void main() {
   test('sin argumento arranca normal', () {

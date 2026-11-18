@@ -1,7 +1,7 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/widgets/hover_marquee_text.dart';
+import 'package:difogo/ui/widgets/hover_marquee_text.dart';
 
 // 3.1.41: HoverMarqueeText. Fuente de test: cada caracter mide fontSize px.
 Widget _host(String text, {double width = 100}) => MaterialApp(

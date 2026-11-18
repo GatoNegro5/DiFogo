@@ -9,7 +9,7 @@ import 'package:media_kit/media_kit.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
-import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
+import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../core/hal/platform_strategy.dart';
 import '../core/vocal_bounds.dart';

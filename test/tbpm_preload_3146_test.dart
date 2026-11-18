@@ -2,9 +2,9 @@ import 'dart:io';
 
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/queue_bpm.dart';
-import 'package:gatomix/services/track_tags.dart';
-import 'package:gatomix/src/rust/frb_generated.dart';
+import 'package:difogo/core/queue_bpm.dart';
+import 'package:difogo/services/track_tags.dart';
+import 'package:difogo/src/rust/frb_generated.dart';
 
 // 3.1.46: sin (N BPM) en el nombre y sin .gatomix.json, knownBpm da 0 hasta
 // que TrackTags.load lee el TBPM (Rust); luego lo resuelve por peek.

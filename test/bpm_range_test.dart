@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/bpm_range.dart';
+import 'package:difogo/core/bpm_range.dart';
 
 void main() {
   test('11499 y 14109 son BPM ×100', () {

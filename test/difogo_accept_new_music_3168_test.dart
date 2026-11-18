@@ -5,17 +5,17 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/genre_stations.dart';
-import 'package:gatomix/providers/automix_provider.dart';
-import 'package:gatomix/providers/curator_provider.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/providers/theme_provider.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/services/smart_discovery_service.dart';
-import 'package:gatomix/ui/curator_inbox_dialog.dart';
-import 'package:gatomix/ui/startup_vibe_dialog.dart';
-import 'package:gatomix/ui/workspaces/livedj_workspace.dart';
+import 'package:difogo/core/genre_stations.dart';
+import 'package:difogo/providers/automix_provider.dart';
+import 'package:difogo/providers/curator_provider.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/providers/theme_provider.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/services/smart_discovery_service.dart';
+import 'package:difogo/ui/curator_inbox_dialog.dart';
+import 'package:difogo/ui/startup_vibe_dialog.dart';
+import 'package:difogo/ui/workspaces/livedj_workspace.dart';
 
 // 3.1.68: sub-genero "Todas" en Ochenteras, Tropical y Baladas, boton
 // "Acepta Nueva Musica" con conteo y caja agrupada por estacion/sub-genero.

@@ -4,9 +4,9 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/genre_stations.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/ui/startup_vibe_dialog.dart';
+import 'package:difogo/core/genre_stations.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/ui/startup_vibe_dialog.dart';
 
 // 3.1.61 Estaciones DiFogo: macro-generos con vistos y sesion persistente
 // por genero. Todo en %TEMP%, sin Live DJ real ni biblioteca.

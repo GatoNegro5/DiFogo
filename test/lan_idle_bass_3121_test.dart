@@ -1,8 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/services/adaptive_eq.dart';
-import 'package:gatomix/ui/widgets/ticker_stack.dart';
-import 'package:gatomix/ui/workspaces/lan_sync_workspace.dart'
+import 'package:difogo/services/adaptive_eq.dart';
+import 'package:difogo/ui/widgets/ticker_stack.dart';
+import 'package:difogo/ui/workspaces/lan_sync_workspace.dart'
     show lanPassiveSweepAllowed;
 
 /// 3.1.21: Pendiente 22d (barrido LAN solo visible) y guardia del bass swap.

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_match.dart';
+import 'package:difogo/core/lyric_match.dart';
 
 void main() {
   test('sufijos DJ fuera del título', () {

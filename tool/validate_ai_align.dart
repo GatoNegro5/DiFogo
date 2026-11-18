@@ -1,7 +1,7 @@
 // Uso: dart run tool/validate_ai_align.dart <dir_lrc> <dir_json>
 import 'dart:io';
-import 'package:gatomix/core/lyric_ai_align.dart';
-import 'package:gatomix/core/lyric_timing_check.dart';
+import 'package:difogo/core/lyric_ai_align.dart';
+import 'package:difogo/core/lyric_timing_check.dart';
 import 'dart:convert';
 
 void main(List<String> a) {

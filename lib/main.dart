@@ -10,7 +10,7 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 // 🛠️ INYECCIÓN: El puente de memoria FFI (Rust <> Dart)
-import 'package:gatomix/src/rust/frb_generated.dart';
+import 'package:difogo/src/rust/frb_generated.dart';
 
 // --- IMPORTACIÓN DE MÓDULOS Y PROVIDERS ---
 import 'providers/automix_provider.dart';

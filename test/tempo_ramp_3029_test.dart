@@ -1,8 +1,8 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio/tempo_drift.dart';
-import 'package:gatomix/core/exact_mix.dart';
+import 'package:difogo/core/audio/tempo_drift.dart';
+import 'package:difogo/core/exact_mix.dart';
 
 void expectMarks(List<TempoMark> marks, List<(int, double)> want) {
   expect(marks.length, want.length);

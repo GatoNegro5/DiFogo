@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/pipeline_controller.dart';
+import 'package:difogo/core/pipeline_controller.dart';
 
 void main() {
   test('la re-descarga pide m4a antes que el resto', () {

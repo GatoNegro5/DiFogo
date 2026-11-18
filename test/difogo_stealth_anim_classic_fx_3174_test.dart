@@ -3,14 +3,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/genre_mix_fx.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/providers/mix_formula.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/ui/workspaces/livedj_deck_relevo.dart';
-import 'package:gatomix/ui/workspaces/livedj_spotify_panel.dart';
-import 'package:gatomix/ui/workspaces/livedj_workspace.dart';
+import 'package:difogo/core/genre_mix_fx.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/mix_formula.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/ui/workspaces/livedj_deck_relevo.dart';
+import 'package:difogo/ui/workspaces/livedj_spotify_panel.dart';
+import 'package:difogo/ui/workspaces/livedj_workspace.dart';
 
 // 3.1.74: el relevo en pantalla de Stealth dura la ventana real de 10-12 s
 // y el badge FX (AUTO/FIJO) esta en Spotify Pro y en la consola clasica con

@@ -2,11 +2,11 @@ import 'dart:io';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio_path.dart';
-import 'package:gatomix/core/dj_trace.dart';
-import 'package:gatomix/core/gatomix_radio.dart';
-import 'package:gatomix/core/livedj_next.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
+import 'package:difogo/core/audio_path.dart';
+import 'package:difogo/core/dj_trace.dart';
+import 'package:difogo/core/gatomix_radio.dart';
+import 'package:difogo/core/livedj_next.dart';
+import 'package:difogo/providers/livedj_provider.dart';
 
 class _Live extends LiveDjNotifier {
   @override

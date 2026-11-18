@@ -5,16 +5,16 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/providers/automix_provider.dart';
-import 'package:gatomix/providers/curator_provider.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/providers/theme_provider.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/services/smart_discovery_service.dart';
-import 'package:gatomix/ui/curator_inbox_dialog.dart';
-import 'package:gatomix/ui/vibe_hub_view.dart';
-import 'package:gatomix/ui/workspaces/livedj_workspace.dart';
+import 'package:difogo/providers/automix_provider.dart';
+import 'package:difogo/providers/curator_provider.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/providers/theme_provider.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/services/smart_discovery_service.dart';
+import 'package:difogo/ui/curator_inbox_dialog.dart';
+import 'package:difogo/ui/vibe_hub_view.dart';
+import 'package:difogo/ui/workspaces/livedj_workspace.dart';
 
 // Verificacion multiplataforma 3.1.55 (DiFogo): tamanos de Android, iPhone,
 // tablet y escritorio, con el tema real y todo en %TEMP%.

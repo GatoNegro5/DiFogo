@@ -3,18 +3,18 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/bpm_backfill_worker.dart';
-import 'package:gatomix/core/genre_stations.dart';
-import 'package:gatomix/core/gatomix_radio.dart';
-import 'package:gatomix/core/gatomix_store.dart';
-import 'package:gatomix/core/library_guard.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/providers/theme_provider.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/ui/startup_vibe_dialog.dart';
-import 'package:gatomix/ui/vibe_hub_view.dart';
-import 'package:gatomix/ui/workspaces/livedj_spotify_panel.dart';
+import 'package:difogo/core/bpm_backfill_worker.dart';
+import 'package:difogo/core/genre_stations.dart';
+import 'package:difogo/core/gatomix_radio.dart';
+import 'package:difogo/core/gatomix_store.dart';
+import 'package:difogo/core/library_guard.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/providers/theme_provider.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/ui/startup_vibe_dialog.dart';
+import 'package:difogo/ui/vibe_hub_view.dart';
+import 'package:difogo/ui/workspaces/livedj_spotify_panel.dart';
 
 // 3.1.72: Play/Pausa a la izquierda de cada estacion (Hub y modal), Radio
 // Descubrimiento, Spotify Pro (NOW PLAYING, badge, NEXT MIX) y blindaje de

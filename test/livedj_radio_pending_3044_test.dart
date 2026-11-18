@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/livedj_next.dart';
-import 'package:gatomix/core/audio_path.dart';
+import 'package:difogo/core/livedj_next.dart';
+import 'package:difogo/core/audio_path.dart';
 
 void main() {
   const String playing = '/Music/Ahora.mp3';

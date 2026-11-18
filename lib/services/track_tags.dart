@@ -1,4 +1,4 @@
-import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
+import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../core/audio_path.dart';
 

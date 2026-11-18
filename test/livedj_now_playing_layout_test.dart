@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/ui/workspaces/livedj_folder_playlist.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/ui/workspaces/livedj_folder_playlist.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';

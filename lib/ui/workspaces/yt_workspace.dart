@@ -2,10 +2,10 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
-import 'package:gatomix/core/yt_chunked_download.dart';
-import 'package:gatomix/core/master_profile.dart';
-import 'package:gatomix/services/karaoke_engine.dart';
-import 'package:gatomix/services/master_track.dart';
+import 'package:difogo/core/yt_chunked_download.dart';
+import 'package:difogo/core/master_profile.dart';
+import 'package:difogo/services/karaoke_engine.dart';
+import 'package:difogo/services/master_track.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
@@ -18,8 +18,8 @@ import '../../core/lrc_timeline.dart';
 import '../../core/net/safe_download.dart';
 import '../../core/track_name_clean.dart';
 
-import 'package:gatomix/core/pipeline_controller.dart';
-import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
+import 'package:difogo/core/pipeline_controller.dart';
+import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../../providers/nlp_provider.dart';
 import '../../services/lyric_retry_queue.dart';

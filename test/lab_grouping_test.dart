@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/workspaces/lab_workspace.dart';
+import 'package:difogo/ui/workspaces/lab_workspace.dart';
 
 void main() {
   test('LAB lista todas las canciones agrupadas por carpeta con contador', () {

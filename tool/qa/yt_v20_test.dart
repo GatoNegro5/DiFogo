@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_match.dart';
-import 'package:gatomix/core/track_name_clean.dart';
+import 'package:difogo/core/lyric_match.dart';
+import 'package:difogo/core/track_name_clean.dart';
 
 Future<dynamic> j(Uri u) async {
   for (var a = 0; a < 3; a++) {

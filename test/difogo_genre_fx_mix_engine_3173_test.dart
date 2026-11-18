@@ -4,15 +4,15 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio/tempo_drift.dart';
-import 'package:gatomix/core/exact_mix.dart';
-import 'package:gatomix/core/genre_mix_fx.dart';
-import 'package:gatomix/core/livedj_next.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/providers/mix_formula.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/ui/workspaces/livedj_spotify_panel.dart';
+import 'package:difogo/core/audio/tempo_drift.dart';
+import 'package:difogo/core/exact_mix.dart';
+import 'package:difogo/core/genre_mix_fx.dart';
+import 'package:difogo/core/livedj_next.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/mix_formula.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/ui/workspaces/livedj_spotify_panel.dart';
 
 // 3.1.73: Phrase 8 sin secuencial ni segundo reorden, ventanas largas
 // (Phrase 8 12-16 s, Stealth 10-12 s) con compensacion cubica de mpv y

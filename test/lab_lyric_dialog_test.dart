@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/workspaces/lab_lyric_search.dart';
+import 'package:difogo/ui/workspaces/lab_lyric_search.dart';
 
 void main() {
   group('Buscar letra del LAB toma la canción seleccionada', () {

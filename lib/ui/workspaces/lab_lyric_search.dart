@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:gatomix/core/lyric_files.dart';
-import 'package:gatomix/core/lyric_match.dart';
-import 'package:gatomix/core/track_name_clean.dart';
-import 'package:gatomix/providers/automix_provider.dart';
-import 'package:gatomix/providers/nlp_provider.dart';
+import 'package:difogo/core/lyric_files.dart';
+import 'package:difogo/core/lyric_match.dart';
+import 'package:difogo/core/track_name_clean.dart';
+import 'package:difogo/providers/automix_provider.dart';
+import 'package:difogo/providers/nlp_provider.dart';
 import 'lab_preview_player.dart';
 
 /// Artista y título con los que abre "Buscar letra" en el Laboratorio.

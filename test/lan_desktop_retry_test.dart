@@ -3,7 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:gatomix/ui/workspaces/lan_sync_workspace.dart';
+import 'package:difogo/ui/workspaces/lan_sync_workspace.dart';
 
 void main() {
   late Directory tmp;

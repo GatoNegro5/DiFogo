@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/workspaces/livedj_workspace.dart' show NextTrackLine;
+import 'package:difogo/ui/workspaces/livedj_workspace.dart' show NextTrackLine;
 
 /// 3.1.22: Pendiente 22e. El titulo de la pista que sigue no pide cuadros si
 /// cabe, en las pausas de 2,5 s ni despues de 3 ciclos.

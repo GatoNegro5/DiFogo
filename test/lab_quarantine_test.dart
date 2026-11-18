@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/headless_args.dart';
-import 'package:gatomix/core/lab_quarantine.dart';
+import 'package:difogo/core/headless_args.dart';
+import 'package:difogo/core/lab_quarantine.dart';
 
 void main() {
   late Directory root;

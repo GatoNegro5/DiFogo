@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/master_cool.dart';
-import 'package:gatomix/core/master_profile.dart';
+import 'package:difogo/core/master_cool.dart';
+import 'package:difogo/core/master_profile.dart';
 
 void main() {
   test('la pausa queda entre 10 y 15 s, con 12 de fábrica', () {

@@ -1,11 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/gatomix_store.dart';
-import 'package:gatomix/core/phrase_grid.dart';
-import 'package:gatomix/core/display_bpm.dart';
-import 'package:gatomix/providers/directory_provider.dart';
-import 'package:gatomix/services/track_tags.dart';
+import 'package:difogo/core/gatomix_store.dart';
+import 'package:difogo/core/phrase_grid.dart';
+import 'package:difogo/core/display_bpm.dart';
+import 'package:difogo/providers/directory_provider.dart';
+import 'package:difogo/services/track_tags.dart';
 
 // 3.1.43: BPM de listas solo en memoria y guardia de `.lrc` hermanos.
 void main() {

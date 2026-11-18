@@ -5,7 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
-import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
+import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../core/library_guard.dart';
 import '../providers/pipeline_provider.dart' show HeavyWorkGate;

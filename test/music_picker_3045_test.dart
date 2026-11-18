@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/mobile/music_picker_screen.dart';
+import 'package:difogo/ui/mobile/music_picker_screen.dart';
 
 // 3.1.24: la carpeta se lee en Isolate; espera a que no quede nada cargando.
 Future<void> _settle(WidgetTester tester) async {

@@ -4,13 +4,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/genre_stations.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/ui/vibe_hub_view.dart';
-import 'package:gatomix/ui/workspaces/automix_workspace.dart';
-import 'package:gatomix/ui/workspaces/livedj_workspace.dart';
+import 'package:difogo/core/genre_stations.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/ui/vibe_hub_view.dart';
+import 'package:difogo/ui/workspaces/automix_workspace.dart';
+import 'package:difogo/ui/workspaces/livedj_workspace.dart';
 
 class _FakeLiveDj extends LiveDjNotifier {
   @override

@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/gatomix_store.dart';
-import 'package:gatomix/core/phrase_grid.dart';
+import 'package:difogo/core/gatomix_store.dart';
+import 'package:difogo/core/phrase_grid.dart';
 
 PhraseTrack _track({int outro = 150000, int intro = 9000}) => PhraseTrack(
   bpm: 120,

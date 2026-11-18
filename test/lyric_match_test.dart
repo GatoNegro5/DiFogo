@@ -2,10 +2,10 @@ import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/brand_paths.dart';
-import 'package:gatomix/core/id3_names.dart';
-import 'package:gatomix/core/lyric_files.dart';
-import 'package:gatomix/core/lyric_match.dart';
+import 'package:difogo/core/brand_paths.dart';
+import 'package:difogo/core/id3_names.dart';
+import 'package:difogo/core/lyric_files.dart';
+import 'package:difogo/core/lyric_match.dart';
 
 void main() {
   test('ID3 manda y el nombre de archivo solo rellena lo que falta', () {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_match.dart';
+import 'package:difogo/core/lyric_match.dart';
 
 void main() {
   test('q= sin artista acepta el alias entre paréntesis de LRCLIB', () {

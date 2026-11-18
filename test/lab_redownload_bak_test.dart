@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_files.dart';
+import 'package:difogo/core/lyric_files.dart';
 
 void main() {
   late Directory tmp;

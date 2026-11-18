@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/yt_chunked_download.dart';
+import 'package:difogo/core/yt_chunked_download.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 

@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/gatomix_radio.dart';
-import 'package:gatomix/core/mode_session.dart';
-import 'package:gatomix/core/session_restore.dart';
-import 'package:gatomix/core/session_store.dart';
+import 'package:difogo/core/gatomix_radio.dart';
+import 'package:difogo/core/mode_session.dart';
+import 'package:difogo/core/session_restore.dart';
+import 'package:difogo/core/session_store.dart';
 
 void main() {
   String sep = Platform.pathSeparator;

@@ -1,8 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lan_sync_plan.dart';
-import 'package:gatomix/ui/workspaces/lan_sync_workspace.dart';
+import 'package:difogo/core/lan_sync_plan.dart';
+import 'package:difogo/ui/workspaces/lan_sync_workspace.dart';
 
 void main() {
   test(

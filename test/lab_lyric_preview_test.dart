@@ -1,9 +1,9 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_files.dart';
-import 'package:gatomix/core/lyric_match.dart';
-import 'package:gatomix/ui/workspaces/lab_lyric_search.dart';
+import 'package:difogo/core/lyric_files.dart';
+import 'package:difogo/core/lyric_match.dart';
+import 'package:difogo/ui/workspaces/lab_lyric_search.dart';
 
 LyricCandidate _plain() => const LyricCandidate(
   artist: 'Don Medardo y sus Players - Topic',

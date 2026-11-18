@@ -2,7 +2,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/services/adaptive_eq.dart';
+import 'package:difogo/services/adaptive_eq.dart';
 
 /// 3.1.33: precarga de AdaptiveEq y aire real en 16 kHz.
 const List<double> target = [-1, 4, 6, 3, 1, 0, -3, -6, -11, -18];

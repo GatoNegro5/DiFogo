@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lrc_timeline.dart';
+import 'package:difogo/core/lrc_timeline.dart';
 
 void main() {
   const String sample = '[00:10.00]Hola\n[01:02.50]Mundo\n';

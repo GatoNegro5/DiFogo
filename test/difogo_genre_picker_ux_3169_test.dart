@@ -3,15 +3,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/genre_stations.dart';
-import 'package:gatomix/providers/curator_provider.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/providers/session_provider.dart';
-import 'package:gatomix/providers/theme_provider.dart';
-import 'package:gatomix/providers/vibe_hub_provider.dart';
-import 'package:gatomix/services/smart_discovery_service.dart';
-import 'package:gatomix/ui/startup_vibe_dialog.dart';
-import 'package:gatomix/ui/vibe_hub_view.dart';
+import 'package:difogo/core/genre_stations.dart';
+import 'package:difogo/providers/curator_provider.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/session_provider.dart';
+import 'package:difogo/providers/theme_provider.dart';
+import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/services/smart_discovery_service.dart';
+import 'package:difogo/ui/startup_vibe_dialog.dart';
+import 'package:difogo/ui/vibe_hub_view.dart';
 
 // 3.1.69: modal "Escoge Tus Generos Preferidos" con Play al lado, visto
 // maestro por estacion en cascada, flecha que minimiza y aviso sin vistos.

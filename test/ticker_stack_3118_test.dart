@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/widgets/ticker_stack.dart';
+import 'package:difogo/ui/widgets/ticker_stack.dart';
 
 // 3.1.18: las animaciones de pestanas ocultas quedan congeladas y el estado
 // de cada pestana se conserva al cambiar de indice.

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/services/karaoke_engine.dart';
+import 'package:difogo/services/karaoke_engine.dart';
 
 void main() {
   test('capBytes = 1800 s a 320 kbps', () {

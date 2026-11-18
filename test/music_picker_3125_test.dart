@@ -3,11 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/providers/automix_provider.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/ui/mobile/music_picker_screen.dart';
-import 'package:gatomix/ui/workspaces/automix_workspace.dart';
-import 'package:gatomix/ui/workspaces/livedj_workspace.dart';
+import 'package:difogo/providers/automix_provider.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/ui/mobile/music_picker_screen.dart';
+import 'package:difogo/ui/workspaces/automix_workspace.dart';
+import 'package:difogo/ui/workspaces/livedj_workspace.dart';
 
 // 3.1.25: panel lateral derecho, barra de 48 px, filas de 56 dp y boton
 // "+ Agregar canciones" de 48 px. Todo sobre %TEMP% (cero ReGenial) y sin

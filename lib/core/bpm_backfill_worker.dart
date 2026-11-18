@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
+import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../providers/pipeline_provider.dart' show HeavyWorkGate;
 

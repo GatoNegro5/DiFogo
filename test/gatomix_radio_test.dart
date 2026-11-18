@@ -3,8 +3,8 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/gatomix_radio.dart';
-import 'package:gatomix/core/gatomix_store.dart';
+import 'package:difogo/core/gatomix_radio.dart';
+import 'package:difogo/core/gatomix_store.dart';
 
 double bpmOf(String p) {
   final RegExpMatch? m = RegExp(r'(\d+)bpm').firstMatch(p);

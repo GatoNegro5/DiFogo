@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/gatomix_store.dart';
-import 'package:gatomix/core/lan_sync_plan.dart';
+import 'package:difogo/core/gatomix_store.dart';
+import 'package:difogo/core/lan_sync_plan.dart';
 
 /// 3.1.17: BPM resuelto por LAN Sync (Pendiente 20). Sinteticos en %TEMP%.
 void main() {

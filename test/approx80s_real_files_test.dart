@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_approx.dart';
-import 'package:gatomix/ui/widgets/approx_lyric_icon.dart';
+import 'package:difogo/core/lyric_approx.dart';
+import 'package:difogo/ui/widgets/approx_lyric_icon.dart';
 
 // Copias de los 5 .lrc APPROX reales de "80s Ingles" (laptop).
 void main() {

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio/tempo_drift.dart';
+import 'package:difogo/core/audio/tempo_drift.dart';
 
 /// 128 sonando, 134 la que entra. Live DJ, Automix y Radio usan el mismo
 /// [midpointTempoPlan]: la radio mezcla por el motor de Live DJ.

@@ -1,7 +1,7 @@
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/services/adaptive_eq.dart';
+import 'package:difogo/services/adaptive_eq.dart';
 
 /// 3.1.20 (Pendiente 6): rampa de sonoridad de AdaptiveEq.
 double db(double lin) => 20 * log(lin) / ln10;

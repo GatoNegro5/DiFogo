@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/workspaces/yt_workspace.dart';
+import 'package:difogo/ui/workspaces/yt_workspace.dart';
 
 void main() {
   test('el tope de la vista previa móvil es 15 s', () {

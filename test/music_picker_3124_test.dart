@@ -4,7 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/mobile/music_picker_screen.dart';
+import 'package:difogo/ui/mobile/music_picker_screen.dart';
 
 // PNG valido de 1x1: la portada se puede decodificar sin error.
 final List<int> _png = base64Decode(

@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/gatomix_store.dart';
+import 'package:difogo/core/gatomix_store.dart';
 
 void main() {
   const String dir = r'C:\GmxTest3111\Salsa';

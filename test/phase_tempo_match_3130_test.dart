@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio/phase_lock.dart';
+import 'package:difogo/core/audio/phase_lock.dart';
 
 // 3.1.30: la base del lazo de fase iguala el tempo que se oye (rejilla real),
 // no el BPM entero del nombre. Simulacion pura: sin Player, sin archivos.

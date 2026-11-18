@@ -2,11 +2,11 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio_path.dart';
-import 'package:gatomix/core/livedj_order.dart';
-import 'package:gatomix/core/session_restore.dart';
-import 'package:gatomix/core/session_store.dart';
-import 'package:gatomix/ui/widgets/app_version_label.dart';
+import 'package:difogo/core/audio_path.dart';
+import 'package:difogo/core/livedj_order.dart';
+import 'package:difogo/core/session_restore.dart';
+import 'package:difogo/core/session_store.dart';
+import 'package:difogo/ui/widgets/app_version_label.dart';
 
 void main() {
   const bool win = true;

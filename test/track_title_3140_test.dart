@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/audio_path.dart';
-import 'package:gatomix/core/track_name_clean.dart';
+import 'package:difogo/core/audio_path.dart';
+import 'package:difogo/core/track_name_clean.dart';
 
 void main() {
   test('3140: BPM del nombre va tras el cantante, sin extension ni BPM', () {

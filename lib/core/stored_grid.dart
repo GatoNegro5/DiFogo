@@ -1,4 +1,4 @@
-import 'package:gatomix/src/rust/api/core_dsp.dart' show BeatGrid;
+import 'package:difogo/src/rust/api/core_dsp.dart' show BeatGrid;
 
 import 'master_skip.dart';
 

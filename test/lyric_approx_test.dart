@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_approx.dart';
-import 'package:gatomix/core/master_skip.dart';
+import 'package:difogo/core/lyric_approx.dart';
+import 'package:difogo/core/master_skip.dart';
 
 void main() {
   const studio = '[00:10.00]Linea uno\n[00:12.50]Linea dos\n';

@@ -2,7 +2,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/services/adaptive_eq.dart';
+import 'package:difogo/services/adaptive_eq.dart';
 
 Uint8List _sine(double amp, int secs) {
   final int n = 44100 * secs;

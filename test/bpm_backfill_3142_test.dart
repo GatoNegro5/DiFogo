@@ -2,8 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/bpm_backfill_worker.dart';
-import 'package:gatomix/core/gatomix_store.dart';
+import 'package:difogo/core/bpm_backfill_worker.dart';
+import 'package:difogo/core/gatomix_store.dart';
 
 // 3.1.42: el BPM medido se guarda aunque la carpeta no tenga
 // `.gatomix.json`, y el medidor arranca despues de las 2 pistas en decks.

@@ -2,12 +2,12 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/dna_mix.dart';
-import 'package:gatomix/core/exact_mix.dart';
-import 'package:gatomix/core/phrase_grid.dart';
-import 'package:gatomix/providers/livedj_provider.dart';
-import 'package:gatomix/providers/mix_formula.dart';
-import 'package:gatomix/ui/workspaces/livedj_deck_relevo.dart';
+import 'package:difogo/core/dna_mix.dart';
+import 'package:difogo/core/exact_mix.dart';
+import 'package:difogo/core/phrase_grid.dart';
+import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/mix_formula.dart';
+import 'package:difogo/ui/workspaces/livedj_deck_relevo.dart';
 
 const int _rate = 22050;
 

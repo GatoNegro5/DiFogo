@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/bpm_backfill_worker.dart';
+import 'package:difogo/core/bpm_backfill_worker.dart';
 
 void main() {
   test('candidatos: solo desde index + 2, sin BPM, sin _K ni repetidas', () {

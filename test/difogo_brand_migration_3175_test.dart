@@ -1,10 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/brand_paths.dart';
-import 'package:gatomix/core/gatomix_store.dart';
-import 'package:gatomix/core/lan_sync_plan.dart';
-import 'package:gatomix/core/library_guard.dart';
+import 'package:difogo/core/brand_paths.dart';
+import 'package:difogo/core/gatomix_store.dart';
+import 'package:difogo/core/lan_sync_plan.dart';
+import 'package:difogo/core/library_guard.dart';
 
 // 3.1.75 (rebrand fase 1): migracion GatoMix -> DiFogo de datos y espejo,
 // lectura en cascada y exclusiones. Todo en carpetas efimeras de %TEMP%:

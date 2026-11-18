@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/ui/mobile/music_picker_screen.dart';
+import 'package:difogo/ui/mobile/music_picker_screen.dart';
 
 // 3.1.38: DJ Crate Browser de una sola vista. Archivos sinteticos en %TEMP%.
 Future<void> _settle(WidgetTester tester) async {

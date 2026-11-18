@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:gatomix/core/lyric_match.dart';
-import 'package:gatomix/providers/nlp_provider.dart';
+import 'package:difogo/core/lyric_match.dart';
+import 'package:difogo/providers/nlp_provider.dart';
 
 void main() {
   test('tras 3 intentos 429/5xx/timeout es servidor ocupado', () {
