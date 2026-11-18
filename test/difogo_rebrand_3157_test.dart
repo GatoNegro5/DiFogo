@@ -17,7 +17,7 @@ void main() {
     const List<String> allowed = <String>[
       'GatoMix TV Sync',
       'GatoMix REST Server',
-      'GatoNegro5/GatoMix/releases',
+      'GatoNegro5/DiFogo/releases',
     ];
     for (final String f in files) {
       String src = _read(f);
