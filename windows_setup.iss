@@ -24,10 +24,12 @@ Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignorever
 ; Accesos directos viejos de GatoMix: evita iconos duplicados al actualizar
 Type: files; Name: "{group}\GatoMix.lnk"
 Type: files; Name: "{autodesktop}\GatoMix.lnk"
+; 3.1.76: el exe paso a difogo.exe; borra el exe viejo huerfano al actualizar
+Type: files; Name: "{app}\gatomix_player.exe"
 
 [Icons]
-Name: "{group}\DiFogo"; Filename: "{app}\gatomix_player.exe"
-Name: "{autodesktop}\DiFogo"; Filename: "{app}\gatomix_player.exe"; Tasks: desktopicon
+Name: "{group}\DiFogo"; Filename: "{app}\difogo.exe"
+Name: "{autodesktop}\DiFogo"; Filename: "{app}\difogo.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Iconos adicionales:"

@@ -26,17 +26,21 @@ void main() {
       isTrue,
     );
     expect(
-      iss.contains(
-        r'Name: "{group}\DiFogo"; Filename: "{app}\gatomix_player.exe"',
-      ),
+      iss.contains(r'Name: "{group}\DiFogo"; Filename: "{app}\difogo.exe"'),
       isTrue,
     );
     expect(
       iss.contains(
-        r'Name: "{autodesktop}\DiFogo"; Filename: "{app}\gatomix_player.exe"',
+        r'Name: "{autodesktop}\DiFogo"; Filename: "{app}\difogo.exe"',
       ),
       isTrue,
     );
+    // 3.1.76: exe difogo.exe; el gatomix_player.exe viejo se borra al actualizar.
+    expect(
+      iss.contains(r'Type: files; Name: "{app}\gatomix_player.exe"'),
+      isTrue,
+    );
+    expect('gatomix_player.exe'.allMatches(iss).length, 1);
     expect(iss.contains('AppName=GatoMix'), isFalse);
     expect(iss.contains('GatoMix-Installer'), isFalse);
   });

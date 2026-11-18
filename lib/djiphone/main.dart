@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'package:gatomix/src/rust/frb_generated.dart';
+import 'package:gatomix/core/brand_paths.dart' show migrateBrandCache;
 import 'package:gatomix/core/audio/dj_audio_handler.dart';
 import 'package:gatomix/djiphone/iphone_library.dart';
 import 'package:gatomix/providers/automix_provider.dart';
@@ -67,6 +68,8 @@ final djIphoneRouterProvider = NotifierProvider<DjIphoneRouter, int>(
 Future<void> main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
+    // 3.1.76: paridad con lib/main.dart (iOS: ~/.gatomix -> ~/.difogo).
+    migrateBrandCache();
     await IphoneLibrary.ensure();
     await initGlobalAudioService();
     if (Platform.isIOS) {

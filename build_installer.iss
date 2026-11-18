@@ -1,7 +1,10 @@
+; LEGADO (3.1.76): release.yml usa windows_setup.iss (AppId=GatoMix, DiFogo).
+; Este script viejo (otro AppId, rutas C:\Python) no lo usa nada; solo se
+; alinea el exe a difogo.exe para que sus accesos directos no queden rotos.
 #define MyAppName "GatoMix"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Gabriel Calle"
-#define MyAppExeName "gatomix_player.exe"
+#define MyAppExeName "difogo.exe"
 #define BuildPath "C:\Python\gatomix_player\build\windows\x64\runner\Release"
 
 [Setup]

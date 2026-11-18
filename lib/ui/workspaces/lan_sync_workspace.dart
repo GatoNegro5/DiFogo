@@ -378,27 +378,34 @@ class _LanSyncWorkspaceState extends ConsumerState<LanSyncWorkspace>
     if (Platform.isWindows) {
       try {
         setState(() => _currentLog = "⚙️ Auditando Windows Defender...");
-        const oldRule =
-            'DJ'
-            'Studio'
-            ' REST Server';
-        const newRule = 'GatoMix REST Server';
-        final oldCmd = await Process.run('powershell', [
-          '-Command',
-          'Get-NetFirewallRule -DisplayName "$oldRule" -ErrorAction SilentlyContinue',
-        ]);
+        // 3.1.76: regla DiFogo; las viejas (marca anterior y GatoMix) se
+        // borran. Es por puerto, no por exe: difogo.exe no la rompe.
+        const oldRules = <String>[
+          'DJ'
+              'Studio'
+              ' REST Server',
+          'GatoMix REST Server',
+        ];
+        const newRule = 'DiFogo REST Server';
+        final List<String> hadOld = <String>[];
+        for (final String oldRule in oldRules) {
+          final oldCmd = await Process.run('powershell', [
+            '-Command',
+            'Get-NetFirewallRule -DisplayName "$oldRule" -ErrorAction SilentlyContinue',
+          ]);
+          if (oldCmd.stdout.toString().contains(oldRule)) hadOld.add(oldRule);
+        }
         final newCmd = await Process.run('powershell', [
           '-Command',
           'Get-NetFirewallRule -DisplayName "$newRule" -ErrorAction SilentlyContinue',
         ]);
-        final hadOld = oldCmd.stdout.toString().contains(oldRule);
         final hasNew = newCmd.stdout.toString().contains(newRule);
-        if (hadOld || !hasNew) {
+        if (hadOld.isNotEmpty || !hasNew) {
           setState(
             () => _currentLog = "⚠️ Escalando privilegios (Acepte el UAC)...",
           );
           final script = StringBuffer();
-          if (hadOld) {
+          for (final String oldRule in hadOld) {
             script.write(
               "Remove-NetFirewallRule -DisplayName '$oldRule' -ErrorAction SilentlyContinue; ",
             );

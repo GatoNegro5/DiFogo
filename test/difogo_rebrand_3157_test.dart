@@ -42,18 +42,13 @@ void main() {
   });
 
   test('3.1.57 se conservan firewall, protocolo y URL del APK', () {
-    expect(
-      _read(
-        'lib/ui/workspaces/karaoke_workspace.dart',
-      ).contains("'GatoMix TV Sync'"),
-      isTrue,
-    );
-    expect(
-      _read(
-        'lib/ui/workspaces/lan_sync_workspace.dart',
-      ).contains("'GatoMix REST Server'"),
-      isTrue,
-    );
+    // 3.1.76: reglas DiFogo; las GatoMix quedan solo para borrarlas.
+    final String kw = _read('lib/ui/workspaces/karaoke_workspace.dart');
+    expect(kw.contains("'DiFogo TV Sync'"), isTrue);
+    expect(kw.contains("'GatoMix TV Sync'"), isTrue);
+    final String lw = _read('lib/ui/workspaces/lan_sync_workspace.dart');
+    expect(lw.contains("'DiFogo REST Server'"), isTrue);
+    expect(lw.contains("'GatoMix REST Server'"), isTrue);
     expect(
       _read('lib/services/tv_sync_server.dart').contains("'gatomix-karaoke'"),
       isTrue,
@@ -69,7 +64,9 @@ void main() {
   test('3.1.57 nombres nativos visibles Win y Mac', () {
     final String rc = _read('windows/runner/Runner.rc');
     expect(rc.contains('VALUE "ProductName", "DiFogo"'), isTrue);
-    expect(rc.contains('"gatomix_player.exe"'), isTrue);
+    // 3.1.76: el exe de Windows es difogo.exe.
+    expect(rc.contains('"difogo.exe"'), isTrue);
+    expect(rc.contains('gatomix_player'), isFalse);
     final String plist = _read('macos/Runner/Info.plist');
     expect(
       RegExp(

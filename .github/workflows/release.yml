@@ -161,6 +161,12 @@ jobs:
             ${{ matrix.build_cmd }} --build-name="${GITHUB_REF_NAME#v}"
           fi
 
+      - name: Verify Windows Executable
+        if: matrix.target == 'windows'
+        # 3.1.76: el binario es difogo.exe; sin el, el instalador quedaria sin exe
+        run: if not exist build\windows\x64\runner\Release\difogo.exe exit /b 1
+        shell: cmd
+
       - name: Compile Windows Installer
         if: matrix.target == 'windows'
         run: |

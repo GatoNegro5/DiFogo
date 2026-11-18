@@ -191,28 +191,35 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
   /// cubre :55055; sin esta, la Google TV no completa el upgrade WebSocket.
   Future<void> _ensureTvFirewallRule() async {
     if (!Platform.isWindows) return;
-    const oldRule =
-        'DJ'
-        'Studio'
-        ' TV Sync';
-    const ruleName = 'GatoMix TV Sync';
+    // 3.1.76: regla DiFogo; las viejas (marca anterior y GatoMix) se borran.
+    // La regla es por puerto, no por exe: el cambio a difogo.exe no la rompe.
+    const oldRules = <String>[
+      'DJ'
+          'Studio'
+          ' TV Sync',
+      'GatoMix TV Sync',
+    ];
+    const ruleName = 'DiFogo TV Sync';
     try {
-      final probeOld = await Process.run('powershell', [
-        '-Command',
-        'Get-NetFirewallRule -DisplayName "$oldRule" '
-            '-ErrorAction SilentlyContinue',
-      ]);
+      final List<String> hadOld = <String>[];
+      for (final String oldRule in oldRules) {
+        final probeOld = await Process.run('powershell', [
+          '-Command',
+          'Get-NetFirewallRule -DisplayName "$oldRule" '
+              '-ErrorAction SilentlyContinue',
+        ]);
+        if (probeOld.stdout.toString().contains(oldRule)) hadOld.add(oldRule);
+      }
       final probe = await Process.run('powershell', [
         '-Command',
         'Get-NetFirewallRule -DisplayName "$ruleName" '
             '-ErrorAction SilentlyContinue',
       ]);
-      final hadOld = probeOld.stdout.toString().contains(oldRule);
       final hasNew = probe.stdout.toString().contains(ruleName);
-      if (!hadOld && hasNew) return;
+      if (hadOld.isEmpty && hasNew) return;
 
       final script = StringBuffer();
-      if (hadOld) {
+      for (final String oldRule in hadOld) {
         script.write(
           "Remove-NetFirewallRule -DisplayName '$oldRule' -ErrorAction SilentlyContinue; ",
         );
