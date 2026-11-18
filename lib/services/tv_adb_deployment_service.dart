@@ -571,7 +571,7 @@ class TvAdbDeploymentService {
     final apk = File('${dir.path}${Platform.pathSeparator}gatomix-tv.apk');
     onProgress('Descargando DiFogo Karaoke (APK)…');
     await downloadFileRobust(
-      'https://github.com/GatoNegro5/GatoMix/releases/latest/download/gatomix-tv.apk',
+      'https://github.com/GatoNegro5/DiFogo/releases/latest/download/gatomix-tv.apk',
       apk.path,
     );
     return apk;
