@@ -58,7 +58,7 @@ android {
 
     signingConfigs {
         if (hasReleaseKey) {
-            create("gatomixRelease") {
+            create("difogoRelease") {
                 storeFile = file(storePath!!)
                 this.storePassword = storePassword
                 this.keyAlias = keyAlias
@@ -70,7 +70,7 @@ android {
     buildTypes {
         release {
             signingConfig = if (hasReleaseKey) {
-                signingConfigs.getByName("gatomixRelease")
+                signingConfigs.getByName("difogoRelease")
             } else {
                 signingConfigs.getByName("debug")
             }

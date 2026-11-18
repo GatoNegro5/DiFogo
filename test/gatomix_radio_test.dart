@@ -247,7 +247,7 @@ void main() {
     expect(moved.waveUp, isFalse);
     expect(moved.previousBpm, 108);
     final Map<String, dynamic> folder =
-        jsonDecode(File('${root.path}$s.gatomix.json').readAsStringSync())
+        jsonDecode(File('${root.path}$s.difogo.json').readAsStringSync())
             as Map<String, dynamic>;
     expect(folder.containsKey('radio'), isFalse);
     expect(
@@ -262,7 +262,7 @@ void main() {
     final RadioMemory again = GatomixRadio.load(root.path);
     expect(again.history, moved.history);
     expect(
-      jsonDecode(File('${root.path}$s.gatomix.json').readAsStringSync())
+      jsonDecode(File('${root.path}$s.difogo.json').readAsStringSync())
           .containsKey('radio'),
       isFalse,
     );

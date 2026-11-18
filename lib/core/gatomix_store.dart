@@ -5,14 +5,18 @@ import 'dart:io';
 import 'audio_path.dart';
 import 'library_guard.dart';
 
-/// Un solo JSON por carpeta: `.gatomix.json`.
+/// Un solo JSON por carpeta: `.difogo.json` (3.1.81; antes `.gatomix.json`,
+/// que se sigue LEYENDO si no hay uno nuevo y nunca se borra).
 ///
 /// Sustituye a `.dj_master_checkpoint.json`, `.gatomix_master_index.json`,
 /// `.gatomix_lyric_fail.json`, `_dj_metadata.json`, `_dj_timestamps.json`,
 /// `_lyrics_auto.json` y a los bancos de shuffle. La migración lee los
 /// viejos, escribe el nuevo, verifica y solo entonces los borra.
 /// Nunca borra mp3, `.lrc` ni pistas `_K`.
-const String gatomixStoreName = '.gatomix.json';
+const String gatomixStoreName = '.difogo.json';
+
+/// 3.1.81: nombre heredado del documento por carpeta (solo lectura).
+const String gatomixOldStoreName = '.gatomix.json';
 const String gatomixLogName = '.gatomix.log';
 
 const int gatomixLogMaxBytes = 200 * 1024;
@@ -77,10 +81,10 @@ class GatomixStore {
   /// Sube en cada escritura. Quien cachea un BPM derivado lo descarta.
   static int generation = 0;
 
-  /// Lecturas reales de `.gatomix.json` (no los aciertos de caché).
+  /// Lecturas reales del documento (no los aciertos de caché).
   static int debugDiskReads = 0;
 
-  /// Escrituras reales de `.gatomix.json` (síncronas y asíncronas).
+  /// Escrituras reales del documento (síncronas y asíncronas).
   static int debugDiskWrites = 0;
 
   static final Map<String, Future<void>> _asyncLocks = <String, Future<void>>{};
@@ -99,13 +103,17 @@ class GatomixStore {
 
   /// 3.1.72: dentro de la biblioteca protegida el documento vive en el
   /// espejo local; fuera, junto a la carpeta como siempre. 3.1.75: el
-  /// espejo nuevo se escribe como `<hash>.difogo.json` en DiFogo.
+  /// espejo nuevo se escribe como `<hash>.difogo.json` en DiFogo. 3.1.81:
+  /// fuera de la biblioteca se escribe `.difogo.json` junto a la carpeta.
   static File fileOf(String dir) => isLibraryPath(dir)
       ? libraryMirrorFile(dir, kMirrorStoreSuffix)
-      : legacyFileOf(dir);
+      : folderFileOf(dir);
 
-  /// `.gatomix.json` dentro de la carpeta (en la biblioteca: solo lectura).
-  static File legacyFileOf(String dir) => File('$dir$_sep$gatomixStoreName');
+  /// 3.1.81: `.difogo.json` dentro de la carpeta (fuera de la biblioteca).
+  static File folderFileOf(String dir) => File('$dir$_sep$gatomixStoreName');
+
+  /// `.gatomix.json` heredado dentro de la carpeta: solo lectura.
+  static File legacyFileOf(String dir) => File('$dir$_sep$gatomixOldStoreName');
 
   /// Archivo a LEER. 3.1.75, cascada en la biblioteca protegida:
   /// 1) `<hash>.difogo.json` en DiFogo\folder_cache; 2) `<hash>.gatomix.json`
@@ -113,8 +121,15 @@ class GatomixStore {
   /// GatoMix\folder_cache (si el rename no se pudo); 4) `.gatomix.json`
   /// viejo de la carpeta musical (solo lectura). Ninguno se borra ni se
   /// reescribe: la siguiente escritura va a 1).
+  /// 3.1.81, fuera de la biblioteca: `.difogo.json` y si no existe el
+  /// `.gatomix.json` heredado (no se borra; la escritura va al nuevo).
   static File readFileOf(String dir) {
-    if (!isLibraryPath(dir)) return legacyFileOf(dir);
+    if (!isLibraryPath(dir)) {
+      final File neu = folderFileOf(dir);
+      if (neu.existsSync()) return neu;
+      final File old = legacyFileOf(dir);
+      return old.existsSync() ? old : neu;
+    }
     final File? mirror = libraryMirrorRead(dir, const <String>[
       kMirrorStoreSuffix,
       kOldMirrorStoreSuffix,
@@ -126,7 +141,6 @@ class GatomixStore {
 
   /// Cierto si [dir] tiene documento (cualquier paso de la cascada).
   static bool hasDocument(String dir) {
-    if (!isLibraryPath(dir)) return legacyFileOf(dir).existsSync();
     return readFileOf(dir).existsSync();
   }
 

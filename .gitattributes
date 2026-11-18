@@ -1,0 +1,2 @@
+# 3.1.81: scripts de shell siempre en LF (bash en macOS falla con CRLF)
+*.sh text eol=lf

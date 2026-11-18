@@ -370,7 +370,7 @@ void main() {
     final String dir = '$root${_sep}Salsa';
     final String song = '$dir${_sep}Salsa a.mp3';
     // .gatomix.json viejo de la carpeta: se LEE, no se borra ni se reescribe.
-    final File legacy = File('$dir$_sep$gatomixStoreName')
+    final File legacy = File('$dir$_sep$gatomixOldStoreName')
       ..writeAsStringSync(
         '{"schema":1,"djMetadata":{"$song":101.0}}'.replaceAll(r'\', r'\\'),
       );

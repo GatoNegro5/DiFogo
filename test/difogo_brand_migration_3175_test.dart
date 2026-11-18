@@ -158,7 +158,7 @@ void main() {
     }
 
     // 4) solo el .gatomix.json viejo de la carpeta musical.
-    final File inFolder = File('$dir$_s$gatomixStoreName')
+    final File inFolder = File('$dir$_s$gatomixOldStoreName')
       ..writeAsStringSync('{"schema":1,"djMetadata":{"p4":4.0}}');
     expect(read(), inFolder.path);
     expect(GatomixStore.hasDocument(dir), isTrue);
