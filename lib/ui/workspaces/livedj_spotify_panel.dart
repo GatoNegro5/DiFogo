@@ -7,6 +7,7 @@ import '../../core/audio_path.dart' show sameAudioPath;
 import '../../core/genre_mix_fx.dart';
 import '../../core/genre_stations.dart' show stationTitleOf;
 import '../../core/net/artist_info.dart';
+import '../../core/track_name_clean.dart' show cleanTrackTitle;
 import '../../providers/livedj_provider.dart';
 import '../../providers/mix_formula.dart';
 import '../../providers/theme_provider.dart';
@@ -18,13 +19,13 @@ import '../../providers/vibe_hub_provider.dart';
 final liveDjSpotifyModeProvider = StateProvider<bool>((ref) => true);
 
 /// Titulo y artista de `Artista - Titulo.ext` (sin artista si no viene).
+/// 3.1.84: sin `.mp3` ni `(91 BPM)`.
 ({String title, String artist}) spotifyTrackLabels(String? path) {
   if (path == null || path.isEmpty) {
     return (title: 'SISTEMA EN ESPERA', artist: 'Elige una estación o carpeta');
   }
-  String name = path.replaceAll('\\', '/').split('/').last;
-  final int dot = name.lastIndexOf('.');
-  if (dot > 0) name = name.substring(0, dot);
+  // 3.1.84: sin extension ni etiqueta de BPM (pantalla limpia).
+  final String name = cleanTrackTitle(path);
   final int i = name.indexOf(' - ');
   if (i <= 0) return (title: name.trim(), artist: '');
   return (
@@ -67,6 +68,22 @@ String spotifyNextMixLabel(LiveDjState s) {
   final int left = mixOut > 0 ? mixOut - s.position.inMilliseconds : -1;
   if (s.currentTrackPath == null || left < 0) return 'NEXT MIX · $title';
   return 'NEXT MIX en ${_clock(Duration(milliseconds: left))} · $title';
+}
+
+/// 3.1.84: indicador compacto de la siguiente sin extension ni BPM:
+/// `Siguiente: Daddy Yankee · Ghosting`.
+String spotifyCleanNextLabel(LiveDjState s) {
+  for (final File f in s.queue) {
+    if (s.currentTrackPath != null &&
+        sameAudioPath(f.path, s.currentTrackPath)) {
+      continue;
+    }
+    final labels = spotifyTrackLabels(f.path);
+    return labels.artist.isEmpty
+        ? 'Siguiente: ${labels.title}'
+        : 'Siguiente: ${labels.artist} · ${labels.title}';
+  }
+  return '';
 }
 
 /// 3.1.73: plan (curva + FX) del proximo cruce, el mismo que usara el motor.
@@ -171,7 +188,6 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
   @override
   Widget build(BuildContext context) {
     final LiveDjState s = ref.watch(liveDjProvider);
-    final MixFormula formula = ref.watch(mixFormulaProvider);
     final String? path =
         s.currentTrackPath ?? (s.queue.isNotEmpty ? s.queue.first.path : null);
     final labels = spotifyTrackLabels(path);
@@ -185,36 +201,6 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
     final double value =
         _drag ?? pos.inMilliseconds.toDouble().clamp(0.0, maxMs);
     final LiveDjNotifier dj = ref.read(liveDjProvider.notifier);
-    final String? station = ref.watch(
-      vibeHubProvider.select((VibeHubState h) => h.activeStation),
-    );
-
-    Widget mixChip() => GestureDetector(
-      key: const Key('spotify-mix-chip'),
-      onTap: () {
-        final MixFormula next =
-            MixFormula.values[(formula.index + 1) % MixFormula.values.length];
-        // 3.1.73: elegir a mano fija la curva (el selector solo pone FX).
-        ref.read(mixFormulaLockedProvider.notifier).state = true;
-        ref.read(mixFormulaProvider.notifier).state = next;
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: GatoMixTheme.syncActive),
-        ),
-        child: Text(
-          spotifyMixLabel(formula),
-          style: const TextStyle(
-            color: GatoMixTheme.syncActive,
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
-          ),
-        ),
-      ),
-    );
 
     Widget info(double width) => SizedBox(
       width: width,
@@ -253,37 +239,9 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: Colors.white60, fontSize: 15),
           ),
-          const SizedBox(height: 8),
-          // 3.1.72 Spotify Pro: badge de estacion/genero + efecto de mezcla.
-          Wrap(
-            key: const Key('spotify-badge'),
-            spacing: 6,
-            runSpacing: 4,
-            children: <Widget>[
-              Container(
-                key: const Key('spotify-station-badge'),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0x22FF5722),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: const Color(0xFFFF5722)),
-                ),
-                child: Text(
-                  spotifyStationBadge(station),
-                  maxLines: 1,
-                  style: const TextStyle(
-                    color: Color(0xFFFF5722),
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.2,
-                  ),
-                ),
-              ),
-              mixChip(),
-              const MixFxBadge(badgeKey: Key('spotify-fx-badge')),
-            ],
-          ),
-          const SizedBox(height: 6),
+          // 3.1.84 Consumer Clean Mode: sin chips de mezcla ni FX bajo el
+          // titulo (viven en la hoja Modo DJ de la cabecera).
+          const SizedBox(height: 10),
           SliderTheme(
             data: SliderTheme.of(context).copyWith(
               trackHeight: 4,
@@ -365,30 +323,6 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
               ),
             ],
           ),
-          // 3.1.72: NEXT MIX con cuenta regresiva al punto de mezcla.
-          Row(
-            children: <Widget>[
-              const Icon(
-                Icons.timer_outlined,
-                size: 14,
-                color: Color(0xFFFF5722),
-              ),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  spotifyNextMixLabel(s),
-                  key: const Key('spotify-next-mix'),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white70,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
         ],
       ),
     );
@@ -397,7 +331,8 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
       builder: (BuildContext context, BoxConstraints c) {
         final double w = c.maxWidth.isFinite ? c.maxWidth : 400;
         final double h = c.maxHeight.isFinite ? c.maxHeight : 400;
-        const double infoH = 286;
+        // 3.1.84: sin chips ni NEXT MIX la ficha es mas baja.
+        const double infoH = 236;
         final bool wide = w >= 520;
         final double colSide = (h - infoH - 24).clamp(0.0, w - 48);
         // Telefono con poco alto: portada al lado en vez de encima.
@@ -532,14 +467,15 @@ class LiveDjSpotifyToggle extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final bool on = ref.watch(liveDjSpotifyModeProvider);
     return Tooltip(
-      message: on ? 'Vista consola DJ' : 'Modo Spotify',
+      message: on ? 'Vista lista' : 'Modo Spotify',
       child: GestureDetector(
         key: const Key('livedj-spotify-toggle'),
         onTap: () => ref.read(liveDjSpotifyModeProvider.notifier).state = !on,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 6),
           child: Icon(
-            on ? Icons.tune_rounded : Icons.library_music_rounded,
+            // 3.1.84: los sliders (tune) son ahora el boton Modo DJ.
+            on ? Icons.view_list_rounded : Icons.library_music_rounded,
             size: 22,
             color: on ? Colors.white70 : GatoMixTheme.syncActive,
           ),

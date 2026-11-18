@@ -1717,7 +1717,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           final bool armingRadio = state.radioOn;
           final int armEpoch = _radioEpoch;
           // Radio encendida: la pista sale del universo de géneros, no de la cola.
-          // Apagada: la misma que muestra la barra (cabeza, o BPM en Stealth).
+          // Apagada: la misma que muestra la barra (cabeza de la cola).
           final String? armPathOrNull = armingRadio
               ? (_radioPendingReady() ?? await _radioNextPath())
               : (state.queue.isNotEmpty
@@ -2884,7 +2884,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
   /// Apaga la radio sin tocar el deck que suena: ni pausa, ni open, ni seek,
   /// ni setRate. La cola congelada vuelve de memoria. El relevo de radio se
-  /// cancela y la siguiente vuelve a salir de esa cola (cabeza, o BPM si Stealth).
+  /// cancela y la siguiente vuelve a salir de esa cola (su cabeza).
   void _turnRadioOff() {
     _radioEpoch++;
     _radioPending = null;
@@ -2979,12 +2979,12 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     }
   }
 
+  /// 3.1.84: la siguiente es siempre la cabeza de la cola anunciada; la
+  /// tecnica (DNA, Phrase 8, Stealth, fija o AUTO) nunca la cambia.
   int _nextQueueIndex() {
     return offAirNextIndex(
       paths: <String>[for (final File f in state.queue) f.path],
       currentPath: state.currentTrackPath,
-      stealth: ref.read(mixFormulaProvider) == MixFormula.stealthGap,
-      bpmOf: (String path) => _extractBpm(path),
     );
   }
 
@@ -3408,8 +3408,13 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       _mixOutCacheKey = null;
       final int dur = state.duration.inMilliseconds;
       if (dur <= 0) return;
-      final int mix = _calculateRadioMixOut(dur, cur);
-      if (mix > 10000 && mix > state.position.inMilliseconds + 1500) {
+      // 3.1.84: sin re-disparo: el punto recalculado debe dejar juego.
+      final int mix = autoCurveMixOutMs(
+        recalculatedMs: _calculateRadioMixOut(dur, cur),
+        positionMs: state.position.inMilliseconds,
+        currentMixOutMs: state.customMixOutMs,
+      );
+      if (mix != state.customMixOutMs) {
         state = state.copyWith(customMixOutMs: mix);
       }
     } catch (_) {}

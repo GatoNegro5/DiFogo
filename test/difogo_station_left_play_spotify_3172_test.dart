@@ -287,7 +287,8 @@ void main() {
     await t.runAsync(
       () => c.read(vibeHubProvider.notifier).playStation(a, <String>['Salsa']),
     );
-    expect(kRadioDiscoveryLabel, '🔥 RADIO DESCUBRIMIENTO (AUTO-NUEVAS)');
+    // 3.1.84: chip compacto.
+    expect(kRadioDiscoveryLabel, '🔥 Radio');
     expect(radioDiscoveryTooltip(false), contains('solo suena tu biblioteca'));
     expect(radioDiscoveryTooltip(true), contains('Aceptar'));
     await t.pumpWidget(
@@ -357,10 +358,11 @@ void main() {
     );
     await t.pump();
     expect(find.text('NOW PLAYING'), findsOneWidget);
-    expect(k('spotify-station-badge'), findsOneWidget);
-    expect(find.text('BIBLIOTECA LOCAL'), findsOneWidget);
-    expect(k('spotify-mix-chip'), findsOneWidget);
-    expect(find.text('NEXT MIX en 01:00 · Provenza'), findsOneWidget);
+    // 3.1.84 Consumer Clean Mode: badge, chip de mezcla y NEXT MIX viven
+    // en la hoja Modo DJ, no en la pantalla principal.
+    expect(k('spotify-station-badge'), findsNothing);
+    expect(k('spotify-mix-chip'), findsNothing);
+    expect(find.text('NEXT MIX en 01:00 · Provenza'), findsNothing);
     expect(k('spotify-play'), findsOneWidget);
     expect(t.takeException(), isNull);
   });

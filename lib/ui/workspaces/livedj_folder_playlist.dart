@@ -8,10 +8,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/id3_names.dart';
-import '../../core/livedj_next.dart';
 import '../../core/net/artist_info.dart';
-import '../../core/queue_bpm.dart';
+import '../../core/livedj_next.dart' show liveDjSidePaths;
 import '../../core/track_file_name.dart';
+import '../../core/track_name_clean.dart' show stripBpmTag;
 import '../../providers/livedj_provider.dart';
 import 'livedj_sort_button.dart';
 import '../../providers/mix_formula.dart';
@@ -21,6 +21,7 @@ import 'livedj_bpm_badge.dart';
 import 'livedj_deck_relevo.dart';
 import 'livedj_mix_marker.dart';
 import '../vibe_hub_view.dart' show RadioDiscoveryButton;
+import '../curator_inbox_dialog.dart' show CuratorInboxButton;
 
 /// Pantalla grande de la canción que está sonando. No usa la carpeta
 /// marcada en el Explorador: sigue `currentTrackPath`.
@@ -55,7 +56,6 @@ class _PlayerPane extends ConsumerStatefulWidget {
 class _PlayerPaneState extends ConsumerState<_PlayerPane>
     with TickerProviderStateMixin {
   double? _dragPosition;
-  final LiveDjNextLabel _nextLabel = LiveDjNextLabel();
   late final AnimationController _relevo;
   late final AnimationController _beat;
   String? _handoffFrom;
@@ -149,9 +149,6 @@ class _PlayerPaneState extends ConsumerState<_PlayerPane>
     );
     final List<File> queue = ref.watch(liveDjProvider.select((s) => s.queue));
     final bool radioOn = ref.watch(liveDjProvider.select((s) => s.radioOn));
-    final String? radioNext = ref.watch(
-      liveDjProvider.select((s) => s.radioNextPath),
-    );
     final LiveDjMixStrategy strategy = ref.watch(
       liveDjProvider.select((s) => s.mixStrategy),
     );
@@ -160,16 +157,7 @@ class _PlayerPaneState extends ConsumerState<_PlayerPane>
     final int mixOut = ref.watch(
       liveDjProvider.select((s) => s.customMixOutMs),
     );
-    final MixFormula mixFormula = ref.watch(mixFormulaProvider);
     final wide = MediaQuery.sizeOf(context).width >= 800;
-    final String? nextName = _nextLabel.text(
-      radioOn: radioOn,
-      radioNextPath: radioNext,
-      queuePaths: <String>[for (final File f in queue) f.path],
-      currentPath: track,
-      stealth: mixFormula == MixFormula.stealthGap,
-      bpmOf: knownBpm,
-    );
     final isShuffle = strategy == LiveDjMixStrategy.random;
     final canToggle = track != null || queue.isNotEmpty;
     final canSkip = queue.isNotEmpty || radioOn;
@@ -237,7 +225,9 @@ class _PlayerPaneState extends ConsumerState<_PlayerPane>
     final TrackDisplay entering = (faceIn == null || faceIn.isEmpty)
         ? const TrackDisplay(headline: '', subtitle: '', artist: '')
         : resolveTrackDisplay(file: parseTrackFileName(faceIn));
-    final String following = nextName ?? '';
+    // 3.1.84 Consumer Clean Mode: sin recuadro con el nombre de archivo
+    // de la siguiente; la cola de la derecha ya la muestra.
+    const String following = '';
     final Listenable motion = Listenable.merge([_relevo, _beat]);
     final Widget outgoingFace = _SongFace(path: faceOut, wide: wide);
     final Widget incomingFace = _SongFace(
@@ -358,7 +348,7 @@ class _SongFace extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
-                                    headline,
+                                    stripBpmTag(headline),
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
@@ -371,7 +361,7 @@ class _SongFace extends StatelessWidget {
                                   if (display.subtitle.isNotEmpty) ...[
                                     const SizedBox(height: 4),
                                     Text(
-                                      display.subtitle,
+                                      stripBpmTag(display.subtitle),
                                       maxLines: 1,
                                       overflow: TextOverflow.ellipsis,
                                       style: TextStyle(
@@ -381,22 +371,8 @@ class _SongFace extends StatelessWidget {
                                     ),
                                   ],
                                   if (controls) ...[
-                                    const SizedBox(height: 6),
-                                    SizedBox(
-                                      height: 28,
-                                      child: ListView(
-                                        scrollDirection: Axis.horizontal,
-                                        physics: const ClampingScrollPhysics(),
-                                        children: [
-                                          LiveDjBpmChip(
-                                            path: facePath,
-                                            fontSize: wide ? 12 : 10,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          _OnAirBadge(compact: !wide),
-                                        ],
-                                      ),
-                                    ),
+                                    // 3.1.84: BPM y Radio salen de la portada
+                                    // (hoja Modo DJ y chip de la cola).
                                     _RadioSlot(compact: !wide),
                                   ],
                                 ],
@@ -460,19 +436,31 @@ class _QueuePane extends ConsumerWidget {
         children: [
           Container(
             height: 52,
-            padding: const EdgeInsets.only(left: 12, right: 108),
+            // 3.1.84: 144 deja sitio al boton Modo DJ y al disco.
+            padding: const EdgeInsets.only(left: 12, right: 144),
             alignment: Alignment.centerLeft,
             color: GatoMixTheme.bgPanel,
-            child: Text(
-              'COLA (${paths.length})',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: GatoMixTheme.deckB,
-                fontWeight: FontWeight.bold,
-                fontSize: 12,
-                letterSpacing: 1.2,
-              ),
+            // 3.1.84: chips compactos Radio y Nuevas junto al titulo.
+            child: Row(
+              children: <Widget>[
+                Flexible(
+                  child: Text(
+                    'COLA (${paths.length})',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: GatoMixTheme.deckB,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                const RadioDiscoveryButton(compact: true),
+                const SizedBox(width: 4),
+                const CuratorInboxButton(),
+              ],
             ),
           ),
           Expanded(
@@ -532,7 +520,7 @@ class _QueueLine extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      headline,
+                      stripBpmTag(headline),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -543,7 +531,7 @@ class _QueueLine extends StatelessWidget {
                     ),
                     if (display.subtitle.isNotEmpty)
                       Text(
-                        display.subtitle,
+                        stripBpmTag(display.subtitle),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
@@ -577,15 +565,6 @@ class _RadioSlot extends ConsumerWidget {
       child: _RadioChips(compact: compact),
     );
   }
-}
-
-class _OnAirBadge extends StatelessWidget {
-  final bool compact;
-  const _OnAirBadge({required this.compact});
-
-  // 3.1.72: "PRENDE MODO RADIO" ahora es la Radio Descubrimiento.
-  @override
-  Widget build(BuildContext context) => RadioDiscoveryButton(compact: compact);
 }
 
 class _RadioChips extends ConsumerWidget {

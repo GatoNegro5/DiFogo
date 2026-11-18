@@ -9,6 +9,7 @@ import 'package:difogo/providers/mix_formula.dart';
 import 'package:difogo/providers/session_provider.dart';
 import 'package:difogo/providers/vibe_hub_provider.dart';
 import 'package:difogo/ui/workspaces/livedj_deck_relevo.dart';
+import 'package:difogo/ui/workspaces/livedj_dj_sheet.dart';
 import 'package:difogo/ui/workspaces/livedj_spotify_panel.dart';
 import 'package:difogo/ui/workspaces/livedj_workspace.dart';
 
@@ -101,7 +102,9 @@ void main() {
     expect(fp.contains('if (published > 0) ms = published;'), isTrue);
   });
 
-  testWidgets('3174 badge FX en Spotify Pro', (WidgetTester t) async {
+  testWidgets('3174 badge FX en la hoja Modo DJ (3.1.84)', (
+    WidgetTester t,
+  ) async {
     t.view.physicalSize = const Size(1400, 900);
     t.view.devicePixelRatio = 1;
     addTearDown(t.view.reset);
@@ -113,12 +116,12 @@ void main() {
       UncontrolledProviderScope(
         container: c,
         child: const MaterialApp(
-          home: Scaffold(body: LiveDjSpotifyPanel(compact: false)),
+          home: Scaffold(body: LiveDjModeDjPanel()),
         ),
       ),
     );
     await t.pump();
-    final Finder badge = find.byKey(const Key('spotify-fx-badge'));
+    final Finder badge = find.byKey(const Key('dj-fx-badge'));
     expect(badge, findsOneWidget);
     expect(find.text('FX · PHRASE 8 + HIGHPASS SWEEP · AUTO'), findsOneWidget);
     await t.tap(badge);
@@ -153,10 +156,15 @@ void main() {
       ),
     );
     await t.pump();
-    final Finder badge = find.byKey(const Key('classic-fx-badge'));
-    expect(badge, findsOneWidget);
+    // 3.1.84: la consola clasica abre la misma hoja Modo DJ.
+    expect(find.byKey(const Key('classic-fx-badge')), findsNothing);
     // La consola clasica no muestra el panel Spotify.
     expect(find.byType(LiveDjSpotifyPanel), findsNothing);
+    await t.tap(find.byKey(const Key('livedj-mode-dj-button')));
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 400));
+    final Finder badge = find.byKey(const Key('dj-fx-badge'));
+    expect(badge, findsOneWidget);
     expect(find.text('FX · PHRASE 8 + HIGHPASS SWEEP · AUTO'), findsOneWidget);
     await t.tap(badge);
     await t.pump();

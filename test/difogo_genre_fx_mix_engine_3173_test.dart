@@ -12,6 +12,7 @@ import 'package:difogo/providers/livedj_provider.dart';
 import 'package:difogo/providers/mix_formula.dart';
 import 'package:difogo/providers/session_provider.dart';
 import 'package:difogo/providers/vibe_hub_provider.dart';
+import 'package:difogo/ui/workspaces/livedj_dj_sheet.dart';
 import 'package:difogo/ui/workspaces/livedj_spotify_panel.dart';
 
 // 3.1.73: Phrase 8 sin secuencial ni segundo reorden, ventanas largas
@@ -69,8 +70,6 @@ void main() {
       offAirNextIndex(
         paths: shuffled,
         currentPath: 'x.mp3',
-        stealth: false,
-        bpmOf: (String _) => 120,
       ),
       0,
     );
@@ -262,7 +261,7 @@ void main() {
     expect(fxBlock.contains('setRate'), isFalse);
   });
 
-  testWidgets('3173 badge FX en AutomixDj (Spotify Pro)', (
+  testWidgets('3173 badge FX en AutomixDj (hoja Modo DJ, 3.1.84)', (
     WidgetTester t,
   ) async {
     t.view.physicalSize = const Size(1400, 900);
@@ -306,12 +305,12 @@ void main() {
       UncontrolledProviderScope(
         container: c,
         child: const MaterialApp(
-          home: Scaffold(body: LiveDjSpotifyPanel(compact: false)),
+          home: Scaffold(body: LiveDjModeDjPanel()),
         ),
       ),
     );
     await t.pump();
-    final Finder badge = find.byKey(const Key('spotify-fx-badge'));
+    final Finder badge = find.byKey(const Key('dj-fx-badge'));
     expect(badge, findsOneWidget);
     expect(find.text('FX · PHRASE 8 + HIGHPASS SWEEP · AUTO'), findsOneWidget);
     await t.tap(badge);
@@ -323,7 +322,7 @@ void main() {
     );
     // Elegir a mano el tipo de mezcla fija la curva.
     c.read(mixFormulaLockedProvider.notifier).state = false;
-    await t.tap(find.byKey(const Key('spotify-mix-chip')));
+    await t.tap(find.byKey(const Key('dj-mix-type')));
     await t.pump();
     expect(c.read(mixFormulaLockedProvider), isTrue);
     expect(c.read(mixFormulaProvider), MixFormula.phraseGrid);

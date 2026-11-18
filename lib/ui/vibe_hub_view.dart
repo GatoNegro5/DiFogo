@@ -137,18 +137,15 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                     ),
                   ),
                 ),
+                // 3.1.84: "Nuevas" como chip compacto en la cabecera.
+                const CuratorInboxButton(),
+                const SizedBox(width: 4),
                 // 3.1.62: columna de escritorio: conmutador aqui, porque el
                 // Cartridge se oculta mientras la cola esta vacia.
                 if (widget.onPlayed == null)
                   const LiveDjViewToggleButton(mobile: false),
               ],
             ),
-          ),
-          // 3.1.68: boton protagonista "Acepta Nueva Musica" arriba de las
-          // estaciones (escritorio y hoja movil).
-          const Padding(
-            padding: EdgeInsets.fromLTRB(8, 0, 8, 8),
-            child: CuratorInboxButton(),
           ),
           const Divider(height: 1, color: Colors.white10),
           Expanded(
@@ -659,7 +656,8 @@ class StationMasterCheck extends StatelessWidget {
 }
 
 /// 3.1.72: nuevo nombre de "PRENDE MODO RADIO".
-const String kRadioDiscoveryLabel = '🔥 RADIO DESCUBRIMIENTO (AUTO-NUEVAS)';
+/// 3.1.84 Consumer Clean Mode: chip compacto en la cabecera de la cola.
+const String kRadioDiscoveryLabel = '🔥 Radio';
 
 String radioDiscoveryTooltip(bool on) => on
     ? 'RADIO DESCUBRIMIENTO ENCENDIDA: la estación que suena intercala '
@@ -669,7 +667,7 @@ String radioDiscoveryTooltip(bool on) => on
     : 'RADIO DESCUBRIMIENTO APAGADA: solo suena tu biblioteca local. Toca '
           'para que la estación intercale canciones nuevas del curador.';
 
-/// 3.1.72: boton 🔥 RADIO DESCUBRIMIENTO (AUTO-NUEVAS) de AutomixDj.
+/// 3.1.72: boton Radio Descubrimiento de AutomixDj (3.1.84: chip `🔥 Radio`).
 class RadioDiscoveryButton extends ConsumerWidget {
   const RadioDiscoveryButton({super.key, required this.compact});
 
@@ -688,17 +686,17 @@ class RadioDiscoveryButton extends ConsumerWidget {
         onTap: () => ref.read(vibeHubProvider.notifier).toggleDiscovery(),
         child: Container(
           padding: EdgeInsets.symmetric(
-            horizontal: compact ? 6 : 10,
-            vertical: compact ? 2 : 4,
+            horizontal: compact ? 8 : 10,
+            vertical: compact ? 3 : 4,
           ),
           decoration: BoxDecoration(
             color: color.withValues(alpha: on ? 0.14 : 0.05),
             border: Border.all(color: color),
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(12),
           ),
           // Telefono: se achica en vez de desbordar la cabecera.
           child: ConstrainedBox(
-            constraints: BoxConstraints(maxWidth: compact ? 170 : 260),
+            constraints: BoxConstraints(maxWidth: compact ? 90 : 120),
             child: FittedBox(
               fit: BoxFit.scaleDown,
               child: Text(
@@ -706,7 +704,7 @@ class RadioDiscoveryButton extends ConsumerWidget {
                 style: TextStyle(
                   color: on ? color : Colors.white54,
                   fontWeight: FontWeight.bold,
-                  fontSize: 10,
+                  fontSize: 11,
                 ),
                 maxLines: 1,
               ),

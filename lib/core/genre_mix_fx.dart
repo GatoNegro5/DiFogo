@@ -269,3 +269,23 @@ GenreMixPlan genrePlanForPaths({
     locked: locked,
   );
 }
+
+/// 3.1.84: minimo de juego que debe quedar antes del punto de mezcla que
+/// recalcula el selector AUTO al terminar un cruce. Sin esto el punto podia
+/// quedar 1,5 s por delante y disparar un segundo cruce a los 10-15 s.
+const int kAutoCurveMinLeadMs = 30000;
+
+/// 3.1.84: punto de mezcla tras el recalculo AUTO de la curva. Solo se
+/// acepta [recalculatedMs] si deja al menos [kAutoCurveMinLeadMs] de juego;
+/// si no, se conserva [currentMixOutMs] (el que fijo el cruce).
+int autoCurveMixOutMs({
+  required int recalculatedMs,
+  required int positionMs,
+  required int currentMixOutMs,
+}) {
+  if (recalculatedMs > 10000 &&
+      recalculatedMs >= positionMs + kAutoCurveMinLeadMs) {
+    return recalculatedMs;
+  }
+  return currentMixOutMs;
+}

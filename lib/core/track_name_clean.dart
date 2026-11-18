@@ -255,3 +255,23 @@ String formatTrackTitle(String path, {double bpm = 0}) {
   if (sep <= 0) return '$name $tag';
   return '${name.substring(0, sep)} $tag${name.substring(sep)}';
 }
+
+/// 3.1.84 Consumer Clean Mode: `Artista - Titulo` sin extension, sin `_K`
+/// y sin la etiqueta de BPM (`(91 BPM)`), para la pantalla principal.
+String cleanTrackTitle(String path) {
+  String name = path.replaceAll('\\', '/');
+  final int slash = name.lastIndexOf('/');
+  if (slash >= 0) name = name.substring(slash + 1);
+  final String raw = name;
+  name = name.replaceFirst(_displayExt, '');
+  name = name.replaceFirst(_displayKaraoke, '');
+  final RegExpMatch? m = _displayBpm.firstMatch(name);
+  if (m != null) name = name.substring(0, m.start) + name.substring(m.end);
+  name = name.replaceAll(RegExp(r'\s{2,}'), ' ').trim();
+  return name.isEmpty ? raw : name;
+}
+
+/// 3.1.84: quita la etiqueta ` (91 BPM)` de un texto ya armado (portada y
+/// cola de la vista de carpeta).
+String stripBpmTag(String text) =>
+    text.replaceAll(_displayBpm, '').replaceAll(RegExp(r'\s{2,}'), ' ').trim();

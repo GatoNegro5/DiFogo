@@ -21,8 +21,9 @@ const Color _curBg = Color(0xFF121212);
 const Color _curCard = Color(0xFF1C1C1C);
 
 /// Texto del boton protagonista (con el conteo de pendientes si hay).
+// 3.1.84 Consumer Clean Mode: badge compacto junto a "+ Agregar".
 String acceptNewMusicLabel(int pending) =>
-    pending > 0 ? '✨ Acepta Nueva Música ($pending)' : '✨ Acepta Nueva Música';
+    pending > 0 ? '✨ Nuevas ($pending)' : '✨ Nuevas';
 
 Future<void> showCuratorInbox(BuildContext context) => showDialog<void>(
   context: context,
@@ -48,8 +49,8 @@ class CuratorInboxButton extends ConsumerWidget {
           backgroundColor: _curFire.withValues(alpha: n > 0 ? 0.22 : 0.10),
           side: BorderSide(color: _curFire, width: n > 0 ? 2 : 1.2),
           shape: const StadiumBorder(),
-          minimumSize: const Size(0, 36),
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          minimumSize: const Size(0, 26),
+          padding: const EdgeInsets.symmetric(horizontal: 8),
           visualDensity: VisualDensity.compact,
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
@@ -58,7 +59,7 @@ class CuratorInboxButton extends ConsumerWidget {
           child: Text(
             acceptNewMusicLabel(n),
             maxLines: 1,
-            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
+            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
           ),
         ),
       ),

@@ -11,18 +11,16 @@ import '../../providers/theme_provider.dart';
 import '../../providers/directory_provider.dart';
 import '../../providers/livedj_provider.dart';
 import 'livedj_sort_button.dart';
-import '../../providers/mix_formula.dart';
 import 'automix_workspace.dart';
 import '../mobile/music_picker_screen.dart';
 import 'livedj_bpm_badge.dart';
+import 'livedj_dj_sheet.dart';
 import 'livedj_artist_card.dart';
 import 'livedj_folder_playlist.dart';
 import 'livedj_mix_marker.dart';
 import 'livedj_spotify_panel.dart';
 import '../../core/audio/cue_preview.dart';
-import '../../core/genre_mix_fx.dart' show mixFormulaLockedProvider;
 import '../../core/livedj_next.dart';
-import '../../core/queue_bpm.dart';
 import '../../core/track_name_clean.dart';
 import '../curator_inbox_dialog.dart';
 import '../vibe_hub_view.dart';
@@ -55,6 +53,12 @@ class LiveDjWorkspace extends ConsumerWidget {
         body: Stack(
           children: [
             const Positioned.fill(child: LiveDjFolderPlaylist()),
+            // 3.1.84: el mismo boton Modo DJ en la vista del disco.
+            const Positioned(
+              top: 10,
+              right: 98,
+              child: LiveDjModeDjButton(compact: true),
+            ),
             Positioned(
               top: 8,
               right: 56,
@@ -368,17 +372,12 @@ class LiveDjPlayerPanel extends ConsumerStatefulWidget {
 
 class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
   double? _dragPosition;
-  final LiveDjNextLabel _nextLabel = LiveDjNextLabel();
 
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(liveDjProvider);
-    final bpmCache = ref.watch(liveDjBpmCacheProvider);
     final pos = state.position;
     final dur = state.duration;
-    final String? currentFull =
-        state.currentTrackPath ??
-        (state.queue.isNotEmpty ? state.queue.first.path : null);
     final currentName =
         (state.currentTrackPath ??
                 (state.queue.isNotEmpty ? state.queue.first.path : null))
@@ -389,34 +388,10 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
     final isPlayingNow = state.isPlaying;
     final canToggle = state.currentTrackPath != null || state.queue.isNotEmpty;
 
-    final isMixBypass = state.currentMixMode == LiveDjMixMode.longBypass;
-    final mixFormula = ref.watch(mixFormulaProvider);
     // 3.1.70: Modo Spotify por defecto (las pruebas con compactOverride
     // siguen viendo la consola clasica).
     final bool spotify =
         widget.compactOverride == null && ref.watch(liveDjSpotifyModeProvider);
-    final String? nextName = _nextLabel.text(
-      radioOn: state.radioOn,
-      radioNextPath: state.radioNextPath,
-      queuePaths: <String>[for (final File f in state.queue) f.path],
-      currentPath: state.currentTrackPath,
-      stealth: mixFormula == MixFormula.stealthGap,
-      bpmOf: knownBpm,
-    );
-    final engineModeStr = isMixBypass
-        ? "BYPASS (MEZCLA PROTEGIDA)"
-        : (mixFormula == MixFormula.stealthGap
-              ? "STEALTH 60% (SIN VOZ)"
-              : (mixFormula == MixFormula.phraseGrid
-                    ? "PHRASE 8 (GRID 4/4)"
-                    : "ACTIVE BEATMATCHING (DNA DJ 60-80%)"));
-    final engineModeColor = isMixBypass
-        ? GatoMixTheme.cyanAccent
-        : (mixFormula == MixFormula.stealthGap
-              ? GatoMixTheme.deckB
-              : (mixFormula == MixFormula.phraseGrid
-                    ? GatoMixTheme.deckA
-                    : GatoMixTheme.syncActive));
 
     final isShuffle = state.mixStrategy == LiveDjMixStrategy.random;
     final compact = widget.compactOverride ?? liveDjIsMobile();
@@ -427,8 +402,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
     final timeSize = compact ? 14.0 : 18.0;
 
     final bool radioOn = state.radioOn;
-    // 3.1.72: "PRENDE MODO RADIO" ahora es la Radio Descubrimiento.
-    final Widget onAirBadge = RadioDiscoveryButton(compact: compact);
+    // 3.1.84: la Radio Descubrimiento va como chip en la cabecera de la cola.
 
     // Controlador de GÉNERO: visible solo con la Radio encendida.
     // Ningún chip marcado = Todo.
@@ -504,18 +478,6 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
           )
         : const SizedBox.shrink();
 
-    final studioTitle = Text(
-      "STUDIO 1 - LIVEDJ ENGINE",
-      style: TextStyle(
-        color: Colors.white54,
-        fontWeight: FontWeight.bold,
-        fontSize: compact ? 10 : 12,
-      ),
-      maxLines: 1,
-      overflow: TextOverflow.ellipsis,
-      textAlign: TextAlign.right,
-    );
-
     final nowPlayingBody = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -535,13 +497,10 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                     ),
                   ),
                   SizedBox(height: compact ? 2 : 5),
+                  // 3.1.84: titulo limpio (sin .mp3 ni BPM; el BPM esta en
+                  // la hoja Modo DJ).
                   HoverMarqueeText(
-                    formatTrackTitle(
-                      currentName,
-                      bpm: currentFull == null
-                          ? 0
-                          : displayBpmFor(currentFull, bpmCache),
-                    ),
+                    cleanTrackTitle(currentName),
                     style: TextStyle(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -551,12 +510,6 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                 ],
               ),
             ),
-            LiveDjBpmChip(
-              path:
-                  state.currentTrackPath ??
-                  (state.queue.isNotEmpty ? state.queue.first.path : null),
-              fontSize: compact ? 10 : 12,
-            ),
             Flexible(
               child: LiveDjArtistCard(
                 path:
@@ -565,12 +518,6 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                 compact: compact,
               ),
             ),
-            if (compact) ...[
-              const SizedBox(width: 8),
-              onAirBadge,
-              const SizedBox(width: 8),
-              Flexible(child: studioTitle),
-            ],
             if (!compact) ...[
               const SizedBox(width: 6),
               if (!compact)
@@ -925,10 +872,6 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
       ],
     );
 
-    final Widget? nextStrip = nextName == null
-        ? null
-        : _NextTrackStrip(label: nextName, compact: compact);
-
     final songCard = Container(
       margin: EdgeInsets.all(compact ? 6 : 15),
       padding: EdgeInsets.all(compact ? 8 : 15),
@@ -940,6 +883,8 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
       child: nowPlayingBody,
     );
 
+    // 3.1.84: el selector "TIPO DE MEZCLA" paso a la hoja Modo DJ; aqui
+    // solo queda el buscador de la cola.
     final routingBar = Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 8 : 15,
@@ -948,69 +893,6 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
       color: GatoMixTheme.bgDark,
       child: Row(
         children: [
-          Icon(Icons.memory, color: engineModeColor, size: 16),
-          const SizedBox(width: 8),
-          const Flexible(
-            child: Text(
-              "TIPO DE MEZCLA:",
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-              ),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            flex: 3,
-            child: GestureDetector(
-              onTap: isMixBypass
-                  ? null
-                  : () {
-                      final cur = ref.read(mixFormulaProvider);
-                      // 3.1.73: elegir a mano fija la curva.
-                      ref.read(mixFormulaLockedProvider.notifier).state = true;
-                      ref
-                          .read(mixFormulaProvider.notifier)
-                          .state = cur == MixFormula.dnaEnergy
-                          ? MixFormula.phraseGrid
-                          : (cur == MixFormula.phraseGrid
-                                ? MixFormula.stealthGap
-                                : MixFormula.dnaEnergy);
-                    },
-              child: Tooltip(
-                message:
-                    '1 DNA 60-80%  ·  2 Phrase 8  ·  3 Stealth sin voz. Toca para cambiar.',
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: GatoMixTheme.bgDark,
-                    border: Border.all(
-                      color: engineModeColor.withValues(alpha: 0.5),
-                    ),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                  child: Text(
-                    engineModeStr,
-                    style: TextStyle(
-                      color: engineModeColor,
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
           Expanded(
             flex: 2,
             child: SizedBox(
@@ -1091,6 +973,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                     ),
                   ),
                 ),
+                const LiveDjModeDjButton(compact: true),
                 const LiveDjSpotifyToggle(),
                 Expanded(child: routingBar),
               ],
@@ -1105,17 +988,23 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
             ),
             child: Row(
               children: [
-                onAirBadge,
-                const SizedBox(width: 15),
-                Expanded(child: studioTitle),
-                // 3.1.74: el mismo badge FX de Spotify Pro en la consola
-                // clasica (estado compartido AUTO/FIJO).
-                if (!spotify) ...<Widget>[
-                  const Flexible(
-                    child: MixFxBadge(badgeKey: Key('classic-fx-badge')),
+                // 3.1.84 Consumer Clean Mode: titulo y un solo boton Modo DJ
+                // (tipo de mezcla, FX AUTO/FIJO y BPM en la hoja).
+                const Expanded(
+                  child: Text(
+                    'AutomixDj',
+                    key: Key('livedj-clean-title'),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
                   ),
-                  const SizedBox(width: 10),
-                ],
+                ),
+                const LiveDjModeDjButton(),
+                const SizedBox(width: 6),
                 const LiveDjSpotifyToggle(),
               ],
             ),
@@ -1184,46 +1073,10 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                 )
               : SingleChildScrollView(child: songCard),
         ),
-        ?nextStrip,
+        // 3.1.84: sin franja con el nombre de archivo de la siguiente (la
+        // cola ya la muestra en primer lugar).
         if (!compact) routingBar,
       ],
-    );
-  }
-}
-
-/// Franja de la pista que sigue. Va fuera del bloque que se recorta,
-/// pegada encima de la barra de mezcla, con alto propio.
-class _NextTrackStrip extends StatelessWidget {
-  final String label;
-  final bool compact;
-
-  const _NextTrackStrip({required this.label, required this.compact});
-
-  @override
-  Widget build(BuildContext context) {
-    final double size = compact ? 12 : 13;
-    final TextStyle style = TextStyle(
-      color: const Color(0xFF00FFFF),
-      fontFamily: 'Consolas',
-      fontSize: size,
-      height: 1.25,
-    );
-    return Tooltip(
-      message: label,
-      child: ColoredBox(
-        key: const Key('live-dj-next-strip'),
-        color: const Color(0xFF00FFFF).withValues(alpha: 0.14),
-        child: SizedBox(
-          width: double.infinity,
-          child: Padding(
-            padding: EdgeInsets.symmetric(
-              horizontal: compact ? 10 : 14,
-              vertical: compact ? 6 : 7,
-            ),
-            child: NextTrackLine(label: label, style: style),
-          ),
-        ),
-      ),
     );
   }
 }
@@ -1419,7 +1272,6 @@ class LiveDjCartridgePanel extends ConsumerWidget {
       liveDjProvider.select((s) => s.radioUpcoming),
     );
     final queue = ref.watch(liveDjProvider.select((s) => s.queue));
-    final bpmCache = ref.watch(liveDjBpmCacheProvider);
     final List<String> shown = liveDjSidePaths(
       radioOn: radioOn,
       queuePaths: <String>[for (final File f in queue) f.path],
@@ -1457,10 +1309,13 @@ class LiveDjCartridgePanel extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  // 3.1.25: "+ Agregar canciones" de 48 px dentro de la fila.
-                  if (liveDjIsMobile()) ...<Widget>[
+              // 3.1.84: telefono: "+ Agregar" con los chips compactos
+              // Radio y Nuevas en su propia fila (antes boton largo y barra
+              // de ancho completo); asi el titulo de la cola no se recorta.
+              if (liveDjIsMobile()) ...<Widget>[
+                Row(
+                  children: [
+                    // 3.1.25: "+ Agregar canciones" de 48 px dentro de la fila.
                     // Flexible: en anchos chicos se recorta con elipsis.
                     Flexible(
                       child: MusicPickerAddButton(
@@ -1473,7 +1328,23 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                         },
                       ),
                     ),
+                    const SizedBox(width: 6),
+                    const RadioDiscoveryButton(compact: true),
                     const SizedBox(width: 4),
+                    const CuratorInboxButton(),
+                  ],
+                ),
+                const SizedBox(height: 4),
+              ],
+              Row(
+                children: [
+                  if (!liveDjIsMobile()) ...<Widget>[
+                    const RadioDiscoveryButton(compact: true),
+                    const SizedBox(width: 4),
+                    if (ref.watch(liveDjClassicFolderViewProvider)) ...<Widget>[
+                      const CuratorInboxButton(),
+                      const SizedBox(width: 4),
+                    ],
                   ],
                   const Icon(
                     Icons.queue_music_rounded,
@@ -1483,7 +1354,9 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      "COLA DE REPRODUCCIÓN (${shown.length})",
+                      liveDjIsMobile()
+                          ? "COLA (${shown.length})"
+                          : "COLA DE REPRODUCCIÓN (${shown.length})",
                       style: const TextStyle(
                         color: Colors.pinkAccent,
                         fontWeight: FontWeight.bold,
@@ -1553,14 +1426,6 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                   ),
                 ],
               ),
-              // 3.1.68: "Acepta Nueva Musica" en la barra de Live DJ (movil y
-              // modo clasico); en escritorio con estaciones va en el Hub.
-              if (liveDjIsMobile() ||
-                  ref.watch(liveDjClassicFolderViewProvider))
-                const Padding(
-                  padding: EdgeInsets.only(top: 4),
-                  child: CuratorInboxButton(),
-                ),
             ],
           ),
         ),
@@ -1613,11 +1478,9 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                             LiveDjBpmBadge(path: file.path),
                           ],
                         ),
+                        // 3.1.84: cola limpia, sin .mp3 ni BPM en el titulo.
                         title: HoverMarqueeText(
-                          formatTrackTitle(
-                            path,
-                            bpm: displayBpmFor(path, bpmCache),
-                          ),
+                          cleanTrackTitle(path),
                           style: const TextStyle(
                             color: Colors.white70,
                             fontSize: 12,

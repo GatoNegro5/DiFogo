@@ -1,8 +1,6 @@
 import 'dart:math';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../core/audio_path.dart';
-
 /// DNA 60–80 % · Phrase 8 · Stealth (entra 5–10 %, cruza ~60 % sin voz).
 /// Prohibido: fade suelto, corte seco, cambio al final de la pista.
 enum MixFormula { dnaEnergy, phraseGrid, stealthGap }
@@ -199,33 +197,6 @@ double matchBpmRate(double fadingBpm, double incomingBpm) {
   final double ratio = fadingBpm / incomingBpm;
   if (ratio >= 0.88 && ratio <= 1.12) return ratio;
   return 1.0;
-}
-
-/// Siguiente de la cola por BPM más cercano. No baraja ni sigue el orden.
-/// [remaining] = pistas aún no sonadas. -1 si no hay candidata.
-int pickStealthNextIndex({
-  required List<String> remaining,
-  required String? currentPath,
-  required double Function(String path) bpmOf,
-}) {
-  if (remaining.isEmpty) return -1;
-  final double currentBpm = currentPath == null ? 0.0 : bpmOf(currentPath);
-  int best = -1;
-  double bestDiff = double.infinity;
-  for (int i = 0; i < remaining.length; i++) {
-    if (currentPath != null && sameAudioPath(remaining[i], currentPath)) {
-      continue;
-    }
-    final double b = bpmOf(remaining[i]);
-    final double diff = (currentBpm >= 60 && b >= 60)
-        ? (currentBpm - b).abs()
-        : 10000 + i.toDouble();
-    if (diff < bestDiff) {
-      bestDiff = diff;
-      best = i;
-    }
-  }
-  return best;
 }
 
 /// 3.1.32 (Automix): lleva la entrada al golpe de la rejilla de la entrante
