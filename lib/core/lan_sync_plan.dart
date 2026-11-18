@@ -122,11 +122,15 @@ String lanBpmQuery(double bpm) {
 }
 
 /// 3.1.36: carpetas auxiliares que nunca son DESTINO (ni sus subcarpetas):
-/// Descargas, DjPlaylists, GatoMix_LAB y el LAB de la marca anterior.
+/// Descargas, DjPlaylists, DiFogo_LAB / GatoMix_LAB (3.1.75), DiFogo_Inbox /
+/// GatoMix_Inbox y el LAB de la marca anterior.
 const Set<String> lanHiddenDestFolders = <String>{
   'descargas',
   'djplaylists',
+  'difogo_lab',
   'gatomix_lab',
+  'difogo_inbox',
+  'gatomix_inbox',
   'dj'
       'studio_lab',
 };

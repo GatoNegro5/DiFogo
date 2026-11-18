@@ -6,19 +6,31 @@ import 'dart:io';
 /// La biblioteca (la carpeta de Musica del usuario, con ReGenial adentro) es
 /// solo lectura para la app: ningun tag ID3, `.gatomix.json`, `.gatomix.log`
 /// ni `LiveDj_Radio.json` se escribe dentro. Esos datos viven en un espejo
-/// local (`%LOCALAPPDATA%\GatoMix\folder_cache\<hash>.gatomix.json` en
-/// Windows) con una clave
+/// local (`%LOCALAPPDATA%\DiFogo\folder_cache\<hash>.difogo.json` en
+/// Windows desde 3.1.75; antes `GatoMix\...\<hash>.gatomix.json`, que se
+/// sigue leyendo en cascada) con una clave
 /// estable por carpeta. Se siguen LEYENDO los `.gatomix.json` viejos de cada
 /// carpeta, sin borrarlos ni reescribirlos.
 ///
 /// Quedan fuera del blindaje las carpetas propias de la app dentro de
-/// Musica: DjPlaylists (sesiones), GatoMix_LAB y GatoMix_Inbox.
+/// Musica: DjPlaylists (sesiones), DiFogo_LAB / GatoMix_LAB y DiFogo_Inbox /
+/// GatoMix_Inbox (3.1.75: nombres nuevos y heredados).
 
 /// Solo pruebas: raices de biblioteca falsas (p. ej. en %TEMP%).
 List<String>? debugLibraryRoots;
 
 /// Solo pruebas: carpeta del espejo local.
 String? debugLibraryCacheRoot;
+
+/// Solo pruebas: carpeta del espejo de la marca anterior (GatoMix). Con
+/// [debugLibraryCacheRoot] puesto y esta en null no hay paso 3 de la
+/// cascada (las pruebas nunca leen el %LOCALAPPDATA% real).
+String? debugLegacyLibraryCacheRoot;
+
+/// 3.1.75: sufijo del documento por carpeta en el espejo (nuevo y heredado).
+const String kMirrorStoreSuffix = '.difogo.json';
+const String kOldMirrorStoreSuffix = '.gatomix.json';
+const String kMirrorLogSuffix = '.difogo.log';
 
 /// Escrituras bloqueadas en este proceso (diagnostico y pruebas).
 int libraryGuardBlocked = 0;
@@ -28,8 +40,10 @@ final List<String> libraryGuardLog = <String>[];
 
 const Set<String> _appFolders = <String>{
   'djplaylists',
+  'difogo_lab',
   'gatomix_lab',
   'djstudio_lab',
+  'difogo_inbox',
   'gatomix_inbox',
   // Salida propia del descargador de YouTube (Musica\Descargas).
   'descargas',
@@ -102,6 +116,28 @@ String libraryCacheRoot() {
     final String base =
         Platform.environment['LOCALAPPDATA'] ??
         '${Platform.environment['USERPROFILE'] ?? 'C:'}\\AppData\\Local';
+    return '$base${sep}DiFogo${sep}folder_cache';
+  }
+  final String? home = Platform.environment['HOME'];
+  if (home != null && !Platform.isAndroid) {
+    return '$home$sep.difogo${sep}folder_cache';
+  }
+  return '${Directory.systemTemp.path}${sep}DiFogo${sep}folder_cache';
+}
+
+/// 3.1.75: espejo de la marca anterior (`%LOCALAPPDATA%\GatoMix\
+/// folder_cache`, `~/.gatomix/folder_cache`, temp `GatoMix`). Solo se lee,
+/// por si el rename de arranque no pudo hacerse. null en pruebas sin
+/// [debugLegacyLibraryCacheRoot].
+String? legacyLibraryCacheRoot() {
+  final String? o = debugLegacyLibraryCacheRoot;
+  if (o != null) return o;
+  if (debugLibraryCacheRoot != null) return null;
+  final String sep = Platform.pathSeparator;
+  if (Platform.isWindows) {
+    final String base =
+        Platform.environment['LOCALAPPDATA'] ??
+        '${Platform.environment['USERPROFILE'] ?? 'C:'}\\AppData\\Local';
     return '$base${sep}GatoMix${sep}folder_cache';
   }
   final String? home = Platform.environment['HOME'];
@@ -109,6 +145,27 @@ String libraryCacheRoot() {
     return '$home$sep.gatomix${sep}folder_cache';
   }
   return '${Directory.systemTemp.path}${sep}GatoMix${sep}folder_cache';
+}
+
+/// 3.1.75: archivo espejo a LEER de [dir] en cascada, sin crear carpetas:
+/// por cada raiz (nueva y luego la de GatoMix) prueba cada sufijo en orden
+/// (p. ej. `.difogo.json` y luego `.gatomix.json`). null si no hay ninguno.
+File? libraryMirrorRead(String dir, List<String> suffixes) {
+  final String key = libraryMirrorKey(dir);
+  final String sep = Platform.pathSeparator;
+  for (final String? root in <String?>[
+    libraryCacheRoot(),
+    legacyLibraryCacheRoot(),
+  ]) {
+    if (root == null) continue;
+    for (final String suffix in suffixes) {
+      final File f = File('$root$sep$key$suffix');
+      try {
+        if (f.existsSync()) return f;
+      } catch (_) {}
+    }
+  }
+  return null;
 }
 
 /// Clave estable (FNV-1a 64) de una carpeta: igual en cada arranque.
@@ -148,11 +205,21 @@ File libraryLrcMirror(String audioPath) {
   );
 }
 
-/// Letra a LEER: el espejo si existe, si no la `.lrc` junto al audio.
+/// Letra a LEER: el espejo si existe (3.1.75: tambien el de GatoMix), si
+/// no la `.lrc` junto al audio.
 File lrcReadFile(String audioPath, String lrcPath) {
   if (!isLibraryPath(audioPath)) return File(lrcPath);
   final File m = libraryLrcMirror(audioPath);
-  return m.existsSync() ? m : File(lrcPath);
+  if (m.existsSync()) return m;
+  final String? old = legacyLibraryCacheRoot();
+  if (old != null) {
+    final String root = libraryCacheRoot();
+    final File o = File(old + m.path.substring(root.length));
+    try {
+      if (o.existsSync()) return o;
+    } catch (_) {}
+  }
+  return File(lrcPath);
 }
 
 /// Letra a ESCRIBIR: en la biblioteca, el espejo (nunca junto al audio).

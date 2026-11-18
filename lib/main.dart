@@ -19,6 +19,7 @@ import 'providers/livedj_provider.dart';
 import 'providers/pipeline_provider.dart';
 
 import 'core/audio/dj_audio_handler.dart';
+import 'core/brand_paths.dart' show migrateBrandCache;
 import 'core/hal/platform_strategy.dart';
 
 // 🛠️ FIX: Rutas actualizadas a la nueva Clean Architecture
@@ -84,6 +85,9 @@ Future<void> main([List<String> args = const []]) async {
   // 🛠️ REGLA: Cero Deducciones. Atrapamos cualquier colapso pre-runApp.
   try {
     WidgetsFlutterBinding.ensureInitialized();
+
+    // 3.1.75: datos de GatoMix -> DiFogo (un rename sincrono; nunca lanza).
+    migrateBrandCache();
 
     // 🛠️ INYECCIÓN OS: Levantar el servicio nativo de Audio (Lockscreen/Background)
     // Debe arrancar antes de cualquier otra lógica pesada o permisos.

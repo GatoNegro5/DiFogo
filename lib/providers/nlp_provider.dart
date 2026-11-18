@@ -20,10 +20,7 @@ import '../core/vocal_bounds.dart';
 import '../services/id3_title_artist.dart';
 import 'db_provider.dart'; // 🛠️ Requerido para inyectar Cues a la BD
 
-bool _enCarpetaOriginal(String path) {
-  final String p = path.replaceAll('\\', '/').toLowerCase();
-  return p.contains('/.gatomix_original/') || p.endsWith('/.gatomix_original');
-}
+bool _enCarpetaOriginal(String path) => pathInOriginalDir(path);
 
 final nlpWorkerProvider = Provider((ref) => NlpWorker(ref));
 

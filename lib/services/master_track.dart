@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
 
+import '../core/brand_paths.dart';
 import '../core/exact_mix.dart';
 import '../core/gatomix_store.dart';
 import '../core/library_guard.dart';
@@ -329,7 +330,8 @@ class MasterTrack {
     );
   }
 
-  /// Respalda una vez en `.gatomix_original/` y reescribe solo el TLEN.
+  /// Respalda una vez en `.difogo_original/` (3.1.75; un respaldo previo en
+  /// `.gatomix_original/` cuenta) y reescribe solo el TLEN.
   static Future<TlenReport> rewriteDurationTag(String path) async {
     if (libraryWriteBlocked(path, what: 'TLEN')) {
       return const TlenReport(
@@ -497,16 +499,21 @@ class MasterTrack {
     await f.writeAsString(text);
   }
 
+  /// 3.1.75: respaldos en `.difogo_original` y en el heredado
+  /// `.gatomix_original` (si una pista esta en los dos, gana el nuevo).
   static Future<List<File>> backupsIn(String folder) async {
-    final Directory dir = Directory(
-      '$folder${Platform.pathSeparator}.gatomix_original',
-    );
-    if (!dir.existsSync()) return const [];
-    return dir
-        .listSync()
-        .whereType<File>()
-        .where((File f) => f.path.toLowerCase().endsWith('.mp3'))
-        .toList();
+    final List<File> out = <File>[];
+    final Set<String> seen = <String>{};
+    for (final String n in <String>[kOriginalDirName, kOldOriginalDirName]) {
+      final Directory dir = Directory('$folder${Platform.pathSeparator}$n');
+      if (!dir.existsSync()) continue;
+      for (final File f in dir.listSync().whereType<File>()) {
+        final String name = f.uri.pathSegments.last.toLowerCase();
+        if (!name.endsWith('.mp3') || !seen.add(name)) continue;
+        out.add(f);
+      }
+    }
+    return out;
   }
 
   /// Devuelve el audio original y deshace el desplazamiento de letra y cues.
@@ -514,12 +521,11 @@ class MasterTrack {
     if (libraryWriteBlocked(mp3Path, what: 'Restore')) {
       throw Exception('Biblioteca de solo lectura: no se restaura en ella');
     }
-    final File live = File(mp3Path);
-    final File backup = File(
-      '${live.parent.path}${Platform.pathSeparator}.gatomix_original${Platform.pathSeparator}${live.uri.pathSegments.last}',
-    );
-    if (!backup.existsSync()) {
-      throw Exception('No hay original en .gatomix_original/');
+    final File? backup = originalBackupOf(mp3Path);
+    if (backup == null) {
+      throw Exception(
+        'No hay original en .difogo_original/ ni .gatomix_original/',
+      );
     }
     final marks = await rust_dsp.readGmxMarks(inputPath: mp3Path);
     final int trim = marks.trimMs < 0 ? 0 : marks.trimMs;
@@ -590,9 +596,9 @@ class MasterTrack {
   static Future<void> _ensureBackup(String path) async {
     final File src = File(path);
     if (!src.existsSync()) return;
-    final Directory dir = Directory(
-      '${src.parent.path}${Platform.pathSeparator}.gatomix_original',
-    );
+    // 3.1.75: un respaldo ya hecho (nuevo o heredado) no se duplica.
+    if (originalBackupOf(path) != null) return;
+    final Directory dir = Directory(originalDirIn(src.parent.path));
     if (!dir.existsSync()) dir.createSync(recursive: true);
     final File dest = File(
       '${dir.path}${Platform.pathSeparator}${src.uri.pathSegments.last}',

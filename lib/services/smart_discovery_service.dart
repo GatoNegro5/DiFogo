@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
+import '../core/brand_paths.dart';
 import '../core/net/safe_download.dart';
 import '../core/pipeline_controller.dart' show ytDlpAbrDownloadArgs;
 import '../core/track_name_clean.dart' show ytTitleToStem;
@@ -31,20 +32,24 @@ const int kDiscoveryMaxPending = 6;
 const Duration kDiscoveryMinDuration = Duration(minutes: 2);
 const Duration kDiscoveryMaxDuration = Duration(minutes: 8);
 
+/// 3.1.75: bandeja `DiFogo_Inbox`; una `GatoMix_Inbox` previa se renombra
+/// (o se sigue usando si no se puede o esta en la biblioteca protegida).
 String discoveryInboxDir() {
   final String? o = debugCuratorInboxDir;
   if (o != null) return o;
-  final String sep = Platform.pathSeparator;
-  if (Platform.isAndroid) return '/storage/emulated/0/Download/GatoMix_Inbox';
-  if (Platform.isIOS) {
-    return '${Directory(IphoneLibrary.musicRoot).parent.path}${sep}GatoMix_Inbox';
-  }
+  return brandFolderPath(discoveryInboxParent(), kOldInboxName, kInboxName);
+}
+
+/// Carpeta que contiene la bandeja (Descargas del sistema).
+String discoveryInboxParent() {
+  if (Platform.isAndroid) return '/storage/emulated/0/Download';
+  if (Platform.isIOS) return Directory(IphoneLibrary.musicRoot).parent.path;
   if (Platform.isWindows) {
     final String? up = Platform.environment['USERPROFILE'];
-    return '${up ?? 'C:'}\\Downloads\\GatoMix_Inbox';
+    return '${up ?? 'C:'}\\Downloads';
   }
   final String? home = Platform.environment['HOME'];
-  return '${home ?? ''}/Downloads/GatoMix_Inbox';
+  return '${home ?? ''}/Downloads';
 }
 
 String discoveryQuery(String genre, int year) =>

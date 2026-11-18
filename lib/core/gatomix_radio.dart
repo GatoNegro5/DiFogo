@@ -983,7 +983,10 @@ class GatomixRadio {
       mem = _read(f) ?? RadioMemory.empty;
     } else if (isLibraryPath(musicRoot)) {
       // 3.1.72: semilla de solo lectura desde el archivo viejo de la raiz.
-      final File old = legacyFileIn(musicRoot);
+      // 3.1.75: antes, el espejo de GatoMix si el rename no se pudo.
+      final File old =
+          libraryMirrorRead(musicRoot, const <String>['_$gatomixRadioName']) ??
+          legacyFileIn(musicRoot);
       if (old.existsSync()) {
         final RadioMemory? got = _read(old);
         if (got != null) {

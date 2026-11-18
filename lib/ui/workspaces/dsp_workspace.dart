@@ -552,7 +552,7 @@ class DspNlpWorkspace extends ConsumerWidget {
 
       final files = dir.listSync(recursive: true).whereType<File>().where((f) {
         final lowerPath = f.path.toLowerCase().replaceAll('\\', '/');
-        if (lowerPath.contains('/.gatomix_original/')) return false;
+        if (pathInOriginalDir(lowerPath)) return false;
         return (lowerPath.endsWith('.mp3') && !lowerPath.endsWith('_k.mp3')) ||
             lowerPath.endsWith('.webm');
       }).toList();
@@ -2160,7 +2160,7 @@ class DspNlpWorkspace extends ConsumerWidget {
         final String lower = f.path.toLowerCase().replaceAll('\\', '/');
         if (!lower.endsWith('.mp3')) return false;
         if (lower.endsWith('_k.mp3')) return false;
-        if (lower.contains('/.gatomix_original/')) return false;
+        if (pathInOriginalDir(lower)) return false;
         return true;
       }).toList();
 
@@ -2317,7 +2317,7 @@ class DspNlpWorkspace extends ConsumerWidget {
         .where((File f) {
           final String lower = f.path.toLowerCase().replaceAll('\\', '/');
           if (!lower.endsWith('.mp3')) return false;
-          if (lower.contains('/.gatomix_original/')) return false;
+          if (pathInOriginalDir(lower)) return false;
           return true;
         })
         .toList();
@@ -2419,7 +2419,7 @@ class DspNlpWorkspace extends ConsumerWidget {
         .where((File f) {
           final String lower = f.path.toLowerCase().replaceAll('\\', '/');
           if (!lower.endsWith('.mp3')) return false;
-          if (lower.contains('/.gatomix_original/')) return false;
+          if (pathInOriginalDir(lower)) return false;
           return true;
         })
         .toList();
@@ -2520,7 +2520,7 @@ class DspNlpWorkspace extends ConsumerWidget {
     if (root.existsSync()) {
       for (final File f in root.listSync(recursive: true).whereType<File>()) {
         final String lower = f.path.toLowerCase().replaceAll('\\', '/');
-        if (lower.contains('/.gatomix_original/') && lower.endsWith('.mp3')) {
+        if (pathInOriginalDir(lower) && lower.endsWith('.mp3')) {
           backups.add(f);
         }
       }
@@ -2529,7 +2529,9 @@ class DspNlpWorkspace extends ConsumerWidget {
     if (backups.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('No hay originales en .gatomix_original.'),
+          content: Text(
+            'No hay originales en .difogo_original ni .gatomix_original.',
+          ),
         ),
       );
       return;

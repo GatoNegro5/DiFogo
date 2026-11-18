@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:gatomix/src/rust/api/core_dsp.dart' as rust_dsp;
 
 import '../core/bpm_range.dart';
+import '../core/brand_paths.dart' show pathInOriginalDir;
 import '../core/analysis_window.dart';
 import '../services/track_tags.dart';
 import '../core/gatomix_store.dart';
@@ -18,10 +19,8 @@ import 'db_provider.dart'; // 🛠️ FIX: Enlace al controlador de ISAR
 
 /// Respaldos de Masterizar: no se analizan ni se listan (3.1.19: tambien en
 /// el escaneo de BPM, cuyas claves podaba `pruneMissingBpmKeys` sin efecto).
-bool enCarpetaOriginal(String path) {
-  final String p = path.replaceAll('\\', '/').toLowerCase();
-  return p.contains('/.gatomix_original/') || p.endsWith('/.gatomix_original');
-}
+/// 3.1.75: `.difogo_original` y el heredado `.gatomix_original`.
+bool enCarpetaOriginal(String path) => pathInOriginalDir(path);
 
 final dspWorkerProvider = Provider((ref) => DspWorker(ref));
 

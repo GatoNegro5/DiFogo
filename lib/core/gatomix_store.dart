@@ -98,26 +98,37 @@ class GatomixStore {
   static bool holdsDocument(String dir) => _docs.containsKey(dir);
 
   /// 3.1.72: dentro de la biblioteca protegida el documento vive en el
-  /// espejo local; fuera, junto a la carpeta como siempre.
+  /// espejo local; fuera, junto a la carpeta como siempre. 3.1.75: el
+  /// espejo nuevo se escribe como `<hash>.difogo.json` en DiFogo.
   static File fileOf(String dir) => isLibraryPath(dir)
-      ? libraryMirrorFile(dir, gatomixStoreName)
+      ? libraryMirrorFile(dir, kMirrorStoreSuffix)
       : legacyFileOf(dir);
 
   /// `.gatomix.json` dentro de la carpeta (en la biblioteca: solo lectura).
   static File legacyFileOf(String dir) => File('$dir$_sep$gatomixStoreName');
 
-  /// 3.1.72: archivo a LEER: el espejo, o el `.gatomix.json` viejo de la
-  /// carpeta si el espejo aun no existe (nunca se borra ni se reescribe).
+  /// Archivo a LEER. 3.1.75, cascada en la biblioteca protegida:
+  /// 1) `<hash>.difogo.json` en DiFogo\folder_cache; 2) `<hash>.gatomix.json`
+  /// heredado en DiFogo\folder_cache; 3) `<hash>.gatomix.json` en
+  /// GatoMix\folder_cache (si el rename no se pudo); 4) `.gatomix.json`
+  /// viejo de la carpeta musical (solo lectura). Ninguno se borra ni se
+  /// reescribe: la siguiente escritura va a 1).
   static File readFileOf(String dir) {
-    final File f = fileOf(dir);
-    if (f.existsSync() || !isLibraryPath(dir)) return f;
+    if (!isLibraryPath(dir)) return legacyFileOf(dir);
+    final File? mirror = libraryMirrorRead(dir, const <String>[
+      kMirrorStoreSuffix,
+      kOldMirrorStoreSuffix,
+    ]);
+    if (mirror != null) return mirror;
     final File old = legacyFileOf(dir);
-    return old.existsSync() ? old : f;
+    return old.existsSync() ? old : fileOf(dir);
   }
 
-  /// Cierto si [dir] tiene documento (espejo o `.gatomix.json` viejo).
-  static bool hasDocument(String dir) =>
-      fileOf(dir).existsSync() || legacyFileOf(dir).existsSync();
+  /// Cierto si [dir] tiene documento (cualquier paso de la cascada).
+  static bool hasDocument(String dir) {
+    if (!isLibraryPath(dir)) return legacyFileOf(dir).existsSync();
+    return readFileOf(dir).existsSync();
+  }
 
   static bool migrate(String dir) {
     if (dir.isEmpty || _migratedClean.contains(dir)) return false;
@@ -773,7 +784,7 @@ void hideOnWindows(String path) {
 class GatomixLog {
   /// 3.1.72: en la biblioteca el log va al espejo local.
   static File fileOf(String dir) => isLibraryPath(dir)
-      ? libraryMirrorFile(dir, gatomixLogName)
+      ? libraryMirrorFile(dir, kMirrorLogSuffix)
       : File('$dir${Platform.pathSeparator}$gatomixLogName');
 
   static void append(String dir, String line) {

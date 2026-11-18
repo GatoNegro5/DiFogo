@@ -7,12 +7,13 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 String? djTraceFileOverride;
 
 /// Bitácora de decisiones del mezclador (solo diagnóstico, no toca el audio).
-/// Archivo: <temp>/gatomix_livedj_trace.txt (se recorta solo al pasar 300 KB).
+/// Archivo: `<temp>/difogo_livedj_trace.txt` (3.1.75; se recorta solo al pasar
+/// 300 KB).
 void djTrace(String msg) {
   try {
     final File f = File(
       djTraceFileOverride ??
-          '${Directory.systemTemp.path}${Platform.pathSeparator}gatomix_livedj_trace.txt',
+          '${Directory.systemTemp.path}${Platform.pathSeparator}difogo_livedj_trace.txt',
     );
     if (f.existsSync() && f.lengthSync() > 300000) f.writeAsStringSync('');
     f.writeAsStringSync(
