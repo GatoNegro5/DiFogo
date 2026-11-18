@@ -23,6 +23,7 @@ import '../core/dj_trace.dart';
 import '../core/audio/dj_audio_handler.dart';
 
 import '../core/audio_path.dart';
+import '../core/automix_genre_session.dart';
 import '../core/dna_mix.dart';
 import '../core/gatomix_store.dart';
 import '../services/track_tags.dart';
@@ -39,6 +40,7 @@ import '../core/lyric_approx.dart';
 import '../ui/widgets/approx_lyric_icon.dart' show approxLyricRevision;
 import 'db_provider.dart';
 import 'session_provider.dart';
+import 'vibe_hub_provider.dart';
 import 'nlp_provider.dart';
 import 'equalizer_provider.dart';
 import '../core/library_guard.dart';
@@ -210,6 +212,15 @@ class AutomixNotifier extends Notifier<AutomixState> {
   List<LyricLine>? _lyricUndo;
   String? _lyricUndoPath;
   final Set<String> _shuffleKnown = <String>{};
+  // 3.1.86: firma de generos de la cola guardada (null = cola a mano).
+  String? _genreSignature;
+  // 3.1.86: ultima lista recibida por syncDynamicPlaylist (cada build del
+  // panel la manda; si no cambio no se recorre).
+  List<String>? _lastSyncInput;
+  // 3.1.86: guardado con debounce de 800 ms para cambios menores.
+  int _lastSnapWriteMs = 0;
+  bool _snapDirty = false;
+  Future<void> _persistReady = Future<void>.value();
   final Map<String, int> _outroEnergyEndCache = {};
   final Map<String, List<LyricLine>> _lyricPrime = {};
 
@@ -229,7 +240,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
     }
 
     _attachListeners(_playerA);
-    _initPersistence();
+    _persistReady = _initPersistence();
     attachPlaybackExclusion();
 
     globalAudioHandler.onPlayPause = () => togglePlayPause();
@@ -242,6 +253,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
     );
 
     ref.onDispose(() {
+      // 3.1.86: lo pendiente del debounce no se pierde al cerrar.
+      if (_snapDirty) unawaited(_saveSnapshot());
       lrcSub.cancel();
       _cancelOutroProbe();
       _positionSub?.cancel();
@@ -297,6 +310,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _sessionPositionMs = 0;
     _lastSavedPositionMs = 0;
     _sessionWasPlaying = false;
+    _genreSignature = null;
+    _lastSyncInput = null;
     state = state.copyWith(
       playlist: const <String>[],
       currentIndex: -1,
@@ -480,21 +495,21 @@ class AutomixNotifier extends Notifier<AutomixState> {
   @visibleForTesting
   String? get lastMixHoldLine => _mix.lastLine;
 
-  int? _readSavedUiRoute() {
-    try {
-      final session = _mixStrategy.getSessionPath();
-      final file = File(
-        '${File(session).parent.path}${Platform.pathSeparator}_ui_route.json',
-      );
-      if (!file.existsSync()) return null;
-      final data = jsonDecode(file.readAsStringSync());
-      final route = data['route'];
-      if (route is int && route >= 0 && route < 7) return route;
-    } catch (_) {}
-    return null;
+  /// 3.1.86: cambios menores (orden, modo, reorden del medidor): a lo sumo
+  /// un guardado cada 800 ms; lo pendiente sale con el siguiente tick de
+  /// posicion, una transicion real, la pausa o el cierre.
+  void _scheduleSnapshot() {
+    final int now = DateTime.now().millisecondsSinceEpoch;
+    if (now - _lastSnapWriteMs >= kAutomixSaveDebounceMs) {
+      _saveSnapshot();
+    } else {
+      _snapDirty = true;
+    }
   }
 
   Future<void> _saveSnapshot() async {
+    _lastSnapWriteMs = DateTime.now().millisecondsSinceEpoch;
+    _snapDirty = false;
     try {
       _kickBackfill();
       final String filePath = _getSessionFilePath();
@@ -522,6 +537,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
         'wasPlaying': restart
             ? false
             : (_freezePersist ? _sessionWasPlaying : state.isPlaying),
+        // 3.1.86: firma de los generos de esta cola (null la quita).
+        'genreSignature': _genreSignature,
       };
       // Atómico y en fila (ver SessionStore): sobrevive cierres y updates.
       // No pisa la cola, lo ya sonado ni el orden: solo estos campos.
@@ -537,30 +554,20 @@ class AutomixNotifier extends Notifier<AutomixState> {
       final rawList = ((data['playlist'] as List?) ?? const [])
           .map((e) => e.toString())
           .toList();
+      final Object? sig = data['genreSignature'];
+      _genreSignature = sig is String && sig.isNotEmpty ? sig : null;
       // Pistas renombradas por Masterizar se reencuentran. Rutas equivalentes
       // (mayúsculas, separadores, junctions) cuentan como una sola.
-      final AutomixSessionRestore restored = restoreAutomixSession(
-        data,
-        strategyCount: MixStrategy.values.length,
-      );
-      final List<String> playlist = <String>[];
-      final Map<String, int> at = <String, int>{};
-      int? index;
-      for (var i = 0; i < restored.playlist.length; i++) {
-        final String c = canonicalAudioPath(restored.playlist[i]);
-        final String key = audioPathKey(c);
-        final int? prev = at[key];
-        if (prev != null) {
-          if (i == restored.index) index = prev;
-          continue;
-        }
-        if (i == restored.index) index = playlist.length;
-        at[key] = playlist.length;
-        playlist.add(c);
-      }
-      if (index == null && playlist.isNotEmpty && restored.index != null) {
-        index = restored.index!.clamp(0, playlist.length - 1);
-      }
+      // 3.1.86 (ANR): con colas grandes los existsSync/resolveSymbolicLinks
+      // de cada pista van en otro isolate, no en el hilo de UI.
+      final int strategies = MixStrategy.values.length;
+      final Map<dynamic, dynamic> doc = Map<dynamic, dynamic>.from(data);
+      final AutomixPlaylistRestore r = rawList.length > kAutomixSyncLimit
+          ? await restoreAutomixPlaylistAsync(doc, strategies)
+          : restoreAutomixPlaylist(doc, strategies);
+      final AutomixSessionRestore restored = r.restored;
+      final List<String> playlist = r.playlist;
+      final int? index = r.index;
       final bool sameTrack = restored.positionMs != null && index != null;
       final positionMs = sameTrack ? restored.positionMs : null;
       final mixStrategyIdx = restored.mixStrategyIndex;
@@ -623,7 +630,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
   void setMixStrategy(MixStrategy strategy) {
     state = state.copyWith(mixStrategy: strategy);
-    _saveSnapshot();
+    _scheduleSnapshot();
     _recalculateMixWindow();
   }
 
@@ -690,12 +697,15 @@ class AutomixNotifier extends Notifier<AutomixState> {
       }
     }
     final List<String> rest = List<String>.from(built.tracks);
+    // 3.1.86 (ANR): claves en un Set; antes `rest.any(sameAudioPath)` por
+    // cada pista (N^2 con N = 877).
+    final Set<String> inRest = audioKeySet(rest);
     for (final path in paths) {
       if (head != null && sameAudioPath(path, head)) continue;
-      if (!rest.any((r) => sameAudioPath(r, path))) rest.add(path);
+      if (inRest.add(audioPathKey(path))) rest.add(path);
     }
     final List<String> playlist = <String>[
-      if (head != null) head,
+      ?head,
       ...rest.where((p) => head == null || !sameAudioPath(p, head)),
     ];
     GatomixStore.commitShuffleMemory(rest, anchor: head ?? playing);
@@ -731,25 +741,38 @@ class AutomixNotifier extends Notifier<AutomixState> {
       shufflePlaylist();
     } else {
       state = state.copyWith(mixStrategy: MixStrategy.sequential);
-      _saveSnapshot();
+      _scheduleSnapshot();
       debugPrint("➡️ [DSP] Modo SECUENCIAL activado.");
     }
   }
 
   void toggleAutoMixBypass() {
     state = state.copyWith(autoMixArmed: !state.autoMixArmed);
-    _saveSnapshot();
+    _scheduleSnapshot();
   }
 
   void syncDynamicPlaylist(List<String> newPlaylistOrdered) {
+    // 3.1.86 (ANR): el panel la llama en cada build; misma lista, nada que
+    // hacer.
+    final List<String>? last = _lastSyncInput;
+    if (last != null &&
+        listEquals(last, newPlaylistOrdered) &&
+        identical(_lastSyncPlaylist, state.playlist)) {
+      return;
+    }
+    _lastSyncInput = List<String>.unmodifiable(newPlaylistOrdered);
     newPlaylistOrdered = dedupeAudioPaths(
       newPlaylistOrdered.where((p) => !isKaraokeAudioPath(p)).toList(),
     );
-    bool hasPath(Iterable<String> xs, String p) =>
-        xs.any((e) => sameAudioPath(e, p));
+    // 3.1.86 (ANR): pertenencia por Set de claves (antes `any(sameAudioPath)`
+    // dentro de un bucle sobre la cola: N^2 en el hilo de UI).
+    final Set<String> inPlaylist = audioKeySet(state.playlist);
+    final Set<String> inKnown = audioKeySet(_shuffleKnown);
+    final Set<String> inNew = audioKeySet(newPlaylistOrdered);
     final added = <String>[
       for (final path in newPlaylistOrdered)
-        if (!hasPath(state.playlist, path) && !hasPath(_shuffleKnown, path))
+        if (!inPlaylist.contains(audioPathKey(path)) &&
+            !inKnown.contains(audioPathKey(path)))
           path,
     ];
     // Cola estable en secuencial. Con Shuffle, lo nuevo entra en el hueco
@@ -764,17 +787,19 @@ class AutomixNotifier extends Notifier<AutomixState> {
         mixStrategy: MixStrategy.random,
       );
       _applyShuffleBank(advance: true);
+      _lastSyncPlaylist = state.playlist;
       return;
     }
     var ordered = newPlaylistOrdered;
     if (state.mixStrategy == MixStrategy.random) {
       final kept = <String>[
         for (final path in state.playlist)
-          if (hasPath(newPlaylistOrdered, path)) path,
+          if (inNew.contains(audioPathKey(path))) path,
       ];
+      final Set<String> inKept = audioKeySet(kept);
       final added = <String>[
         for (final path in newPlaylistOrdered)
-          if (!hasPath(kept, path)) path,
+          if (!inKept.contains(audioPathKey(path))) path,
       ];
       if (added.isNotEmpty) {
         preloadQueueBpmSync(added);
@@ -813,7 +838,10 @@ class AutomixNotifier extends Notifier<AutomixState> {
       }
     }
     ordered = dedupeAudioPaths(ordered);
-    if (listEquals(state.playlist, ordered)) return;
+    if (listEquals(state.playlist, ordered)) {
+      _lastSyncPlaylist = state.playlist;
+      return;
+    }
     int newCurrentIndex = -1;
     if (state.currentTrackPath != null) {
       newCurrentIndex = ordered.indexWhere(
@@ -821,8 +849,107 @@ class AutomixNotifier extends Notifier<AutomixState> {
       );
     }
     state = state.copyWith(playlist: ordered, currentIndex: newCurrentIndex);
-    _saveSnapshot();
+    _lastSyncPlaylist = state.playlist;
+    _scheduleSnapshot();
     _recalculateMixWindow();
+  }
+
+  List<String>? _lastSyncPlaylist;
+
+  /// 3.1.86: al entrar a Mix con Letra. Misma firma de generos: la cola
+  /// guardada sigue (pista y segundo). Cola vacia o firma distinta con una
+  /// estacion elegida en Estaciones & Generos: arma la cola de esos generos
+  /// por lotes y la deja lista en la pista 1 (sin sonar). Una cola armada a
+  /// mano (sin firma) no se borra; tampoco se toca nada mientras suena.
+  Future<AutomixGenreAction> ensureGenreQueue({
+    String? stationKey,
+    List<String>? subGenres,
+    Future<List<String>> Function(String key, List<String> subs)? collect,
+  }) async {
+    await _persistReady;
+    String? key = stationKey;
+    List<String> subs = subGenres ?? const <String>[];
+    if (stationKey == null) {
+      try {
+        final VibeHubNotifier hub = ref.read(vibeHubProvider.notifier);
+        key = hub.savedActiveStation();
+        subs = key == null
+            ? const <String>[]
+            : (hub.stationSession(key)?.subGenresChecked ?? const <String>[]);
+      } catch (_) {
+        return AutomixGenreAction.none;
+      }
+    }
+    if (key != null && subs.isEmpty && key.startsWith('g:')) {
+      subs = <String>[key.substring(2)];
+    }
+    final String sig = automixGenreSignature(key, subs);
+    final AutomixGenreAction action = automixGenreAction(
+      savedSignature: _genreSignature,
+      currentSignature: sig,
+      hasQueue: state.playlist.isNotEmpty,
+    );
+    if (action != AutomixGenreAction.build ||
+        key == null ||
+        state.isPlaying ||
+        _isCrossfading) {
+      return action;
+    }
+    final List<String> paths;
+    try {
+      paths = collect != null
+          ? await collect(key, subs)
+          : await ref.read(vibeHubProvider.notifier).stationTracksFor(key, subs);
+    } catch (_) {
+      return action;
+    }
+    if (paths.isEmpty) return action;
+    await loadGenreQueue(sig, paths);
+    return action;
+  }
+
+  /// 3.1.86: cola nueva de generos. Borra la anterior, deja la pista 1
+  /// lista en cuanto se conoce y suma el resto por lotes cediendo frames.
+  Future<void> loadGenreQueue(String signature, List<String> paths) async {
+    try {
+      ref.read(automixQueueProvider.notifier).clearQueue();
+    } catch (_) {
+      dropPersistedQueue();
+    }
+    _genreSignature = signature;
+    final List<String> clean = await automixLoadInChunks(
+      paths,
+      onFirst: (String first) {
+        state = state.copyWith(
+          playlist: <String>[first],
+          currentIndex: 0,
+          currentTrackPath: first,
+          position: Duration.zero,
+          lyrics: const <LyricLine>[],
+          activeLyricIndex: -1,
+        );
+      },
+    );
+    if (clean.isEmpty) return;
+    try {
+      ref.read(automixQueueProvider.notifier).restoreQueue(clean);
+    } catch (_) {
+      releaseQueueHold();
+    }
+    _genreSignature = signature;
+    _lastSyncInput = null;
+    state = state.copyWith(
+      playlist: clean,
+      currentIndex: 0,
+      currentTrackPath: clean.first,
+    );
+    _sessionPositionMs = 0;
+    await _saveSnapshot();
+    unawaited(_loadLyrics(clean.first).catchError((Object _) {}));
+    unawaited(_loadTrackMetadata(clean.first).catchError((Object _) {}));
+    if (state.mixStrategy == MixStrategy.random) {
+      unawaited(_shufflePlaylistAsync().catchError((Object _) {}));
+    }
   }
 
   Future<List<Map<String, dynamic>>> searchLyrics(String query) async {
@@ -979,7 +1106,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
     if (ordered == null) return;
     state = state.copyWith(playlist: ordered);
     _backfillEpoch = state.playlist;
-    _saveSnapshot();
+    _scheduleSnapshot();
     try {
       _recalculateMixWindow();
     } catch (_) {}
@@ -1222,17 +1349,6 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
     _mixPlanReady = true;
     state = state.copyWith(customMixOutMs: mixOut, customMixDurationMs: fadeMs);
-  }
-
-  Future<void> _prefetchNextOutro(String nextPath) async {
-    final int gen = _outroProbeGen;
-    try {
-      final dur = await rust_dsp.getAudioDurationMs(inputPath: nextPath);
-      if (gen != _outroProbeGen || !state.isPlaying) return;
-      await _probeOutroEnergyEndMs(nextPath, dur.toInt());
-    } catch (e) {
-      debugPrint('🔴 [TRACKER OUTRO] prefetch $nextPath: $e');
-    }
   }
 
   /// Siguiente/anterior desde el icono exterior (notificación, bloqueo):
@@ -2042,6 +2158,10 @@ class AutomixNotifier extends Notifier<AutomixState> {
       if (sessionPositionShouldSave(posMs, _lastSavedPositionMs)) {
         _lastSavedPositionMs = posMs;
         _saveSnapshot();
+      } else if (_snapDirty &&
+          DateTime.now().millisecondsSinceEpoch - _lastSnapWriteMs >=
+              kAutomixSaveDebounceMs) {
+        _saveSnapshot();
       }
 
       if (uiTick) {
@@ -2808,6 +2928,21 @@ class PlayedTracksNotifier extends Notifier<Set<String>> {
       _saveSession(newState);
     }
   }
+
+  /// 3.1.86 (ANR): una carpeta entera en una pasada y un solo guardado
+  /// (antes `removeTrack` por pista: N recorridos y hasta N escrituras).
+  void removeTracks(Iterable<String> tracks) {
+    final Set<String> drop = audioKeySet(tracks);
+    if (drop.isEmpty) return;
+    final Set<String> newState = <String>{
+      for (final String p in state)
+        if (!drop.contains(audioPathKey(p))) p,
+    };
+    if (newState.length != state.length) {
+      state = newState;
+      _saveSession(newState);
+    }
+  }
 }
 
 class AutomixQueueNotifier extends Notifier<List<File>> {
@@ -2849,10 +2984,22 @@ class AutomixQueueNotifier extends Notifier<List<File>> {
 
   Future<void> _insertShuffle(List<File> files, int epoch) async {
     if (epoch != _addEpoch) return;
+    // 3.1.86 (ANR): canonicas de una carpeta grande en otro isolate y
+    // pertenencia por Set (antes `state.any(sameAudioPath)` por pista).
+    if (files.length > kAutomixSyncLimit) {
+      final List<String> canon = await canonicalAudioPathsAsync(<String>[
+        for (final File f in files) f.path,
+      ]);
+      if (epoch != _addEpoch) return;
+      files = <File>[for (final String p in canon) File(p)];
+    }
+    final Set<String> inQueue = audioKeySet(<String>[
+      for (final File e in state) e.path,
+    ]);
     final List<File> fresh = <File>[];
     for (final File f in files) {
       if (isKaraokeAudioPath(f.path)) continue;
-      if (state.any((File e) => sameAudioPath(e.path, f.path))) continue;
+      if (!inQueue.add(audioPathKey(f.path))) continue;
       fresh.add(f);
     }
     if (fresh.isEmpty) return;
@@ -2916,9 +3063,20 @@ class AutomixQueueNotifier extends Notifier<List<File>> {
         // Pistas renombradas por Masterizar se reencuentran en su carpeta.
         // Duplicados guardados (otra grafía de la misma ruta) se limpian.
         final List<String> raw = rawList.map((e) => e.toString()).toList();
-        final List<File> files = dedupeAudioFiles(
-          resolvePlayableSessionPaths(raw).map(File.new).toList(),
-        );
+        // 3.1.86 (ANR): con colas grandes el existsSync/resolveSymbolicLinks
+        // de cada pista va en otro isolate.
+        final List<File> files = raw.length > kAutomixSyncLimit
+            ? <File>[
+                for (final String p in await resolveQueuePathsAsync(
+                  raw,
+                  resolveAutomixQueuePaths,
+                ))
+                  File(p),
+              ]
+            : <File>[
+                for (final String p in resolveAutomixQueuePaths(raw)) File(p),
+              ];
+        if (state.isNotEmpty) return;
         state = files;
         if (raw.length != files.length ||
             raw.join('\n') != files.map((f) => f.path).join('\n')) {
@@ -2989,24 +3147,36 @@ class AutomixQueueNotifier extends Notifier<List<File>> {
       for (final File f in input)
         if (ok.contains(f.path)) f,
     ];
+    // 3.1.86 (ANR): carpeta grande (877): sin existsSync/resolveSymbolicLinks
+    // por pista en el hilo de UI (Shuffle: en otro isolate dentro de la
+    // cadena; secuencial: rutas tal cual) y sin removeWhere por pista.
+    final bool big = files.length > kAutomixSyncLimit;
     if (_shuffleOn()) {
       final List<File> kept = <File>[
         for (final File f in files)
-          if (!isKaraokeAudioPath(f.path)) File(canonicalAudioPath(f.path)),
+          if (!isKaraokeAudioPath(f.path))
+            big ? f : File(canonicalAudioPath(f.path)),
       ];
       final int epoch = _addEpoch;
       _addChain = _addChain.then((_) => _insertShuffle(kept, epoch));
       return;
     }
     _releaseHold();
-    var newState = List<File>.from(state);
-    for (final File f in files) {
-      if (isKaraokeAudioPath(f.path)) continue;
-      final File kept = File(canonicalAudioPath(f.path));
-      newState.removeWhere(
-        (existing) => sameAudioPath(existing.path, kept.path),
-      );
-      newState.add(kept);
+    final List<File> incoming = <File>[
+      for (final File f in files)
+        if (!isKaraokeAudioPath(f.path))
+          big ? f : File(canonicalAudioPath(f.path)),
+    ];
+    final Set<String> incomingKeys = audioKeySet(<String>[
+      for (final File f in incoming) f.path,
+    ]);
+    final List<File> newState = <File>[
+      for (final File f in state)
+        if (!incomingKeys.contains(audioPathKey(f.path))) f,
+    ];
+    final Set<String> added = <String>{};
+    for (final File f in incoming) {
+      if (added.add(audioPathKey(f.path))) newState.add(f);
     }
     state = newState;
     _saveSession(newState);
@@ -3032,6 +3202,21 @@ class AutomixQueueNotifier extends Notifier<List<File>> {
   }
 
   void restoreQueue(List<String> paths) {
+    // 3.1.86 (ANR): con colas grandes (Play next, cola de generos) no hay
+    // existsSync/resolveSymbolicLinks por pista en el hilo de UI: la cola
+    // entra ya y las que no existen se quitan despues desde otro isolate.
+    if (paths.length > kAutomixSyncLimit) {
+      final Set<String> keep = _vibeKeep(paths).toSet();
+      final List<File> files = <File>[
+        for (final String p in dedupeAudioPaths(paths, dropKaraoke: true))
+          if (keep.contains(p)) File(p),
+      ];
+      _releaseHold();
+      state = files;
+      _saveSession(files);
+      unawaited(_pruneMissing(files));
+      return;
+    }
     final List<File> files = dedupeAudioFiles(
       paths
           .where((p) => !isKaraokeAudioPath(p) && File(p).existsSync())
@@ -3043,7 +3228,28 @@ class AutomixQueueNotifier extends Notifier<List<File>> {
     state = files;
     _saveSession(files);
   }
+
+  Future<void> _pruneMissing(List<File> files) async {
+    try {
+      final List<String> ok = await existingAudioPathsAsync(<String>[
+        for (final File f in files) f.path,
+      ]);
+      if (ok.length == files.length || !identical(state, files)) return;
+      final List<File> next = <File>[for (final String p in ok) File(p)];
+      state = next;
+      await _saveSession(next);
+    } catch (_) {}
+  }
 }
+
+/// 3.1.86: cola guardada de Automix: jugables, reencontradas y sin
+/// duplicados (canonicas). Top-level para poder correr en otro isolate.
+List<String> resolveAutomixQueuePaths(List<String> raw) => <String>[
+  for (final File f in dedupeAudioFiles(
+    resolvePlayableSessionPaths(raw).map(File.new).toList(),
+  ))
+    f.path,
+];
 
 enum TrackSortMode { alphabetical, bpmDesc, bpmAsc }
 

@@ -855,6 +855,16 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     return n;
   }
 
+  /// 3.1.86: pistas de [key] con [subs] (carpetas de genero mas las
+  /// clasificadas), sin sonar nada. Mix con Letra arma con esto su cola por
+  /// genero.
+  Future<List<String>> stationTracksFor(String key, List<String> subs) async =>
+      _withVirtual(
+        await _stationTracks(await _stationFolders(key, subs)),
+        key,
+        subs,
+      );
+
   /// Sesion guardada de [key] (sub-generos en visto, pista, segundo).
   GenreSession? stationSession(String key) => _stationsDoc.stations[key];
 

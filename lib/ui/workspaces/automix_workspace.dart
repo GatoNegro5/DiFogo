@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio_path.dart';
+import '../../core/automix_genre_session.dart'
+    show AutomixGenreAction, audioKeySet;
 import '../../core/brand_paths.dart';
 import '../../core/display_bpm.dart';
 import '../../core/lab_quarantine.dart';
@@ -41,6 +43,24 @@ class AutomixWorkspace extends ConsumerStatefulWidget {
 
 class _AutomixWorkspaceState extends ConsumerState<AutomixWorkspace> {
   final GlobalKey _mixerKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    // 3.1.86: al entrar, la cola de los generos elegidos (misma firma: sigue
+    // donde se quedo; vacia o distinta: se arma por lotes).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        unawaited(
+          ref
+              .read(automixProvider.notifier)
+              .ensureGenreQueue()
+              .catchError((Object _) => AutomixGenreAction.none),
+        );
+      } catch (_) {}
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -139,17 +159,19 @@ class AutomixMobileLibrary extends ConsumerWidget {
       },
       onMixFolder: (List<File> files) async {
         if (files.isEmpty) return;
-        for (final File file in files) {
-          ref.read(playedTracksProvider.notifier).removeTrack(file.path);
-        }
+        // 3.1.86 (ANR con 877 pistas): una pasada y un guardado para lo ya
+        // sonado, y pertenencia por Set (antes removeTrack y
+        // `paths.any(sameAudioPath)` por pista: N^2 en el hilo de UI).
+        ref.read(playedTracksProvider.notifier).removeTracks(<String>[
+          for (final File file in files) file.path,
+        ]);
         ref.read(automixQueueProvider.notifier).addAll(files);
         final List<String> paths = <String>[
           for (final File file in ref.read(automixQueueProvider)) file.path,
         ];
+        final Set<String> have = audioKeySet(paths);
         for (final File file in files) {
-          if (!paths.any((String path) => sameAudioPath(path, file.path))) {
-            paths.add(file.path);
-          }
+          if (have.add(audioPathKey(file.path))) paths.add(file.path);
         }
         final notifier = ref.read(automixProvider.notifier);
         notifier.syncDynamicPlaylist(paths);
@@ -783,9 +805,13 @@ class AutomixPanel extends ConsumerWidget {
     });
 
     List<File> displayFiles = List.from(automixQueue);
+    // 3.1.86 (ANR): lo ya sonado en un Set de claves; antes
+    // `playedTracks.any(sameAudioPath)` por cada pista de la cola en cada
+    // build (877 x sonadas comparaciones en el hilo de UI).
+    final Set<String> playedKeys = audioKeySet(playedTracks);
     displayFiles.removeWhere(
       (file) =>
-          playedTracks.any((p) => sameAudioPath(p, file.path)) &&
+          playedKeys.contains(audioPathKey(file.path)) &&
           !sameAudioPath(file.path, currentTrackPath),
     );
 
@@ -1914,10 +1940,11 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                                         durationMs: duration.inMilliseconds,
                                         triggerRemainingMs: triggerRemainingMs,
                                         lyrics: lyrics,
-                                        nextTrackName: nextTrackPath
-                                            ?.replaceAll('\\', '/')
-                                            .split('/')
-                                            .last,
+                                        // 3.1.86: titulo limpio, sin
+                                        // .mp3 ni (115 BPM).
+                                        nextTrackName: nextTrackPath == null
+                                            ? null
+                                            : cleanTrackTitle(nextTrackPath),
                                         customCueInMs: customCueInMs,
                                         customMixOutMs: customMixOutMs,
                                         customMixDurationMs:

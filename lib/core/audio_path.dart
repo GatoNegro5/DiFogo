@@ -33,6 +33,37 @@ String audioPathKey(
   bool absolute = true,
   String? workingDirectory,
 }) {
+  // 3.1.86 (ANR Mix con Letra): las comparaciones de cola (877 pistas)
+  // recalculaban esta clave (NFC, regex, colapso) cientos de miles de veces
+  // en el hilo de UI. Rutas absolutas: resultado memorizado (puro).
+  final bool fold = foldCase ?? audioPathFoldsCase();
+  final bool cacheable =
+      absolute && workingDirectory == null && _looksAbsolute(path);
+  if (cacheable) {
+    final String ck = fold ? '1$path' : '0$path';
+    final String? hit = _keyMemo[ck];
+    if (hit != null) return hit;
+    final String k = _audioPathKeyRaw(path, fold, absolute, workingDirectory);
+    if (_keyMemo.length >= _keyMemoMax) _keyMemo.clear();
+    _keyMemo[ck] = k;
+    return k;
+  }
+  return _audioPathKeyRaw(path, fold, absolute, workingDirectory);
+}
+
+const int _keyMemoMax = 20000;
+final Map<String, String> _keyMemo = <String, String>{};
+final RegExp _driveRoot = RegExp(r'^[A-Za-z]:[\\/]');
+
+bool _looksAbsolute(String path) =>
+    path.startsWith('/') || _driveRoot.hasMatch(path);
+
+String _audioPathKeyRaw(
+  String path,
+  bool fold,
+  bool absolute,
+  String? workingDirectory,
+) {
   var p = _stripFileUri(path).trim();
   p = p.replaceAll('\\', '/');
   p = _nfc(p);
@@ -46,7 +77,7 @@ String audioPathKey(
   if (p.length > 1 && p.endsWith('/') && !RegExp(r'^[A-Za-z]:/$').hasMatch(p)) {
     p = p.substring(0, p.length - 1);
   }
-  if (foldCase ?? audioPathFoldsCase()) p = p.toLowerCase();
+  if (fold) p = p.toLowerCase();
   return p;
 }
 
