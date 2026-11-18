@@ -308,7 +308,10 @@ void main() {
       expect(find.byKey(const Key('spotify-cover')), findsWidgets);
       expect(find.text('Besame'), findsOneWidget);
       expect(find.text('Manuel Turizo'), findsOneWidget);
-      expect(find.text('ACTIVE BEATMATCHING'), findsOneWidget);
+      // 3.1.84 Clean Mode: el chip de la formula salio de la pantalla
+      // principal (vive en la hoja Modo DJ).
+      expect(find.byKey(const Key('spotify-mix-chip')), findsNothing);
+      expect(find.text('ACTIVE BEATMATCHING'), findsNothing);
       final Icon shuffle = tester.widget<Icon>(
         find.descendant(
           of: find.byKey(const Key('spotify-shuffle')),
@@ -316,7 +319,11 @@ void main() {
         ),
       );
       expect(shuffle.icon, Icons.shuffle_rounded);
-      expect(find.textContaining('COLA DE REPRODUCCIÓN (2)'), findsOneWidget);
+      // 3.1.84: en telefono la cabecera dice COLA (n) (Clean Mode).
+      expect(
+        find.textContaining(v.$3 ? 'COLA (2)' : 'COLA DE REPRODUCCIÓN (2)'),
+        findsOneWidget,
+      );
       expect(find.textContaining('CARTRIDGE'), findsNothing);
       expect(tester.takeException(), isNull);
       // La consola clasica sigue a un toque.

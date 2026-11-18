@@ -114,10 +114,20 @@ void main() {
     expect(ld.contains('pickStealthNextIndex'), isFalse);
     expect(mf.contains('pickStealthNextIndex'), isFalse);
     expect(nx.contains('pickStealthNextIndex'), isFalse);
-    final int a = ld.indexOf('int _nextQueueIndex() {');
-    final String body = ld.substring(a, ld.indexOf('\n  }', a));
+    // 3.1.88: _nextQueueIndex es de una linea y delega en liveDjHeadIndex.
+    final int a = ld.indexOf('int _nextQueueIndex() =>');
+    expect(a, greaterThanOrEqualTo(0));
+    final String body = ld.substring(a, ld.indexOf(';', a));
     expect(body.contains('stealth'), isFalse);
     expect(body.contains('mixFormula'), isFalse);
+    expect(body.contains('liveDjHeadIndex('), isTrue);
+    final int h = ld.indexOf('int liveDjHeadIndex(');
+    expect(h, greaterThanOrEqualTo(0));
+    final String head = ld.substring(h, ld.indexOf(');', h));
+    expect(head.contains('offAirNextIndex('), isTrue);
+    expect(head.contains('stealth'), isFalse);
+    expect(head.contains('mixFormula'), isFalse);
+    expect(head.toLowerCase().contains('bpm'), isFalse);
     final int b = ld.indexOf('void _applyAutoCurve() {');
     final String auto = ld.substring(b, ld.indexOf('\n  }\n', b));
     expect(auto.contains('autoCurveMixOutMs('), isTrue);

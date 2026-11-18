@@ -77,7 +77,7 @@ void main() {
     final String reorder = _slice(
       ld,
       'void _backfillReorder() {',
-      'final List<String>? ordered',
+      'final List<File>? ordered',
     );
     expect(
       reorder.contains(

@@ -464,9 +464,11 @@ class _QueuePane extends ConsumerWidget {
                   ),
                 ),
                 const SizedBox(width: 8),
-                const RadioDiscoveryButton(compact: true),
+                // 3.1.89: chips flexibles; en telefono acostado se achican
+                // (FittedBox interno) en vez de desbordar la cabecera.
+                const Flexible(child: RadioDiscoveryButton(compact: true)),
                 const SizedBox(width: 4),
-                const CuratorInboxButton(),
+                const Flexible(child: CuratorInboxButton()),
               ],
             ),
           ),
