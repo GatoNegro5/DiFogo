@@ -23,7 +23,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-          shared-key: "gatomix-rust-test"
+          shared-key: "difogo-rust-test"
 
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
@@ -88,7 +88,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-          shared-key: "gatomix-rust-${{ matrix.os }}"
+          shared-key: "difogo-rust-${{ matrix.os }}"
 
       # 🛠️ INYECCIÓN 2: Descarga Binaria Precompilada (0 minutos de delay)
       - name: Install cargo-binstall
@@ -142,8 +142,8 @@ jobs:
             echo "::error::Falta el secreto ANDROID_KEYSTORE_BASE64: el APK no se firma en debug."
             exit 1
           fi
-          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/gatomix-release.jks"
-          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/gatomix-release.jks" >> "$GITHUB_ENV"
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/difogo-release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/difogo-release.jks" >> "$GITHUB_ENV"
 
       - name: Build Platform
         shell: bash
@@ -246,8 +246,8 @@ jobs:
             echo "::error::Falta el secreto ANDROID_KEYSTORE_BASE64: el APK TV no se firma en debug."
             exit 1
           fi
-          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/gatomix-release.jks"
-          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/gatomix-release.jks" >> "$GITHUB_ENV"
+          echo "$KS_B64" | base64 -d > "$RUNNER_TEMP/difogo-release.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/difogo-release.jks" >> "$GITHUB_ENV"
 
       - name: Build TV APK
         working-directory: gatomix_tv
@@ -288,7 +288,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-          shared-key: gatomix-rust-ios-ipa
+          shared-key: difogo-rust-ios-ipa
 
       - name: Install cargo-binstall
         uses: cargo-bins/cargo-binstall@main

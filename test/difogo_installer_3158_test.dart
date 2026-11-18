@@ -54,7 +54,10 @@ void main() {
     expect('DiFogo-MacOS.zip'.allMatches(yml).length, 4);
     expect(r'name: DiFogo ${{ github.ref_name }}'.allMatches(yml).length, 3);
     expect(yml.contains('gatomix-tv.apk'), isTrue);
-    expect(yml.contains('gatomix-release.jks'), isTrue);
+    // 3.1.77: keystore temporal difogo-release.jks; el apk de TV no cambia.
+    expect(yml.contains('difogo-release.jks'), isTrue);
+    expect(yml.contains('gatomix-release.jks'), isFalse);
+    expect(yml.contains('shared-key: "gatomix'), isFalse);
     expect(yml.contains('working-directory: gatomix_tv'), isTrue);
     expect(yml.contains('ISCC.exe'), isTrue);
     expect(yml.contains('windows_setup.iss'), isTrue);

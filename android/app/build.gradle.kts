@@ -28,9 +28,12 @@ android {
         versionName = flutter.versionName
         ndk {
             abiFilters += listOf("arm64-v8a")
-            // Solo para pruebas en emulador x86_64 (gm34): GATOMIX_EMU=1.
+            // Solo para pruebas en emulador x86_64 (gm34): DIFOGO_EMU=1
+            // (3.1.77; GATOMIX_EMU=1 se sigue aceptando como legado).
             // El release de CI no la define y sigue saliendo solo arm64.
-            if (System.getenv("GATOMIX_EMU") == "1") abiFilters += listOf("x86_64")
+            if (System.getenv("DIFOGO_EMU") == "1" || System.getenv("GATOMIX_EMU") == "1") {
+                abiFilters += listOf("x86_64")
+            }
         }
     }
 
@@ -69,7 +72,7 @@ android {
 
     signingConfigs {
         if (hasReleaseKey) {
-            create("gatomixRelease") {
+            create("difogoRelease") {
                 storeFile = file(storePath!!)
                 this.storePassword = storePassword
                 this.keyAlias = keyAlias
@@ -81,7 +84,7 @@ android {
     buildTypes {
         release {
             signingConfig = if (hasReleaseKey) {
-                signingConfigs.getByName("gatomixRelease")
+                signingConfigs.getByName("difogoRelease")
             } else {
                 signingConfigs.getByName("debug")
             }

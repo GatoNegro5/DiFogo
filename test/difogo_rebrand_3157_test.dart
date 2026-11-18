@@ -83,7 +83,7 @@ void main() {
     expect(
       _read(
         'macos/Runner/Configs/AppInfo.xcconfig',
-      ).contains('PRODUCT_NAME = GatoMix'),
+      ).contains('PRODUCT_NAME = DiFogo'),
       isTrue,
     );
   });
