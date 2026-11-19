@@ -427,11 +427,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       // 3.1.67: congelar y guardar no frenan el arranque (la cadena de
       // escritura conserva el orden); se esperan despues de sonar.
       final Future<void> frozen = freezeActive();
-      final List<String> all = _withVirtual(
-        await _stationTracks(await _stationFolders(key, subGenres)),
-        key,
-        subGenres,
-      );
+      final List<String> all = await _stationPool(key, subGenres);
       if (all.isEmpty) {
         await frozen;
         // 3.1.87: 0 canciones locales: Radio Descubrimiento encendida para
@@ -907,11 +903,33 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
   /// clasificadas), sin sonar nada. Mix con Letra arma con esto su cola por
   /// genero.
   Future<List<String>> stationTracksFor(String key, List<String> subs) async =>
-      _withVirtual(
-        await _stationTracks(await _stationFolders(key, subs)),
-        key,
-        subs,
-      );
+      _stationPool(key, subs);
+
+  /// 3.2.2: pistas de [key] con [subs]: carpetas de genero + clasificadas
+  /// una a una y, si el filtro tiene sub-generos especificos sin "Todas",
+  /// tambien las de carpetas generales (`Rock Mix/`, bucket Todas de
+  /// `Rock/Todas`) cuyo sub-genero real por artista/diccionario esta en
+  /// visto. Sin repetir. Con "Todas" en visto o sin filtro, como siempre.
+  Future<List<String>> _stationPool(String key, List<String> subs) async {
+    final List<String> base = _withVirtual(
+      await _stationTracks(await _stationFolders(key, subs)),
+      key,
+      subs,
+    );
+    if (!stationFiltersSpecificSubs(key, subs)) return base;
+    final List<String> folders = stationFallbackFolders(key, subs, <String>[
+      for (final VibeGenre g in state.genres) g.name,
+    ]);
+    final List<String> loose = <String>[
+      if (folders.isNotEmpty) ...await _stationTracks(folders),
+      ...?_virtual.byStation[key]?[stationFallbackSub(key)],
+    ];
+    if (loose.isEmpty) return base;
+    return mergeStationTracks(
+      base,
+      stationRefinedTracks(key, subs, loose, root: vibeMusicRoot()),
+    );
+  }
 
   /// Sesion guardada de [key] (sub-generos en visto, pista, segundo).
   GenreSession? stationSession(String key) => _stationsDoc.stations[key];
@@ -1027,3 +1045,62 @@ final stationLivePlayingProvider = Provider<bool>((ref) {
 final vibeHubProvider = NotifierProvider<VibeHubNotifier, VibeHubState>(
   VibeHubNotifier.new,
 );
+
+/// 3.2.2: true si [subs] filtra sub-generos especificos de [key] sin su
+/// bucket general ("Todas"): hay que buscar en las carpetas generales.
+bool stationFiltersSpecificSubs(String key, List<String> subs) {
+  final String? all = stationFallbackSub(key);
+  if (all == null || subs.contains(all)) return false;
+  return subs.any((String s) => isStationSub(key, s));
+}
+
+/// 3.2.2: carpetas de la biblioteca que caen en el bucket general de [key]
+/// (p. ej. `Rock Mix` -> Rock > Todas). Vacio si no hace falta refinar.
+List<String> stationFallbackFolders(
+  String key,
+  List<String> subs,
+  Iterable<String> library,
+) {
+  if (!stationFiltersSpecificSubs(key, subs)) return const <String>[];
+  final String? all = stationFallbackSub(key);
+  return <String>[
+    for (final String f in library)
+      if (stationSubOf(f) case final MapEntry<String, String> m
+          when m.key == key && m.value == all)
+        f,
+  ];
+}
+
+/// 3.2.2: de [tracks] (carpetas generales / bucket Todas), las que el
+/// diccionario de artistas y palabras clave pone en uno de los
+/// sub-generos especificos de [subs] (ver [stationTrackGenre]).
+List<String> stationRefinedTracks(
+  String key,
+  List<String> subs,
+  Iterable<String> tracks, {
+  String? root,
+}) {
+  final Set<String> want = <String>{
+    for (final String s in subs)
+      if (isStationSub(key, s) && s != stationFallbackSub(key)) s,
+  };
+  if (want.isEmpty) return const <String>[];
+  final List<String> out = <String>[];
+  for (final String p in tracks) {
+    final TrackGenre g = stationTrackGenre(p, root: root);
+    if (g.stationId == key && want.contains(g.subGenreId)) out.add(p);
+  }
+  return out;
+}
+
+/// 3.2.2: [base] mas [extra] sin repetir (por [stationPathKey]).
+List<String> mergeStationTracks(List<String> base, Iterable<String> extra) {
+  final Set<String> seen = <String>{
+    for (final String p in base) stationPathKey(p),
+  };
+  return <String>[
+    ...base,
+    for (final String p in extra)
+      if (seen.add(stationPathKey(p))) p,
+  ];
+}

@@ -744,6 +744,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
       continueFrom: playing,
       startWaveUp: wave.waveUp,
       startInWave: wave.inWave,
+      // 3.2.2: micro-bloques de sub-genero/idioma (como Live DJ en 3.2.1).
+      subOf: harmonicBlockOf,
     );
     String? head;
     if (playing != null) {
@@ -1219,6 +1221,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
         _extractBpm,
         keyOf: camelotFromPath,
         continueFrom: from,
+        subOf: harmonicBlockOf,
       ).tracks,
     );
     if (ordered == null) return;

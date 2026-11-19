@@ -610,6 +610,8 @@ List<String> buildDifferentRound({
         playing: playing,
         fixedFirst: fixedFirst,
         rng: spin,
+        // 3.2.2: micro-bloques de sub-genero/idioma tambien en la Radio.
+        subOf: harmonicBlockOf,
       ).tracks,
     );
     if (fixedFirst == null) _displaceFirst(built, banned, spin);
