@@ -18,6 +18,9 @@ rustfft = "6"
 cpal = "0.15"
 # Karaoke IA en escritorio: ONNX Runtime (MIT), binarios oficiales de pyke.
 ort = "=2.0.0-rc.10"
+# Letras offline (3.1.92): whisper.cpp (MIT). Compilar necesita cmake,
+# MSVC o clang y libclang (LIBCLANG_PATH) por bindgen.
+whisper-rs = "=0.16.0"
 
 [target.'cfg(not(any(target_os = "windows", target_os = "macos")))'.dependencies]
 # Karaoke IA en Android/iOS: Rust puro, sin nativos.
