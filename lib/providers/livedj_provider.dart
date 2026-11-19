@@ -59,8 +59,10 @@ enum LiveDjMixMode { activeSync, longBypass }
 // Idéntico al de Automix. Se inyecta en libmpv vía 'af'; cero DSP por muestras.
 // Corte de graves con `equalizer` (único filtro de libavfilter que trae el
 // libmpv empaquetado; `highpass` no existe y tumbaba toda la cadena `af`).
+// 3.1.97 mezcla transparente: corte musical suave (-10 dB a 45 Hz, -6 dB a
+// 110 Hz, nunca bajo -12 dB). -24/-14 dejaba la pista "hueca" ~5 s.
 const String _bassKillFilter =
-    'equalizer=f=45:width_type=o:w=2.5:g=-24,equalizer=f=110:width_type=o:w=1.6:g=-14';
+    'equalizer=f=45:width_type=o:w=2.5:g=-10,equalizer=f=110:width_type=o:w=1.6:g=-6';
 
 // 🎚️ Banda del fundido en cambios manuales; la pista entrante elige el punto.
 const int _manualMixMinMs = 8000;
@@ -3241,7 +3243,15 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     if (entry.blocked) {
       _djTrace('MIDPOINT FUERA ${entry.note}');
     } else {
-      incomingRate = entry.incomingRate;
+      // 3.1.97: con menos de 2 % de diferencia de BPM B suena a 1.0x nativo.
+      incomingRate = transparentLockRate(
+        fadingBpm,
+        incomingBpm,
+        entry.incomingRate,
+      );
+      if (incomingRate != entry.incomingRate) {
+        _djTrace('SIN STRETCH (<2% BPM) 1.000x');
+      }
     }
     _mix.setRampBpm(
       _incomingNatBpm > 0 && incomingRate > 0
@@ -3293,7 +3303,11 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         nextMode,
         afOverride: dnaPlan == null || dnaPlan.legacy
             ? null
-            : _dnaIncomingAf(dnaPlan, incomingPlayer),
+            : _dnaIncomingAf(
+                dnaPlan,
+                incomingPlayer,
+                djFx: ref.read(mixFormulaLockedProvider),
+              ),
       );
       await incomingPlayer.setRate(incomingRate);
       await incomingPlayer.setVolume(0.0);
@@ -3431,6 +3445,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           ? GenreMixFx.none
           : genrePlan.fx,
       outgoingBpm: _extractBpm(fadingPath),
+      djFx: genrePlan.locked,
     );
     _applyAutoCurve();
   }
@@ -3506,13 +3521,19 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         incoming,
         chain.startsWith(clean)
             ? chain.substring(clean.length).replaceFirst(RegExp(r'^,'), '')
-            : (chain.contains('g=-24') ? _bassKillFilter : null),
+            : (chain.contains(_bassKillFilter) ? _bassKillFilter : null),
       );
       platform?.setProperty('af', chain);
     } catch (_) {}
   }
 
-  String _dnaIncomingAf(DnaDecision plan, Player incoming) {
+  // 3.1.97: sin efectos DJ (modo normal) Long Blend entra solo con el corte
+  // suave de graves; el recorte de agudos queda para Modo DJ (FIJO).
+  String _dnaIncomingAf(
+    DnaDecision plan,
+    Player incoming, {
+    bool djFx = false,
+  }) {
     final String base = ref
         .read(liveDjEqualizerProvider.notifier)
         .filterFor(incoming);
@@ -3521,7 +3542,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         [
           base,
           _bassKillFilter,
-          dnaHighShelfCut,
+          if (djFx) dnaHighShelfCut,
         ].where((String s) => s.isNotEmpty).join(','),
       );
     }
@@ -3545,6 +3566,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     int outgoingMixOutMs = 0,
     GenreMixFx genreFx = GenreMixFx.none,
     double outgoingBpm = 0,
+    bool djFx = false,
   }) async {
     final eqN = ref.read(liveDjEqualizerProvider.notifier);
     String inBase() => eqN.filterFor(incomingPlayer);
@@ -3554,14 +3576,18 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
     final bool useBassSwap =
         mixProfile == LiveDjMixMode.activeSync && (dnaBassSwap ?? true);
-    final String? dnaOutExtra = dnaKind == DnaKind.longBlend
+    // 3.1.97: los filtros DNA de la saliente (recorte de agudos, pasa-altos,
+    // eco) solo con efectos DJ; en modo normal el cruce es de volumen limpio.
+    final String? dnaOutExtra = !djFx
+        ? null
+        : dnaKind == DnaKind.longBlend
         ? dnaHighShelfCut
         : (dnaKind == DnaKind.filterSweep
               ? dnaHighpassMild
               : (dnaKind == DnaKind.echoOut && AfCaps.has('aecho')
                     ? dnaEchoChain(dnaEchoDelayMs, dnaEchoFeedback)
                     : null));
-    final String? dnaOutMid = dnaKind == DnaKind.filterSweep
+    final String? dnaOutMid = djFx && dnaKind == DnaKind.filterSweep
         ? dnaHighpassHard
         : null;
     // 3.1.85: la cadena de corte de graves de la entrante no se usaba

@@ -123,7 +123,7 @@ void main() {
     await t.pump();
     final Finder badge = find.byKey(const Key('dj-fx-badge'));
     expect(badge, findsOneWidget);
-    expect(find.text('FX · PHRASE 8 + HIGHPASS SWEEP · AUTO'), findsOneWidget);
+    expect(find.text('FX · PHRASE 8 + SIN FX · AUTO'), findsOneWidget);
     await t.tap(badge);
     await t.pump();
     expect(c.read(mixFormulaLockedProvider), isTrue);
@@ -165,7 +165,7 @@ void main() {
     await t.pump(const Duration(milliseconds: 400));
     final Finder badge = find.byKey(const Key('dj-fx-badge'));
     expect(badge, findsOneWidget);
-    expect(find.text('FX · PHRASE 8 + HIGHPASS SWEEP · AUTO'), findsOneWidget);
+    expect(find.text('FX · PHRASE 8 + SIN FX · AUTO'), findsOneWidget);
     await t.tap(badge);
     await t.pump();
     expect(c.read(mixFormulaLockedProvider), isTrue);
@@ -176,7 +176,7 @@ void main() {
     // Mismo estado que Spotify Pro: cambiarlo desde fuera se ve aqui.
     c.read(mixFormulaLockedProvider.notifier).state = false;
     await t.pump();
-    expect(find.text('FX · PHRASE 8 + HIGHPASS SWEEP · AUTO'), findsOneWidget);
+    expect(find.text('FX · PHRASE 8 + SIN FX · AUTO'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
 }

@@ -296,7 +296,12 @@ void main() {
     );
     final GenreMixPlan plan = spotifyMixFxPlan(s, MixFormula.dnaEnergy, null);
     expect(plan.formula, MixFormula.phraseGrid);
-    expect(plan.fx, GenreMixFx.highpassSweep);
+    // 3.1.97: en AUTO el cruce es limpio; el FX DJ queda para FIJO.
+    expect(plan.fx, GenreMixFx.none);
+    expect(
+      spotifyMixFxPlan(s, MixFormula.dnaEnergy, null, locked: true).fx,
+      GenreMixFx.highpassSweep,
+    );
     final ProviderContainer c = ProviderContainer(
       overrides: [liveDjProvider.overrideWith(() => _Live(s))],
     );
@@ -312,7 +317,7 @@ void main() {
     await t.pump();
     final Finder badge = find.byKey(const Key('dj-fx-badge'));
     expect(badge, findsOneWidget);
-    expect(find.text('FX · PHRASE 8 + HIGHPASS SWEEP · AUTO'), findsOneWidget);
+    expect(find.text('FX · PHRASE 8 + SIN FX · AUTO'), findsOneWidget);
     await t.tap(badge);
     await t.pump();
     expect(c.read(mixFormulaLockedProvider), isTrue);

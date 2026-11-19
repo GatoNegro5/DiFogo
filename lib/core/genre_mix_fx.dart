@@ -258,7 +258,7 @@ GenreMixPlan genrePlanForPaths({
 }) {
   final String? ka = outPath == null ? null : camelotFromPath(outPath);
   final String? kb = inPath == null ? null : camelotFromPath(inPath);
-  return pickGenreMix(
+  final GenreMixPlan plan = pickGenreMix(
     current: current,
     stationKey: stationKey,
     outPath: outPath,
@@ -268,7 +268,43 @@ GenreMixPlan genrePlanForPaths({
     harmonicClash: ka != null && kb != null && !camelotCompatible(ka, kb),
     locked: locked,
   );
+  // 3.1.97: en AUTO (modo normal / Spotify Pro) el motor y el badge usan el
+  // cruce limpio; los FX DJ quedan para Modo DJ con la mezcla fijada.
+  return GenreMixPlan(
+    formula: plan.formula,
+    fx: cleanGenreFx(plan.fx, djFx: locked),
+    reason: plan.reason,
+    locked: plan.locked,
+  );
 }
+
+/// 3.1.97 Mezcla transparente: efectos DJ encendidos solo cuando el usuario
+/// fijo el tipo de mezcla en la hoja Modo DJ (badge FIJO,
+/// [mixFormulaLockedProvider]). No existe otro interruptor de FX agresivos;
+/// en AUTO (por defecto) el cruce es de volumen + swap suave de graves.
+bool genreDjFxEnabled({required bool formulaLocked}) => formulaLocked;
+
+/// 3.1.97: FX del cruce segun el modo. Sin efectos DJ no hay pasa-altos,
+/// pasa-bajos, eco ni aire sobre la saliente: [GenreMixFx.none].
+GenreMixFx cleanGenreFx(GenreMixFx fx, {required bool djFx}) =>
+    genreDjFxEnabled(formulaLocked: djFx) ? fx : GenreMixFx.none;
+
+/// 3.1.97: diferencia relativa de BPM por debajo de la cual la entrante
+/// suena a 1.0x (sin time-stretch ni rampa de recuperacion post-mezcla).
+const double kNoStretchBpmDiff = 0.02;
+
+/// true si los dos BPM son conocidos y difieren menos de [kNoStretchBpmDiff]
+/// (relativo al BPM menor: criterio conservador).
+bool bpmNoStretch(double outBpm, double inBpm) {
+  if (outBpm <= 0 || inBpm <= 0) return false;
+  final double lo = outBpm < inBpm ? outBpm : inBpm;
+  return (outBpm - inBpm).abs() / lo < kNoStretchBpmDiff;
+}
+
+/// Rate final de la entrante: 1.0 con menos de 2 % de diferencia; si no, el
+/// rate del master lock ([lockRate]) sin cambios.
+double transparentLockRate(double outBpm, double inBpm, double lockRate) =>
+    bpmNoStretch(outBpm, inBpm) ? 1.0 : lockRate;
 
 /// 3.1.84: minimo de juego que debe quedar antes del punto de mezcla que
 /// recalcula el selector AUTO al terminar un cruce. Sin esto el punto podia

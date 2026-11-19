@@ -19,6 +19,7 @@ import '../core/audio/phase_lock.dart';
 import '../core/audio/tempo_drift.dart';
 import '../core/dj_trace.dart';
 import '../core/audio/dj_audio_handler.dart';
+import '../core/genre_mix_fx.dart' show transparentLockRate;
 import '../core/post_mix_tempo_recovery.dart';
 
 import '../core/audio_path.dart';
@@ -60,8 +61,10 @@ enum AutomixMixProfile { smoothBassSwap, manualOverride }
 // Se inyecta en libmpv vía la propiedad 'af'; cero DSP por muestras en Dart.
 // Corte de graves con `equalizer` (único filtro de libavfilter que trae el
 // libmpv empaquetado; `highpass` no existe y tumbaba toda la cadena `af`).
+// 3.1.97 mezcla transparente: corte musical suave (-10 dB a 45 Hz, -6 dB a
+// 110 Hz, nunca bajo -12 dB). -24/-14 dejaba la pista "hueca" ~5 s.
 const String _bassKillFilter =
-    'equalizer=f=45:width_type=o:w=2.5:g=-24,equalizer=f=110:width_type=o:w=1.6:g=-14';
+    'equalizer=f=45:width_type=o:w=2.5:g=-10,equalizer=f=110:width_type=o:w=1.6:g=-6';
 
 // ⏱️ Ventana DAWN automática: entra 5 s antes del SET OUT y se prolonga sobre
 // la cola de energía que `silencedetect` encuentre después del punto — nunca
@@ -2064,7 +2067,15 @@ class AutomixNotifier extends Notifier<AutomixState> {
   double _midpointRate(double fadingBpm, double incomingBpm) {
     final MidpointEntry entry = masterLockEntry(fadingBpm, incomingBpm);
     if (entry.blocked) djTrace('MIDPOINT FUERA ${entry.note}');
-    return entry.incomingRate;
+    // 3.1.97: con menos de 2 % de diferencia de BPM B suena a 1.0x nativo:
+    // sin scaletempo (mpv solo lo inserta con speed != 1) ni rampa post-mezcla.
+    final double rate = transparentLockRate(
+      fadingBpm,
+      incomingBpm,
+      entry.incomingRate,
+    );
+    if (rate != entry.incomingRate) djTrace('SIN STRETCH (<2% BPM) 1.000x');
+    return rate;
   }
 
   final Map<String, int> _exactDurCache = {};
