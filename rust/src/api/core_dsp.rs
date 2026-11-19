@@ -6714,12 +6714,29 @@ pub fn karaoke_separate(
     model_path: String,
     output_path: String,
 ) -> Result<bool, String> {
-    karaoke_separate_with(input_path, model_path, output_path, None)
+    karaoke_separate_vocals(input_path, model_path, output_path, None)
 }
 
-/// 3.1.91: ruta interna de `karaoke_separate` (sin binding FRB) con la pista
-/// vocal opcional; con None es exactamente la separacion de siempre.
-fn karaoke_separate_with(
+/// 3.1.93: `karaoke_separate` y, si `vocals_out_path` trae ruta, en el mismo
+/// pase la pista vocal WAV PCM 16-bit mono 16 kHz (3.1.91, `.part` + rename).
+/// El `_K` sale igual byte a byte que con `karaoke_separate`.
+pub fn karaoke_separate_with(
+    input_path: String,
+    model_path: String,
+    output_path: String,
+    vocals_out_path: Option<String>,
+) -> Result<bool, String> {
+    karaoke_separate_vocals(
+        input_path,
+        model_path,
+        output_path,
+        vocals_out_path.as_deref().filter(|s| !s.is_empty()).map(Path::new),
+    )
+}
+
+/// 3.1.91: ruta interna (sin binding FRB) con la pista vocal opcional; con
+/// None es exactamente la separacion de siempre.
+fn karaoke_separate_vocals(
     input_path: String,
     model_path: String,
     output_path: String,
@@ -6728,7 +6745,7 @@ fn karaoke_separate_with(
     if !on_worker_thread() {
         let vocals = vocals_out_path.map(Path::to_path_buf);
         return run_on_master_worker(move || {
-            karaoke_separate_with(input_path, model_path, output_path, vocals.as_deref())
+            karaoke_separate_vocals(input_path, model_path, output_path, vocals.as_deref())
         });
     }
     let _prio = PriorityGuard::enter();

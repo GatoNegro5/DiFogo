@@ -23,13 +23,14 @@ pub struct WhisperTranscript {
 }
 
 /// Transcribe un WAV PCM 16-bit mono 16 kHz con un modelo GGML de whisper.
-/// `language`: None o "auto" = deteccion automatica.
+/// `language`: None o "auto" = deteccion automatica. 3.1.93: `String` y no
+/// `&str` (con `Option<&str>` FRB genera un tipo opaco `Str` inusable).
 pub fn transcribe_vocals_wav(
-    wav_path: &str,
-    model_path: &str,
-    language: Option<&str>,
+    wav_path: String,
+    model_path: String,
+    language: Option<String>,
 ) -> Result<WhisperTranscript, String> {
-    transcribe_impl(wav_path, model_path, language)
+    transcribe_impl(&wav_path, &model_path, language.as_deref())
 }
 
 #[cfg(any(target_os = "windows", target_os = "macos"))]

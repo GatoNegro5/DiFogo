@@ -6,8 +6,10 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `analyze_and_tag`, `analyze_file`, `average_kbps`, `bitrate_at_most`, `consider_peak`, `dbg_err`, `decode_channels`, `decode_frames`, `detect_bpm`, `detect_validated`, `edge_silence_ms`, `edges_from`, `encode_span`, `ext_any`, `ext_text`, `finish`, `fix_bpm_range`, `flag_on`, `flush`, `forward`, `gain_for`, `gmx_key_ok`, `integrated_lufs`, `inverse`, `is_mastered`, `is_mp3`, `k_one`, `k_stages`, `k_weight`, `karaoke_backend`, `lame_bitrate`, `legacy_brand`, `lufs_of`, `measure_stream`, `ms_to_samples`, `new_no_upsample`, `new`, `new`, `new`, `new`, `num_from`, `open_format`, `open`, `opt_i32`, `process`, `push`, `push`, `run`, `set_ext`, `tick`, `to_mono`
-// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Analysis`, `Biquad`, `Decoded`, `KStft`, `LookLim`, `Mp3Sink`, `RecHandle`, `Resampler`, `StreamMeasure`
+// These functions are ignored because they are not marked as `pub`: `acf_at`, `analysis_current`, `analyze_and_tag`, `analyze_file`, `analyze_stream`, `ape_footer_len`, `ape_suffix_len`, `apply_double_guard`, `apply_low_priority`, `audio_byte_range`, `audio_mastered`, `auto_detect_body`, `average_from_audio`, `average_kbps`, `bitrate_at_most`, `blocking_decode_errors`, `cancel_now`, `cap_kbps`, `comb_score`, `complex_odf_hop`, `complex_odf`, `consider_peak`, `count_silent_edge_errors`, `create`, `cut_env`, `dbg_err`, `decode_channels`, `decode_errors_tolerable`, `decode_frames_ex`, `decode_frames`, `decode_tbpm_body`, `decoded_duration_ms`, `detect_bpm`, `detect_validated`, `discard_partial`, `eco_spawn`, `edge_silence_ms`, `edge_true_peak`, `edges_from`, `ellis_beats`, `encode_master_span`, `encode_master_stream`, `encode_mastered_mp3`, `encode_plain_mp3`, `encode_span`, `encoder_delay_padding`, `enter`, `enter`, `entry_tbpm`, `estimate_tempo_envs`, `estimate_tempo_in`, `estimate_tempo_track`, `ext_any`, `ext_text`, `finish`, `finish`, `finish`, `finish`, `finish`, `fix_bpm_range`, `flag_on`, `flush`, `fold_bpm_band`, `fold_display_bpm`, `format_tbpm`, `forward`, `gain_for`, `gmx_key_ok`, `grid_pass`, `guard_double_time`, `headless_master_folder`, `id3v2_prefix_len`, `integrated_lufs`, `interp_peak`, `inverse`, `is_mastered`, `is_mp3`, `k_one`, `k_stages`, `k_weight`, `kar_duty_pause_ms`, `kar_session_builder`, `kar_stream_core`, `kar_stream_with`, `karaoke_backend`, `karaoke_separate_vocals`, `kbps_exact`, `kbps_of_audio`, `lag_matching_prior`, `lame_bitrate`, `lame_player_skip`, `lame_probe_prefix`, `lame_scan`, `legacy_brand`, `limit_worker_threads`, `lufs_encode_decision`, `lufs_from_blocks`, `lufs_of`, `master_cancel_flag`, `master_rewrite_core`, `master_worker_cap`, `measure_path_grid_scoped`, `measure_path_grid`, `measure_stream`, `measure_tempo_grid`, `median_index`, `mpeg_bitrate_kbps`, `ms_to_samples`, `near_bpm`, `new_no_upsample`, `new`, `new`, `new`, `new`, `new`, `new`, `new`, `new`, `num_from`, `odf_stft_hop`, `on_worker_thread`, `onset_envelope`, `open_format`, `open`, `opt_i32`, `parabolic_lag`, `parse_tbpm_text`, `past`, `pcm_lufs`, `plan_span`, `priority_label`, `priority_slot`, `process`, `push_window`, `push`, `push`, `push`, `push`, `push`, `rayleigh_weight`, `read_audio`, `read_lame_delay_padding`, `rec_stream`, `reconcile_tbpm`, `refresh_analysis_tags`, `render_limited_span`, `render_stream`, `resolve_bpm`, `restore_priority`, `rewrite_from_tags`, `round_up_mpeg_kbps`, `run_on_master_worker`, `run`, `set_ext`, `skip`, `song_timeout`, `stamp_grid`, `store_priority_label`, `stored_bpm`, `stream_encode`, `stream_measure`, `syncsafe_u32`, `tbpm_in_id3`, `tempo_viterbi`, `tick`, `to_mono`, `try_lossless_repair`, `tune_limited_pcm`, `unbiased_acf`, `utf16_units`, `vbr_header_bytes`, `verify_measured`, `vocal_sample`, `vocal_wav_header`, `write_measured_duration`, `xing_encoder_tag`, `xing_or_vbri_bytes`, `xing_tag_delay_padding`
+// These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Analysis`, `AudioTake`, `Biquad`, `CancelWatch`, `Decoded`, `EcoThreads`, `EncodeTimes`, `GaplessTag`, `GridFeed`, `KAcc`, `KChan`, `KStft`, `LookLim`, `Mp3Batch`, `Mp3Sink`, `OdfStream`, `PriorityGuard`, `RecHandle`, `Resampler`, `SpanPlan`, `StoredBpm`, `StreamAnalysis`, `StreamMeasure`, `VocalWav`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `create`, `drop`, `drop`, `drop`, `join`
+// These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `put`, `put`
 
 /// Decodifica un tramo a PCM mono s16le a `target_rate` Hz (EQ adaptativa).
 Future<Uint8List> decodeMonoPcm({
@@ -25,9 +27,26 @@ Future<Uint8List> decodeMonoPcm({
 /// Duración EXACTA en ms. Un MP3 sin cabecera Xing (o con carátula grande)
 /// hace que libmpv la ESTIME por tamaño/bitrate y se pase. Si el contenedor
 /// trae el total de cuadros se usa; si no, se suman las duraciones de los
-/// paquetes (sin decodificar). Devuelve 0 si no se puede determinar.
+/// paquetes. En MP3 se cuentan los frames reales: la cabecera Xing miente
+/// cuando hay otro audio pegado al final. Devuelve 0 si no se puede determinar.
 Future<BigInt> exactDurationMs({required String inputPath}) =>
     RustLib.instance.api.crateApiCoreDspExactDurationMs(inputPath: inputPath);
+
+/// Marca si el TLEN original y el audio medido difieren más de 10 s.
+/// El valor es `tlen=<ms>,audio=<ms>`. Sin TLEN previo no hay marca.
+Future<String?> lenMismatchValue({
+  BigInt? previousTlenMs,
+  required BigInt audioMs,
+}) => RustLib.instance.api.crateApiCoreDspLenMismatchValue(
+  previousTlenMs: previousTlenMs,
+  audioMs: audioMs,
+);
+
+/// Reescribe el TLEN con la duración decodificada. No toca el audio.
+/// `audio=<ms>,tlen=<ms|none>,mismatch=<0|1>,wrote=<0|1>`.
+/// `tlen` es el valor que había antes de escribir.
+Future<String> rewriteTlen({required String inputPath}) =>
+    RustLib.instance.api.crateApiCoreDspRewriteTlen(inputPath: inputPath);
 
 /// Duración en ms para quien ya la usaba (mismo nombre). Ahora es exacta.
 Future<BigInt> getAudioDurationMs({required String inputPath}) => RustLib
@@ -89,14 +108,14 @@ Future<bool> clearWatermark({required String inputPath}) =>
     RustLib.instance.api.crateApiCoreDspClearWatermark(inputPath: inputPath);
 
 /// Convierte CUALQUIER audio decodificable (m4a/AAC, MP3, FLAC, WAV, OGG…)
-/// a MP3 CBR con LAME (calidad máxima). Decodifica en streaming (RAM plana).
-/// Reemplaza al antiguo `ffmpeg -vn -b:a 320k`.
-/// Con [master], el mismo pase recorta y deja −14 LUFS.
+/// a MP3 CBR con LAME. `master` aplica el mismo corte y −14 LUFS que
+/// Masterizar, en esta única codificación, y deja las marcas GMX. No escribe
+/// el BPM: eso sigue en `master_rewrite`.
 Future<bool> encodeToMp3({
   required String inputPath,
   required String outputPath,
   required int bitrateKbps,
-  bool master = false,
+  required bool master,
 }) => RustLib.instance.api.crateApiCoreDspEncodeToMp3(
   inputPath: inputPath,
   outputPath: outputPath,
@@ -106,11 +125,6 @@ Future<bool> encodeToMp3({
 
 Future<GmxMarks> readGmxMarks({required String inputPath}) =>
     RustLib.instance.api.crateApiCoreDspReadGmxMarks(inputPath: inputPath);
-
-/// Reescribe TLEN con la duración decodificada. No toca el audio.
-/// `audio=<ms>,tlen=<ms|none>,mismatch=<0|1>,wrote=<0|1>`.
-Future<String> rewriteTlen({required String inputPath}) =>
-    RustLib.instance.api.crateApiCoreDspRewriteTlen(inputPath: inputPath);
 
 /// Escribe una marca GMX de la lista blanca. No crea marcas arbitrarias.
 Future<bool> setGmxMark({
@@ -123,9 +137,17 @@ Future<bool> setGmxMark({
   value: value,
 );
 
-/// Recorta silencios y/o normaliza a −14 LUFS. Una sola generación si hacen
-/// falta los dos. `force_head_ms` / `force_tail_ms` < 0 = detectar; si no,
-/// cortar exactamente esos ms (el `_K` acompaña a la pista). Una pista que
+/// Lo que aplicó el último hilo de canción. Lo usa el log.
+Future<String> masterPriority() =>
+    RustLib.instance.api.crateApiCoreDspMasterPriority();
+
+/// La X pide cortar la canción en curso. El hilo lo ve en el siguiente bloque.
+Future<void> masterCancel() =>
+    RustLib.instance.api.crateApiCoreDspMasterCancel();
+
+/// Limpia la X antes de un lote nuevo.
+Future<void> masterArm() => RustLib.instance.api.crateApiCoreDspMasterArm();
+
 /// ya tiene `GMX_TRIM_MS` no se vuelve a cortar.
 Future<MasterRewrite> masterRewrite({
   required String inputPath,
@@ -157,6 +179,9 @@ Future<BigInt> outroEnergyEndMs({
 Future<bool> isMasterRecording() =>
     RustLib.instance.api.crateApiCoreDspIsMasterRecording();
 
+/// Graba la salida master a MP3 320 kbps. Windows: loopback WASAPI del
+/// dispositivo de salida. macOS: entrada de audio predeterminada.
+/// Android/iOS: no disponible (el sistema lo veta).
 Future<void> startMasterRecording({
   required String outputPath,
   required int bitrateKbps,
@@ -177,18 +202,6 @@ Future<double> karaokeProgress() =>
 Future<void> karaokeCancel() =>
     RustLib.instance.api.crateApiCoreDspKaraokeCancel();
 
-/// Limpia la X antes de un lote nuevo de masterizar.
-Future<void> masterArm() => RustLib.instance.api.crateApiCoreDspMasterArm();
-
-/// La X. El hilo de la canción la ve en el siguiente bloque.
-Future<void> masterCancel() =>
-    RustLib.instance.api.crateApiCoreDspMasterCancel();
-
-/// Prioridad baja aplicada en el hilo que llama (`nice10`, `qos-utility`,
-/// `ecoqos+background`, …). Sirve al log de la canción.
-Future<String> masterPriority() =>
-    RustLib.instance.api.crateApiCoreDspMasterPriority();
-
 /// Separa la voz y escribe la pista instrumental como MP3 320 kbps.
 /// `model_path` = UVR-MDX-NET-Inst_HQ_3.onnx. Sin Python ni FFmpeg.
 Future<bool> karaokeSeparate({
@@ -200,6 +213,25 @@ Future<bool> karaokeSeparate({
   modelPath: modelPath,
   outputPath: outputPath,
 );
+
+/// 3.1.93: `karaoke_separate` y, si `vocals_out_path` trae ruta, en el mismo
+/// pase la pista vocal WAV PCM 16-bit mono 16 kHz (3.1.91, `.part` + rename).
+/// El `_K` sale igual byte a byte que con `karaoke_separate`.
+Future<bool> karaokeSeparateWith({
+  required String inputPath,
+  required String modelPath,
+  required String outputPath,
+  String? vocalsOutPath,
+}) => RustLib.instance.api.crateApiCoreDspKaraokeSeparateWith(
+  inputPath: inputPath,
+  modelPath: modelPath,
+  outputPath: outputPath,
+  vocalsOutPath: vocalsOutPath,
+);
+
+abstract class RenderSink {
+  Future<void> put({required double l, required double r});
+}
 
 /// Rejilla de golpes de un tramo: BPM medido y posición (ms absolutos en la
 /// pista) de un golpe fuerte. Los demás golpes: `beat_ms + k * 60000 / bpm`.
@@ -243,7 +275,7 @@ class GmxMarks {
   final bool sealed;
   final int leadMs;
 
-  /// Vacío, o `decode_errors=N` si el audio no se recodificó.
+  /// Vacío, o `decode_errors=N` si el audio no se recodificó por paquetes rotos.
   final String reason;
 
   const GmxMarks({
@@ -326,8 +358,9 @@ class MasterRewrite {
   final int bitrateKbps;
   final bool rewritten;
 
-  /// Ms que el decodificador añade al inicio si ignora el tag LAME.
-  /// Con el tag escrito queda en 0: libmpv se lo salta.
+  /// Ms que el decodificador AÑADE al inicio si ignora el tag LAME.
+  /// Con el tag escrito, libmpv/FFmpeg se lo salta y esto queda en 0.
+  /// No es una constante: sale del delay que LAME anotó en el tag.
   final int residualMs;
 
   const MasterRewrite({
@@ -353,8 +386,8 @@ class MasterRewrite {
       lufs.hashCode ^
       lufsApplied.hashCode ^
       bitrateKbps.hashCode ^
-      residualMs.hashCode ^
-      rewritten.hashCode;
+      rewritten.hashCode ^
+      residualMs.hashCode;
 
   @override
   bool operator ==(Object other) =>

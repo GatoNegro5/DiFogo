@@ -6,8 +6,11 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
+import 'package:difogo/src/rust/api/whisper_lrc.dart' as rust_whisper;
 
 import '../core/library_guard.dart';
+import '../core/lyric_ai_align.dart' show parseTimedWordsJson;
+import '../core/lyric_match.dart' show lyricMayDownload;
 import '../providers/pipeline_provider.dart' show HeavyWorkGate;
 
 /// Karaoke IA 100 % en proceso (Rust + ONNX, modelo MDX-Net/UVR).
@@ -19,6 +22,13 @@ class KaraokeEngine {
       'https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/$modelFile';
   static const int _modelMinBytes = 60 * 1024 * 1024;
   static const String suffix = '_K';
+
+  /// 3.1.93: letra offline (whisper.cpp) en escritorio. Modelo base q5_1
+  /// (MIT), 59.707.625 B; menos de 55 MB = descarga cortada.
+  static const String whisperModelFile = 'ggml-base-q5_1.bin';
+  static const String whisperModelUrl =
+      'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$whisperModelFile';
+  static const int _whisperMinBytes = 55 * 1024 * 1024;
 
   /// La cola se detiene al terminar la pista en curso.
   static bool stopQueue = false;
@@ -90,18 +100,37 @@ class KaraokeEngine {
     return (karaokeNeedsWork(srcMs: srcMs, kMs: kMs), srcMs);
   }
 
-  static Future<String> ensureModel({void Function(double)? onProgress}) async {
+  static Future<String> ensureModel({void Function(double)? onProgress}) =>
+      _ensureDownload(modelFile, modelUrl, _modelMinBytes, onProgress);
+
+  /// 3.1.93: el modelo de Whisper va a la misma carpeta `models` que el
+  /// `.onnx`, una sola vez, con `.part` y rename (mismo patron).
+  static Future<String> ensureWhisperModel({
+    void Function(double)? onProgress,
+  }) => _ensureDownload(
+    whisperModelFile,
+    whisperModelUrl,
+    _whisperMinBytes,
+    onProgress,
+  );
+
+  static Future<String> _ensureDownload(
+    String file,
+    String url,
+    int minBytes,
+    void Function(double)? onProgress,
+  ) async {
     final base = await getApplicationSupportDirectory();
     final dir = Directory('${base.path}${Platform.pathSeparator}models');
     if (!dir.existsSync()) dir.createSync(recursive: true);
-    final path = '${dir.path}${Platform.pathSeparator}$modelFile';
+    final path = '${dir.path}${Platform.pathSeparator}$file';
     final f = File(path);
-    if (f.existsSync() && f.lengthSync() >= _modelMinBytes) return path;
+    if (f.existsSync() && f.lengthSync() >= minBytes) return path;
 
     final tmp = File('$path.part');
     final client = http.Client();
     try {
-      final resp = await client.send(http.Request('GET', Uri.parse(modelUrl)));
+      final resp = await client.send(http.Request('GET', Uri.parse(url)));
       if (resp.statusCode != 200) {
         throw Exception('Descarga del modelo falló (HTTP ${resp.statusCode})');
       }
@@ -114,7 +143,7 @@ class KaraokeEngine {
         if (total > 0) onProgress?.call(got / total);
       }
       await sink.close();
-      if (tmp.lengthSync() < _modelMinBytes) {
+      if (tmp.lengthSync() < minBytes) {
         throw Exception('Modelo incompleto');
       }
       if (f.existsSync()) f.deleteSync();
@@ -128,6 +157,176 @@ class KaraokeEngine {
     } finally {
       client.close();
     }
+  }
+
+  static bool get offlineLyricsPlatform =>
+      Platform.isWindows || Platform.isMacOS;
+
+  /// Mismo nombre que lee `MasterTrack.aiAlignFromSidecar` (cambia `.mp3`).
+  static String gmxWordsPathFor(String src) => src.replaceAll(
+    RegExp(r'\.mp3$', caseSensitive: false),
+    '.gmx_words.json',
+  );
+
+  /// Mismo nombre que usa Automix para la letra de la pista.
+  static String lrcPathFor(String src) =>
+      src.replaceAll(RegExp(r'\.mp3$|\.webm$', caseSensitive: false), '.lrc');
+
+  /// 3.1.93: pedir la voz solo en escritorio, para un mp3 fuera de la
+  /// biblioteca protegida y si falta el `.gmx_words.json` o el `.lrc`.
+  static bool wantsOfflineLyrics(String src, {required bool desktop}) {
+    if (!desktop || !src.toLowerCase().endsWith('.mp3')) return false;
+    if (isLibraryPath(src)) return false;
+    final bool haveWords = File(gmxWordsPathFor(src)).existsSync();
+    final bool haveLrc = lrcReadFile(src, lrcPathFor(src)).existsSync();
+    return !(haveWords && haveLrc);
+  }
+
+  /// Voz temporal: siempre en la carpeta temporal del sistema.
+  static String vocalsTempPath({String? tempDir}) {
+    final String dir = tempDir ?? Directory.systemTemp.path;
+    return '$dir${Platform.pathSeparator}difogo_${pid}_'
+        '${DateTime.now().microsecondsSinceEpoch}.vocals.wav';
+  }
+
+  static void deleteVocalsTemp(String vocals) {
+    for (final String p in <String>[vocals, '$vocals.part']) {
+      try {
+        final File f = File(p);
+        if (f.existsSync()) f.deleteSync();
+      } catch (e) {
+        debugPrint('[KARAOKE] no se pudo borrar $p: $e');
+      }
+    }
+  }
+
+  static void _writeAtomic(File f, String text) {
+    final File tmp = File('${f.path}.part');
+    try {
+      tmp.writeAsStringSync(text, flush: true);
+      tmp.renameSync(f.path);
+    } catch (_) {
+      try {
+        if (tmp.existsSync()) tmp.deleteSync();
+      } catch (_) {}
+      rethrow;
+    }
+  }
+
+  /// 3.1.93: un pase de karaoke con letra offline (best effort). Separa con
+  /// la voz a un temporal si hace falta, y tras el `_K` (si salio bien y no
+  /// cancelaron) baja el modelo y transcribe dentro de [gate]. Un error de la
+  /// letra solo se anota: el `_K` queda. El `.vocals.wav` (y su `.part`) se
+  /// borra SIEMPRE en el finally. Un error de [separate] se propaga.
+  static Future<OfflineLyricsOutcome> separateWithOfflineLyrics({
+    required String src,
+    required bool desktop,
+    required Future<bool> Function(String? vocalsPath) separate,
+    required OfflineModelFetcher fetchModel,
+    required OfflineTranscriber transcribe,
+    void Function()? onSeparated,
+    bool Function()? cancelled,
+    Future<void> Function(Future<void> Function() job)? gate,
+    String? tempDir,
+  }) async {
+    final String? vocals = wantsOfflineLyrics(src, desktop: desktop)
+        ? vocalsTempPath(tempDir: tempDir)
+        : null;
+    bool kOk = false;
+    bool words = false;
+    bool lrc = false;
+    String? error;
+    try {
+      kOk = await separate(vocals);
+      if (kOk) onSeparated?.call();
+      if (kOk && vocals != null && !(cancelled?.call() ?? false)) {
+        Future<void> job() async {
+          try {
+            final (bool w, bool l) = await _writeOfflineLyrics(
+              src: src,
+              vocalsPath: vocals,
+              fetchModel: fetchModel,
+              transcribe: transcribe,
+            );
+            words = w;
+            lrc = l;
+          } catch (e) {
+            error = '$e';
+            debugPrint('[KARAOKE] letra offline omitida: $e');
+          }
+        }
+
+        if (gate != null) {
+          await gate(job);
+        } else {
+          await job();
+        }
+      }
+    } finally {
+      if (vocals != null) deleteVocalsTemp(vocals);
+    }
+    return OfflineLyricsOutcome(
+      kOk: kOk,
+      wroteWords: words,
+      wroteLrc: lrc,
+      error: error,
+    );
+  }
+
+  static Future<(bool, bool)> _writeOfflineLyrics({
+    required String src,
+    required String vocalsPath,
+    required OfflineModelFetcher fetchModel,
+    required OfflineTranscriber transcribe,
+  }) async {
+    final File wav = File(vocalsPath);
+    if (!wav.existsSync() || wav.lengthSync() <= 44) {
+      throw StateError('sin pista vocal');
+    }
+    final String wordsPath = gmxWordsPathFor(src);
+    final String lrcPath = lrcPathFor(src);
+    // 3.1.72: nada junto al audio de la biblioteca protegida.
+    if (libraryWriteBlocked(wordsPath, what: 'Letra offline')) {
+      return (false, false);
+    }
+    final String model = await fetchModel();
+    final ({String wordsJson, String lrcText}) t = await transcribe(
+      vocalsPath,
+      model,
+    );
+    bool wroteWords = false;
+    bool wroteLrc = false;
+    final File wordsFile = File(wordsPath);
+    // Mismo lector que Masterizar; sin palabras no se escribe nada.
+    if (!wordsFile.existsSync() &&
+        parseTimedWordsJson(t.wordsJson).isNotEmpty) {
+      _writeAtomic(wordsFile, t.wordsJson);
+      wroteWords = true;
+    }
+    // Un .lrc que ya existe (del usuario o bajado) nunca se pisa.
+    if (t.lrcText.trim().isNotEmpty &&
+        lyricMayDownload(lrcExists: lrcReadFile(src, lrcPath).existsSync())) {
+      final File out = lrcWriteFile(src, lrcPath);
+      if (!out.existsSync()) {
+        _writeAtomic(out, t.lrcText);
+        wroteLrc = true;
+      }
+    }
+    return (wroteWords, wroteLrc);
+  }
+
+  static Future<({String wordsJson, String lrcText})> _rustTranscribe(
+    String wavPath,
+    String modelPath,
+  ) async {
+    final rust_whisper.WhisperTranscript t = await rust_whisper
+        .transcribeVocalsWav(
+          wavPath: wavPath,
+          modelPath: modelPath,
+          language: null,
+        );
+    debugPrint('[KARAOKE] letra offline: idioma ${t.detectedLang}');
+    return (wordsJson: t.wordsJson, lrcText: t.lrcText);
   }
 
   static List<String> _collect(String path) {
@@ -199,29 +398,64 @@ class KaraokeEngine {
           } catch (_) {}
         });
         try {
-          // 3.1.19: candado termico global; si cancelan mientras espera turno,
-          // no arranca la separacion.
-          final bool ran = await HeavyWorkGate.run('karaoke', () async {
-            if (stopQueue) return false;
-            final Future<bool> sep = rust_dsp.karaokeSeparate(
-              inputPath: src,
-              modelPath: model,
-              outputPath: karaokePathFor(src),
-            );
-            try {
-              await sep.timeout(karaokeTimeout(srcMs));
-            } on TimeoutException {
-              // 3.1.16: el timeout de Dart no frena a Rust: se cancela y se espera
-              // a que cierre el bloque en curso (borra su .part) antes de seguir.
-              await rust_dsp.karaokeCancel();
-              await sep.then((_) => true, onError: (_) => false);
-              rethrow;
-            }
-            return true;
-          });
-          if (!ran) break;
-          done++;
-          onStatus?.call('¡Instrumental Listo!: $label');
+          // 3.1.93: en escritorio la voz sale en el mismo pase a un temporal y,
+          // tras el _K, la letra offline corre en su propio turno del candado.
+          final OfflineLyricsOutcome res = await separateWithOfflineLyrics(
+            src: src,
+            desktop: offlineLyricsPlatform,
+            // 3.1.19: candado termico global; si cancelan mientras espera
+            // turno, no arranca la separacion.
+            separate: (String? vocals) => HeavyWorkGate.run(
+              'karaoke',
+              () async {
+                if (stopQueue) return false;
+                final Future<bool> sep = vocals == null
+                    ? rust_dsp.karaokeSeparate(
+                        inputPath: src,
+                        modelPath: model,
+                        outputPath: karaokePathFor(src),
+                      )
+                    : rust_dsp.karaokeSeparateWith(
+                        inputPath: src,
+                        modelPath: model,
+                        outputPath: karaokePathFor(src),
+                        vocalsOutPath: vocals,
+                      );
+                try {
+                  await sep.timeout(karaokeTimeout(srcMs));
+                } on TimeoutException {
+                  // 3.1.16: el timeout de Dart no frena a Rust: se cancela y se
+                  // espera a que cierre el bloque en curso (borra su .part).
+                  await rust_dsp.karaokeCancel();
+                  await sep.then((_) => true, onError: (_) => false);
+                  rethrow;
+                }
+                return true;
+              },
+            ),
+            onSeparated: () {
+              timer.cancel();
+              done++;
+              onStatus?.call('¡Instrumental Listo!: $label');
+            },
+            cancelled: () => stopQueue,
+            gate: (Future<void> Function() job) =>
+                HeavyWorkGate.run<void>('whisper', job),
+            fetchModel: () => ensureWhisperModel(
+              onProgress: (p) => onStatus?.call(
+                'Descargando modelo de letra (solo la 1.ª vez): '
+                '${(p * 100).round()}%',
+              ),
+            ),
+            transcribe: (String wav, String m) {
+              onStatus?.call('Transcribiendo letra: $label');
+              return _rustTranscribe(wav, m);
+            },
+          );
+          if (!res.kOk) break;
+          if (res.wroteWords || res.wroteLrc) {
+            onStatus?.call('Letra offline lista: $label');
+          }
         } catch (e) {
           debugPrint('🔴 [KARAOKE] $name: $e');
           onStatus?.call('Falló: $label');
@@ -237,6 +471,28 @@ class KaraokeEngine {
     }
     return done;
   }
+}
+
+/// 3.1.93: transcriptor y descargador inyectables (pruebas sin Rust ni red).
+typedef OfflineTranscriber =
+    Future<({String wordsJson, String lrcText})> Function(
+      String wavPath,
+      String modelPath,
+    );
+typedef OfflineModelFetcher = Future<String> Function();
+
+/// 3.1.93: resultado de un pase con letra offline (log y pruebas).
+class OfflineLyricsOutcome {
+  final bool kOk;
+  final bool wroteWords;
+  final bool wroteLrc;
+  final String? error;
+  const OfflineLyricsOutcome({
+    required this.kOk,
+    required this.wroteWords,
+    required this.wroteLrc,
+    this.error,
+  });
 }
 
 /// 3.1.08: decision por pista antes de separar.
