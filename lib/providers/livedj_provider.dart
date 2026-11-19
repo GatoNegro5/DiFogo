@@ -1139,6 +1139,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         knownBpm,
         keyOf: camelotFromPath,
         continueFrom: from,
+        // 3.2.1: micro-bloques de sub-genero/idioma tambien en el reorden.
+        subOf: harmonicBlockOf,
       ).tracks,
     );
     if (ordered == null) return;
@@ -4076,6 +4078,7 @@ Map<String, Object?> shuffleOffUi(Map<String, Object?> msg) {
     continueFrom: playing,
     startWaveUp: wave.waveUp,
     startInWave: wave.inWave,
+    subOf: harmonicBlockOf,
   );
   GatomixStore.commitShuffleMemory(order.tracks, anchor: playing);
   return <String, Object?>{

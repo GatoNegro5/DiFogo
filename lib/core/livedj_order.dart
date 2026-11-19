@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'audio_path.dart';
+import 'genre_stations.dart' show stationArtistKey, trackBlockKey;
 import 'queue_bpm.dart';
 import 'track_name_clean.dart';
 
@@ -53,6 +54,43 @@ String groupSignature(List<String> group) {
 /// Camelot del nombre (`8A`, `11B`), si el archivo lo trae.
 String? camelotFromPath(String path) => cleanTrackFileName(path).camelot;
 
+/// 3.2.1: continuidad por micro-bloques de sub-genero/idioma en el Shuffle
+/// armonico: +45 si la candidata sigue el sub-genero de la actual mientras
+/// el bloque lleva < 4 seguidas; desde 4 el mismo sub-genero resta 45 (se
+/// prefiere rotar). Sin candidata del bloque en rango de BPM manda el BPM.
+const double kHarmonicBlockBonus = 45;
+const int kHarmonicBlockMax = 4;
+
+/// 3.2.1: penalizacion suave si la siguiente repite el artista de la actual.
+const double kHarmonicSameArtistPenalty = 30;
+
+/// 3.2.1: sub-genero/idioma de una pista para `subOf` (ver [trackBlockKey]).
+String? harmonicBlockOf(String path) => trackBlockKey(path);
+
+/// Bono de bloque + penalizacion de artista repetido entre [current] y [p].
+/// [run] = pistas seguidas del bloque de [current] (incluida).
+double harmonicContinuityScore(
+  String current,
+  String p, {
+  String? Function(String path)? subOf,
+  int run = 1,
+}) {
+  double s = 0;
+  if (subOf != null) {
+    s += _blockScore(subOf(current), subOf(p), run);
+  }
+  final String x = stationArtistKey(current);
+  if (x.isNotEmpty && x == stationArtistKey(p)) {
+    s -= kHarmonicSameArtistPenalty;
+  }
+  return s;
+}
+
+double _blockScore(String? a, String? b, int run) {
+  if (a == null || a.isEmpty || b == null || a != b) return 0;
+  return run < kHarmonicBlockMax ? kHarmonicBlockBonus : -kHarmonicBlockBonus;
+}
+
 /// Misma casilla, ±1 en la rueda (con vuelta 12↔1) o el cambio A/B.
 bool camelotCompatible(String a, String b) {
   final (int, String)? pa = _camelot(a);
@@ -86,6 +124,8 @@ String shufflePairKey(String a, String b, {bool? foldCase}) =>
 /// Camelot compatible. Se puntúa y se elige al azar entre los 3 mejores.
 /// Unas [waveLength] pistas suben y otras tantas bajan. Sin BPM al final.
 /// Sin `_K`, sin duplicados, y nunca [playing].
+/// 3.2.1: con [subOf] arma micro-bloques de sub-genero/idioma (ver
+/// [kHarmonicBlockBonus]); sin [subOf] solo suma la penalizacion de artista.
 class HarmonicOrder {
   final List<String> tracks;
   final bool waveUp;
@@ -107,6 +147,7 @@ HarmonicOrder buildHarmonicShuffle(
   int waveLength = 20,
   bool startWaveUp = true,
   int startInWave = 0,
+  String? Function(String path)? subOf,
 }) {
   final Random random = rng ?? Random();
   final List<String> uniq = <String>[];
@@ -136,6 +177,8 @@ HarmonicOrder buildHarmonicShuffle(
   var up = startWaveUp;
   var inWave = startInWave < 0 ? 0 : startInWave;
   final int wave = waveLength < 1 ? 20 : waveLength;
+  // 3.2.1: pistas seguidas del bloque de la actual (incluida).
+  var run = 1;
 
   void placed() {
     inWave++;
@@ -143,6 +186,12 @@ HarmonicOrder buildHarmonicShuffle(
       up = !up;
       inWave = 0;
     }
+  }
+
+  void stepRun(String from, String to) {
+    if (subOf == null) return;
+    final String? a = subOf(from);
+    run = a != null && a.isNotEmpty && a == subOf(to) ? run + 1 : 1;
   }
 
   if (current == null || bpmOf(current) <= 0) {
@@ -182,6 +231,8 @@ HarmonicOrder buildHarmonicShuffle(
       wave: wave,
       up: up,
       inWave: inWave,
+      subOf: subOf,
+      run: run,
     );
   }
 
@@ -217,9 +268,12 @@ HarmonicOrder buildHarmonicShuffle(
       recentAge,
       random,
       foldCase,
+      subOf: subOf,
+      run: run,
     );
     known.remove(pick);
     order.add(pick);
+    stepRun(current, pick);
     current = pick;
     placed();
   }
@@ -255,8 +309,10 @@ String _pickTop3(
   Set<String> usedPairs,
   Map<String, int> recentAge,
   Random rng,
-  bool? foldCase,
-) {
+  bool? foldCase, {
+  String? Function(String path)? subOf,
+  int run = 1,
+}) {
   final String? ka = keyOf?.call(current);
   final List<(String, double)> scored = <(String, double)>[];
   for (final String p in cands) {
@@ -277,6 +333,7 @@ String _pickTop3(
     }
     final int? age = recentAge[audioPathKey(p, foldCase: foldCase)];
     if (age != null && age >= 1 && age <= 8) score -= (9 - age) * 22;
+    score += harmonicContinuityScore(current, p, subOf: subOf, run: run);
     scored.add((p, score));
   }
   scored.sort((a, b) => b.$2.compareTo(a.$2));
@@ -301,7 +358,18 @@ class _Tr {
   final String? key;
   final String id;
   final int ord;
-  const _Tr(this.path, this.bpm, this.key, this.id, this.ord);
+  // 3.2.1: bloque (sub-genero/idioma) y artista, calculados una vez.
+  final String? blk;
+  final String artist;
+  const _Tr(
+    this.path,
+    this.bpm,
+    this.key,
+    this.id,
+    this.ord, [
+    this.blk,
+    this.artist = '',
+  ]);
 }
 
 Map<String, Set<String>> _usedNextOf(Set<String> pairs) {
@@ -413,6 +481,8 @@ HarmonicOrder _harmonicRest({
   required int wave,
   required bool up,
   required int inWave,
+  String? Function(String path)? subOf,
+  int run = 1,
 }) {
   final List<_Tr> pool = <_Tr>[
     for (var i = 0; i < known.length; i++)
@@ -422,6 +492,8 @@ HarmonicOrder _harmonicRest({
         keyOf?.call(known[i]),
         audioPathKey(known[i], foldCase: foldCase),
         i,
+        subOf?.call(known[i]),
+        stationArtistKey(known[i]),
       ),
   ];
   final String curId = audioPathKey(currentPath, foldCase: foldCase);
@@ -431,11 +503,18 @@ HarmonicOrder _harmonicRest({
     keyOf?.call(currentPath),
     curId,
     -1,
+    subOf?.call(currentPath),
+    stationArtistKey(currentPath),
   );
   final Map<String, List<int>> byKey = <String, List<int>>{};
   for (var i = 0; i < pool.length; i++) {
     final String k = pool[i].key ?? '';
-    byKey.putIfAbsent(k.isEmpty ? '' : k, () => <int>[]).add(i);
+    // 3.2.1: con subOf el indice tambien separa por bloque, asi la ventana
+    // trae candidatas del mismo sub-genero aunque haya otras mas cercanas.
+    final String g = subOf == null
+        ? (k.isEmpty ? '' : k)
+        : '$k\u0002${pool[i].blk ?? ''}';
+    byKey.putIfAbsent(g, () => <int>[]).add(i);
   }
   for (final List<int> list in byKey.values) {
     list.sort((int a, int b) {
@@ -482,6 +561,10 @@ HarmonicOrder _harmonicRest({
     if (ban != null && ban.contains(t.id)) score -= 400;
     final int? age = recentAge[t.id];
     if (age != null && age >= 1 && age <= 8) score -= (9 - age) * 22;
+    if (subOf != null) score += _blockScore(cur.blk, t.blk, run);
+    if (cur.artist.isNotEmpty && cur.artist == t.artist) {
+      score -= kHarmonicSameArtistPenalty;
+    }
     return score;
   }
 
@@ -571,6 +654,8 @@ HarmonicOrder _harmonicRest({
       recentAge,
       random,
       foldCase,
+      subOf: subOf,
+      run: run,
     );
   }
 
@@ -604,6 +689,10 @@ HarmonicOrder _harmonicRest({
     dead++;
     if (dead > 512 && dead > aliveCount) compact();
     order.add(pool[pick].path);
+    final String? cb = current.blk;
+    run = subOf != null && cb != null && cb.isNotEmpty && cb == pool[pick].blk
+        ? run + 1
+        : 1;
     current = pool[pick];
     placed();
   }

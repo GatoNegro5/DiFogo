@@ -117,10 +117,13 @@ const Map<String, String> _legacyTitles = <String, String>{
 };
 
 String stationFold(String s) {
-  const String from = 'áéíóúüñÁÉÍÓÚÜÑ';
-  const String to = 'aeiouunaeiouun';
+  // 3.2.1: tambien dieresis y acentos europeos (Mago de Oz, Motorhead,
+  // Motley Crue) y marcas combinadas sueltas (nombres NFD de macOS).
+  const String from = 'áéíóúüñÁÉÍÓÚÜÑäöëïàèìòùâêîôûçÄÖËÏÀÈÌÒÙÂÊÎÔÛÇ';
+  const String to = 'aeiouunaeiouunaoeiaeiouaeioucaoeiaeiouaeiouc';
   final StringBuffer b = StringBuffer();
   for (final int r in s.runes) {
+    if (r >= 0x0300 && r <= 0x036F) continue;
     final String c = String.fromCharCode(r);
     final int i = from.indexOf(c);
     b.write(i < 0 ? c : to[i]);
@@ -656,13 +659,22 @@ String stationArtistKey(String path) {
   return a.trim();
 }
 
+/// 3.2.1: largo de los micro-bloques de sub-genero/idioma en las estaciones.
+const int kStationBlockMin = 3;
+const int kStationBlockMax = 4;
+
 /// 3.1.70 Smart Shuffle: Fisher-Yates y despues dispersion de artistas, para
 /// que nunca suenen dos canciones del mismo artista seguidas (salvo que ya
 /// no quede otra). [after] es la pista que suena justo antes de la primera.
+/// 3.2.1: micro-bloques de 3-4 pistas del mismo sub-genero/idioma
+/// ([blockOf], por defecto [trackBlockKey]) antes de rotar al siguiente,
+/// sin romper la regla de artistas. Con menos de dos bloques distintos el
+/// orden es el de la 3.1.70.
 List<String> stationSmartShuffle(
   List<String> tracks,
   Random rng, {
   String? after,
+  String? Function(String path)? blockOf,
 }) {
   final List<String> pool = List<String>.from(tracks);
   for (int i = pool.length - 1; i > 0; i--) {
@@ -683,6 +695,20 @@ List<String> stationSmartShuffle(
   for (final int v in left.values) {
     if (v > maxLeft) maxLeft = v;
   }
+  final String? Function(String path) bf = blockOf ?? trackBlockKey;
+  final List<String> blocks = <String>[
+    for (final String p in pool) bf(p) ?? '',
+  ];
+  final Map<String, int> blockLeft = <String, int>{};
+  for (final String bk in blocks) {
+    blockLeft[bk] = (blockLeft[bk] ?? 0) + 1;
+  }
+  final bool grouped =
+      blockLeft.length >= 2 && blockLeft.keys.any((String k) => k.isNotEmpty);
+  // La pista anterior abre el bloque: siguen 2 mas de su sub-genero.
+  String? curBlock = grouped && after != null ? (bf(after) ?? '') : null;
+  int run = curBlock == null ? 0 : 1;
+  int target = curBlock == null ? 0 : kStationBlockMin;
   final List<int> idx = List<int>.generate(pool.length, (int i) => i);
   final List<String> out = <String>[];
   String last = after == null ? '' : stationArtistKey(after);
@@ -697,12 +723,30 @@ List<String> stationSmartShuffle(
         if (force == null && e.key != last && e.value * 2 > r) force = e.key;
       }
     }
+    final String? forced = force;
+    bool artistOk(String k) =>
+        forced != null ? k == forced : (k.isEmpty || k != last);
     int pick = -1;
-    for (int q = 0; q < idx.length; q++) {
-      final String k = keys[idx[q]];
-      if (force != null ? k == force : (k.isEmpty || k != last)) {
-        pick = q;
-        break;
+    if (grouped && forced == null) {
+      // Bloque abierto (< meta): sigue el mismo sub-genero; bloque cumplido:
+      // rota a otro. Siempre sin repetir artista.
+      final bool stay = curBlock != null && run < target;
+      for (int q = 0; q < idx.length; q++) {
+        final int at = idx[q];
+        if (!artistOk(keys[at])) continue;
+        final bool same = blocks[at] == curBlock;
+        if (stay ? same : !same) {
+          pick = q;
+          break;
+        }
+      }
+    }
+    if (pick < 0) {
+      for (int q = 0; q < idx.length; q++) {
+        if (artistOk(keys[idx[q]])) {
+          pick = q;
+          break;
+        }
       }
     }
     if (pick < 0) pick = 0;
@@ -718,8 +762,33 @@ List<String> stationSmartShuffle(
       }
     }
     last = k;
+    if (grouped) {
+      final String bk = blocks[at];
+      if (bk == curBlock) {
+        run++;
+      } else {
+        curBlock = bk;
+        run = 1;
+        target = _stationBlockTarget(blockLeft[bk]!, rng);
+      }
+      blockLeft[bk] = blockLeft[bk]! - 1;
+    }
   }
   return out;
+}
+
+/// 3.2.1: largo del micro-bloque que abre un sub-genero con [rem] pistas:
+/// 3 o 4 al azar, prefiriendo el que no deja un resto de 1, 2 o 5 (que no
+/// se puede partir en bloques de 3-4). Con 4 o menos van todas juntas.
+int _stationBlockTarget(int rem, Random rng) {
+  if (rem <= kStationBlockMax) return rem;
+  bool bad(int l) => l == 1 || l == 2 || l == 5;
+  int t = kStationBlockMin + rng.nextInt(2);
+  if (bad(rem - t)) {
+    final int alt = t == kStationBlockMin ? kStationBlockMax : kStationBlockMin;
+    if (!bad(rem - alt)) t = alt;
+  }
+  return t;
 }
 
 /// Cambio de pista en Live DJ: la anterior pasa a sonadas y la sesion
@@ -764,7 +833,8 @@ String stationTrackTitle(String path) {
 const String kTrackGenreIndexName = 'difogo_track_genre_index.json';
 
 /// 3.1.70: version del clasificador guardada en cada entrada del indice.
-const int kTrackGenreIndexVersion = 2;
+/// 3.2.1: 3 (normalizacion de dieresis: niveles 2-4 se recalculan una vez).
+const int kTrackGenreIndexVersion = 3;
 
 String _normWords(String s) => stationFold(
   s,
@@ -2027,6 +2097,75 @@ class TrackGenreClassifier {
   }
 }
 
+/// 3.2.1: estacion y sub-genero real de una pista para armar micro-bloques.
+/// Carpeta especifica (Heavy Metal, Rock Ingles...) manda. Carpeta general
+/// de una estacion ("Todas", p. ej. `Rock/` o `<Rock>/Todas`): el
+/// diccionario de artistas y palabras clave da el sub-genero real si es de
+/// la misma estacion; un artista desconocido se queda en "Todas". Sin
+/// carpeta de estacion: la cascada de siempre. Solo nombres, sin disco.
+TrackGenre stationTrackGenre(String path, {String? root}) {
+  final List<String> dirs = TrackGenreClassifier._dirsUnder(path, root);
+  if (dirs.length >= 2) {
+    final MapEntry<String, String>? c = stationSubOfCanonical(
+      dirs[dirs.length - 2],
+      dirs.last,
+    );
+    if (c != null) {
+      return c.value == stationFallbackSub(c.key)
+          ? _refineFallbackTrack(path, c.key, c.value)
+          : TrackGenre(c.key, c.value, 0);
+    }
+  }
+  for (int i = dirs.length - 1; i >= 0; i--) {
+    if (isGenericMusicFolder(dirs[i])) continue;
+    final MapEntry<String, String>? m = _stationSubOfRaw(dirs[i]);
+    if (m == null) continue;
+    final String sub = TrackGenreClassifier._subForLanguage(
+      m.key,
+      m.value,
+      dirs,
+    );
+    if (sub == stationFallbackSub(m.key)) {
+      return _refineFallbackTrack(path, m.key, sub);
+    }
+    return TrackGenre(m.key, sub, 3);
+  }
+  return TrackGenreClassifier.classify(path, root: root);
+}
+
+TrackGenre _refineFallbackTrack(String path, String station, String fallback) {
+  final _LexEntry? a = _artistOf(path);
+  if (a != null) {
+    if (a.station == station) return TrackGenre(station, a.sub, 2);
+    // Rock ochentero del diccionario (Motley Crue, Bon Jovi de los 80...)
+    // dentro de una carpeta Rock general: rock en ingles.
+    if (station == 'rock' && a.station == 'ochenteras' && a.sub == 'Rock') {
+      return const TrackGenre('rock', 'Rock Clásico en Inglés', 2);
+    }
+  }
+  final TrackGenre? k = _keywordOf(path, 2);
+  if (k != null && k.stationId == station) return k;
+  return TrackGenre(station, fallback, 3);
+}
+
+final Map<String, String?> _blockKeyCache = <String, String?>{};
+
+/// 3.2.1: clave del micro-bloque de una pista (`estacion|sub-genero`; el
+/// sub-genero ya trae el idioma: Rock Clasico Espanol / en Ingles, Baladas
+/// En Espanol / En Ingles). null si queda en el bucket general ("Todas")
+/// o sin estacion: no arma bloque. Cache por ruta (solo nombres).
+String? trackBlockKey(String path) {
+  if (_blockKeyCache.containsKey(path)) return _blockKeyCache[path];
+  final TrackGenre g = stationTrackGenre(path);
+  final String? key =
+      !g.known || g.subGenreId == stationFallbackSub(g.stationId!)
+      ? null
+      : '${g.stationId}|${g.subGenreId}';
+  if (_blockKeyCache.length >= 20000) _blockKeyCache.clear();
+  _blockKeyCache[path] = key;
+  return key;
+}
+
 /// Indice rapido `difogo_track_genre_index.json`: clave = ruta normalizada,
 /// valido mientras el `mtime` no cambie.
 class TrackGenreIndex {
@@ -2062,7 +2201,12 @@ class TrackGenreIndex {
     if (e == null || e['mtime'] != mtimeMs) return null;
     // 3.1.70: el nivel 3 ahora mira el idioma de las carpetas: las entradas
     // de antes (sin 'v') se vuelven a clasificar una vez.
-    if (e['level'] == 3 && e['v'] != kTrackGenreIndexVersion) return null;
+    // 3.2.1: con la normalizacion de dieresis tambien los niveles 2 y 4
+    // (lexico / fallback). Nivel 0 (Curador) y 1 (tags) se conservan.
+    final Object? lv = e['level'];
+    if ((lv == 2 || lv == 3 || lv == 4) && e['v'] != kTrackGenreIndexVersion) {
+      return null;
+    }
     final Object? s = e['stationId'];
     final Object? g = e['subGenreId'];
     final Object? l = e['level'];
