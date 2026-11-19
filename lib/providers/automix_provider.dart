@@ -223,6 +223,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
   // 3.1.86: ultima lista recibida por syncDynamicPlaylist (cada build del
   // panel la manda; si no cambio no se recorre).
   List<String>? _lastSyncInput;
+  // 3.1.98: sesiones por firma de genero (cache del archivo
+  // automix_genres.json; se lee una vez en otro isolate).
+  Map<String, AutomixGenreSessionState>? _genreSessions;
   // 3.1.86: guardado con debounce de 800 ms para cambios menores.
   int _lastSnapWriteMs = 0;
   bool _snapDirty = false;
@@ -978,7 +981,33 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
   /// 3.1.86: cola nueva de generos. Borra la anterior, deja la pista 1
   /// lista en cuanto se conoce y suma el resto por lotes cediendo frames.
+  /// 3.1.98: antes de cambiar congela la sesion del genero saliente bajo su
+  /// firma; si el genero destino ya tiene sesion la retoma (pista, segundo,
+  /// cola sin las ya sonadas). Cola desde 0 solo sin sesion o agotado.
   Future<void> loadGenreQueue(String signature, List<String> paths) async {
+    final String? outSig = _genreSignature;
+    AutomixGenreSessionState? outgoing;
+    if (outSig != null && outSig.isNotEmpty && outSig != signature) {
+      Set<String> played = const <String>{};
+      try {
+        played = ref.read(playedTracksProvider);
+      } catch (_) {}
+      outgoing = freezeAutomixGenreSession(
+        playlist: state.playlist,
+        currentIndex: state.currentIndex,
+        positionMs: _sessionPositionMs > 0
+            ? _sessionPositionMs
+            : state.position.inMilliseconds,
+        played: played,
+        savedAtMs: DateTime.now().millisecondsSinceEpoch,
+      );
+    }
+    // Se lee antes de vaciar automix.json (la migracion lo necesita).
+    Map<String, AutomixGenreSessionState> sessions = await _genreSessionMap();
+    final AutomixGenreSessionState? saved = sessions[signature];
+    // El deck no se queda con la pista del genero anterior: Play abre la
+    // pista nueva (o la retomada en su segundo).
+    await parkIdleDecks();
     try {
       ref.read(automixQueueProvider.notifier).clearQueue();
     } catch (_) {
@@ -987,7 +1016,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _genreSignature = signature;
     final List<String> clean = await automixLoadInChunks(
       paths,
-      onFirst: (String first) {
+      onFirst: saved != null
+          ? null
+          : (String first) {
         state = state.copyWith(
           playlist: <String>[first],
           currentIndex: 0,
@@ -998,26 +1029,83 @@ class AutomixNotifier extends Notifier<AutomixState> {
         );
       },
     );
-    if (clean.isEmpty) return;
+    if (outgoing != null && outSig != null) {
+      sessions = putAutomixGenreSession(sessions, outSig, outgoing);
+    }
+    if (clean.isEmpty) {
+      _storeGenreSessions(sessions);
+      return;
+    }
+    final AutomixGenreResume? resume = saved == null
+        ? null
+        : await resumeAutomixGenreSessionAsync(saved, clean);
+    if (saved != null && resume == null) {
+      // Genero agotado: cola nueva desde 0 y ya sonadas en cero.
+      sessions = removeAutomixGenreSession(sessions, signature);
+    }
+    _storeGenreSessions(sessions);
+    final List<String> queue = resume?.playlist ?? clean;
     try {
-      ref.read(automixQueueProvider.notifier).restoreQueue(clean);
+      ref.read(automixQueueProvider.notifier).restoreQueue(queue);
     } catch (_) {
       releaseQueueHold();
     }
+    if (resume != null) {
+      try {
+        ref.read(playedTracksProvider.notifier).replaceAll(resume.played);
+      } catch (_) {}
+    }
     _genreSignature = signature;
     _lastSyncInput = null;
+    final int posMs = resume?.positionMs ?? 0;
     state = state.copyWith(
-      playlist: clean,
+      playlist: queue,
       currentIndex: 0,
-      currentTrackPath: clean.first,
+      currentTrackPath: queue.first,
+      position: Duration(milliseconds: posMs),
+      lyrics: const <LyricLine>[],
+      activeLyricIndex: -1,
     );
-    _sessionPositionMs = 0;
+    // 3.1.98: el segundo retomado se guarda y Play lo usa (deck vacio).
+    _queueRestart = false;
+    _sessionPositionMs = posMs;
+    _sessionWasPlaying = false;
+    _freezePersist = true;
     await _saveSnapshot();
-    unawaited(_loadLyrics(clean.first).catchError((Object _) {}));
-    unawaited(_loadTrackMetadata(clean.first).catchError((Object _) {}));
-    if (state.mixStrategy == MixStrategy.random) {
+    if (resume != null) {
+      djTrace('GENERO REANUDA $signature en $posMs ms (${queue.length})');
+    }
+    unawaited(_loadLyrics(queue.first).catchError((Object _) {}));
+    unawaited(_loadTrackMetadata(queue.first).catchError((Object _) {}));
+    if (resume == null && state.mixStrategy == MixStrategy.random) {
       unawaited(_shufflePlaylistAsync().catchError((Object _) {}));
     }
+  }
+
+  /// 3.1.98: mapa de sesiones por genero (una lectura, en otro isolate).
+  Future<Map<String, AutomixGenreSessionState>> _genreSessionMap() async {
+    final Map<String, AutomixGenreSessionState>? cached = _genreSessions;
+    if (cached != null) return cached;
+    try {
+      return _genreSessions = await readAutomixGenreSessionsAsync(
+        _getSessionFilePath(),
+      );
+    } catch (_) {
+      return _genreSessions = <String, AutomixGenreSessionState>{};
+    }
+  }
+
+  /// 3.1.98: guarda el mapa (atomico y en fila, solo al cambiar de genero).
+  void _storeGenreSessions(Map<String, AutomixGenreSessionState> sessions) {
+    _genreSessions = sessions;
+    try {
+      unawaited(
+        SessionStore.writeJson(
+          automixGenreSessionsPathFor(_getSessionFilePath()),
+          automixGenreSessionsToJson(sessions),
+        ).catchError((Object _) {}),
+      );
+    } catch (_) {}
   }
 
   Future<void> applyManualLyrics(String audioPath, String syncedLyrics) async {
@@ -3027,6 +3115,13 @@ class PlayedTracksNotifier extends Notifier<Set<String>> {
       state = newState;
       _saveSession(newState);
     }
+  }
+
+  /// 3.1.98: lo ya sonado del genero que vuelve (un solo guardado).
+  void replaceAll(Iterable<String> tracks) {
+    final Set<String> next = <String>{...tracks};
+    state = next;
+    _saveSession(next);
   }
 
   /// 3.1.86 (ANR): una carpeta entera en una pasada y un solo guardado
