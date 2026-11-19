@@ -1,13 +1,11 @@
 import 'dart:io';
 import 'dart:math';
 import 'dart:async';
-import 'dart:convert';
 
 // 🛡️ FIX: Se cambió foundation.dart por material.dart para dar acceso al BuildContext
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:http/http.dart' as http;
 import 'package:flutter/foundation.dart';
 import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
 
@@ -904,7 +902,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
     try {
       paths = collect != null
           ? await collect(key, subs)
-          : await ref.read(vibeHubProvider.notifier).stationTracksFor(key, subs);
+          : await ref
+                .read(vibeHubProvider.notifier)
+                .stationTracksFor(key, subs);
     } catch (_) {
       return action;
     }
@@ -966,57 +966,6 @@ class AutomixNotifier extends Notifier<AutomixState> {
     if (state.mixStrategy == MixStrategy.random) {
       unawaited(_shufflePlaylistAsync().catchError((Object _) {}));
     }
-  }
-
-  Future<List<Map<String, dynamic>>> searchLyrics(String query) async {
-    List<Map<String, dynamic>> allResults = [];
-    try {
-      final uriGlobal = Uri.parse(
-        'https://lrclib.net/api/search?q=${Uri.encodeComponent(query.trim())}',
-      );
-      final resGlobal = await http
-          .get(uriGlobal)
-          .timeout(const Duration(seconds: 5));
-      if (resGlobal.statusCode == 200) {
-        allResults.addAll(
-          List<Map<String, dynamic>>.from(jsonDecode(resGlobal.body)),
-        );
-      }
-
-      if (!query.contains('-')) {
-        final uriArtist = Uri.parse(
-          'https://lrclib.net/api/search?artist_name=${Uri.encodeComponent(query.trim())}',
-        );
-        final resArtist = await http
-            .get(uriArtist)
-            .timeout(const Duration(seconds: 5));
-        if (resArtist.statusCode == 200) {
-          allResults.addAll(
-            List<Map<String, dynamic>>.from(jsonDecode(resArtist.body)),
-          );
-        }
-      } else {
-        final parts = query.split('-');
-        final uriAdvanced = Uri.parse(
-          'https://lrclib.net/api/search?artist_name=${Uri.encodeComponent(parts[0].trim())}&track_name=${Uri.encodeComponent(parts.sublist(1).join(' ').trim())}',
-        );
-        final resAdvanced = await http
-            .get(uriAdvanced)
-            .timeout(const Duration(seconds: 5));
-        if (resAdvanced.statusCode == 200) {
-          allResults.addAll(
-            List<Map<String, dynamic>>.from(jsonDecode(resAdvanced.body)),
-          );
-        }
-      }
-
-      final uniqueById = <int, Map<String, dynamic>>{};
-      for (var item in allResults) {
-        if (item['id'] != null) uniqueById[item['id']] = item;
-      }
-      return uniqueById.values.toList();
-    } catch (_) {}
-    return [];
   }
 
   Future<void> applyManualLyrics(String audioPath, String syncedLyrics) async {
@@ -2347,9 +2296,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
     if (_lyricPrime.length <= kLyricPrimeKeep) return;
     final String? cur = state.currentTrackPath;
     final String? nxt = state.nextTrackPath;
-    _lyricPrime.removeWhere(
-      (String k, _) => k != keep && k != cur && k != nxt,
-    );
+    _lyricPrime.removeWhere((String k, _) => k != keep && k != cur && k != nxt);
   }
 
   Future<void> _primeLyrics(String audioPath) async {
@@ -2411,16 +2358,27 @@ class AutomixNotifier extends Notifier<AutomixState> {
     ref.read(automixLyricApproxProvider.notifier).state = approx;
   }
 
+  /// 3.1.94: sin red. Letra local (Whisper) en 2do plano dentro del
+  /// HeavyWorkGate (nunca en paralelo con otro trabajo pesado); si al tocarle
+  /// el turno la pista ya no es la actual ni la siguiente, no corre. En la
+  /// biblioteca protegida el `.lrc` va al espejo (lrcWriteFile).
   Future<void> _fetchLyricsAsync(String audioPath, String lrcPath) async {
-    final File have = lrcReadFile(audioPath, lrcPath);
-    if (!lyricMayDownload(lrcExists: have.existsSync())) return;
+    if (!lyricMayDownload(
+      lrcExists: lrcReadFile(audioPath, lrcPath).existsSync(),
+    )) {
+      return;
+    }
     try {
-      final LyricChoice choice = await ref
+      final String? wrote = await ref
           .read(nlpWorkerProvider)
-          .lookupSafeLyric(audioPath);
-      if (!choice.hasText) return;
-      if (!lyricMayDownload(lrcExists: have.existsSync())) return;
-      await lrcWriteFile(audioPath, lrcPath).writeAsString(choice.fileText);
+          .generateLocalLyricsOffline(
+            audioPath,
+            lrcPath: lrcPath,
+            shouldRun: () =>
+                sameAudioPath(state.currentTrackPath, audioPath) ||
+                sameAudioPath(state.nextTrackPath, audioPath),
+          );
+      if (wrote == null) return;
       _lyricPrime.remove(audioPath);
       if (state.currentTrackPath == audioPath) {
         await _loadLyrics(audioPath);

@@ -7,7 +7,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/discovery_dedup_controller.dart';
 import '../core/genre_stations.dart'
     show isStationSub, registerSavedTrack, stationSaveDir, stationSubOf;
-import '../core/library_guard.dart' show lrcWriteFile;
 import '../core/lyric_files.dart' show lrcPathForAudio;
 import '../core/mode_session.dart' show sessionDir;
 import '../core/radio_one_click.dart';
@@ -349,15 +348,21 @@ class CuratorNotifier extends Notifier<CuratorState> {
   /// Letra en 2do plano: la falsa de las pruebas, ninguna en pruebas con
   /// registro falso (sin red), o la real.
   RadioLyricFetcher? get _lyricJob =>
-      debugLyricFetcher ?? (debugCuratorRegister != null ? null : _fetchLyricFor);
+      debugLyricFetcher ??
+      (debugCuratorRegister != null ? null : _fetchLyricFor);
 
   /// Letra de [audioPath] en 2do plano, junto al audio (o en el espejo si
-  /// el audio estuviera en la biblioteca protegida).
+  /// el audio estuviera en la biblioteca protegida). 3.1.94: sin red; Whisper
+  /// local en el HeavyWorkGate (serializado); si el archivo ya no esta al
+  /// tocarle el turno, no corre.
   Future<void> _fetchLyricFor(String audioPath) async {
-    final choice = await ref.read(nlpWorkerProvider).lookupSafeLyric(audioPath);
-    if (!choice.hasText) return;
-    final String lrc = lrcPathForAudio(audioPath);
-    await lrcWriteFile(audioPath, lrc).writeAsString(choice.fileText);
+    await ref
+        .read(nlpWorkerProvider)
+        .generateLocalLyricsOffline(
+          audioPath,
+          lrcPath: lrcPathForAudio(audioPath),
+          shouldRun: () => File(audioPath).existsSync(),
+        );
   }
 
   /// 3.1.87 [Guardar] en 1 clic: copia la pista de la Radio que suena a

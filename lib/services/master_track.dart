@@ -159,6 +159,8 @@ class MasterTrack {
     } else if (withLyrics) {
       onStage?.call('LYRICS');
       final worker = ref.read(nlpWorkerProvider);
+      // 3.1.94: sin .lrc, processSingleFileStatus -> generateLocalLyricsOffline
+      // (Whisper local, en el HeavyWorkGate). Nunca LRCLIB ni internet.
       lyric = await worker.processSingleFileStatus(current);
       detail = worker.lastDetail;
       final String? lyrMark = switch (lyric) {
@@ -170,11 +172,8 @@ class MasterTrack {
         LyricStatus.kept => null,
         LyricStatus.doubt => null,
       };
-      if ((lyrMark == 'NONE' || lyrMark == 'RETRY') &&
-          await worker.saveApproxLyric(current, _lrcPath(current))) {
-        detail = worker.lastDetail;
-        await _mark(current, 'GMX_LYR', kLyrApprox);
-      } else if (lyric != LyricStatus.doubt && lyrMark != null) {
+      // 3.1.94: sin letra aproximada de LRCLIB.
+      if (lyric != LyricStatus.doubt && lyrMark != null) {
         await _mark(current, 'GMX_LYR', lyrMark);
       } else if (lyric != LyricStatus.doubt) {
         final marks = await rust_dsp.readGmxMarks(inputPath: current);
@@ -402,14 +401,8 @@ class MasterTrack {
       // 1) La búsqueda de Automix y luego TODOS los candidatos (con respaldos
       //    sin año / intercambiado). LRCLIB trae tiempos del audio original:
       //    se aplica el mismo recorte que ya tiene el archivo.
+      // 3.1.94: ya no hay candidatos de LRCLIB (cero peticiones de letras).
       final List<String> candidates = <String>[];
-      if (realigned == null) {
-        final choice = await worker.lookupSafeLyric(path);
-        if (choice.hasText && choice.kind != LyricKind.plain) {
-          candidates.add(choice.fileText);
-        }
-        candidates.addAll(await worker.syncedLyricCandidates(path));
-      }
       String? fixed =
           realigned ??
           firstPassingLyric(
