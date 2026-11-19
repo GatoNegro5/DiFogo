@@ -26,6 +26,14 @@ class DjAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   /// Solo recents/cerrar tarea. Home/minimizar no dispara esto.
   Future<void> Function()? onAppDismissed;
 
+  /// 3.1.96: Play del volante/Bluetooth en frio (ningun motor reclamo aun la
+  /// sesion): restaura y suena la ultima sesion guardada. Lo conecta el
+  /// guardian de foco al arrancar.
+  Future<void> Function()? onColdPlay;
+
+  /// 3.1.96: true cuando un motor ya reclamo la sesion de medios.
+  bool get hasOwner => _owner != null;
+
   DjAudioHandler() {
     playbackState.add(
       playbackState.value.copyWith(
@@ -112,6 +120,11 @@ class DjAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
   Future<void> play() async {
     // Si ya suena, "play" no debe pausar (el icono exterior puede ir atrasado).
     if (isOwnerPlaying?.call() == true) return;
+    final Future<void> Function()? cold = onColdPlay;
+    if (_owner == null && cold != null) {
+      await cold();
+      return;
+    }
     onPlayPause?.call();
   }
 

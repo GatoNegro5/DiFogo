@@ -46,6 +46,7 @@ import 'equalizer_provider.dart';
 import '../core/library_guard.dart';
 import 'mix_formula.dart' show MixFormula, kMixConLetraFormula, snapCueToBeat;
 import '../services/adaptive_eq.dart' show AdaptiveEq;
+import '../services/audio_interruption.dart' show OutputFix, ensureDeckOutput;
 
 // 🛡️ FIX: Dependencia para dspWorkerProvider
 
@@ -376,6 +377,52 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
   bool _pausedByInterruption = false;
 
+  // 3.1.96: la salida de audio cambio (Bluetooth <-> parlante): el proximo
+  // Play o reanudacion recarga la salida de mpv (solo Android).
+  bool _outputDirty = false;
+
+  void markOutputDirty() {
+    _outputDirty = true;
+  }
+
+  /// 3.1.96: la pausa del sistema no se reanudara (Bluetooth fuera, foco
+  /// perdido): la marca no queda colgada.
+  void dropInterruptionResume() {
+    _pausedByInterruption = false;
+  }
+
+  /// 3.1.96 (Android): tras Play/reanudar, `ao-reload` si la salida cambio o
+  /// si la posicion no avanza; en un cruce, ambos decks sin reabrir.
+  Future<void> _guardOutput() async {
+    if (!Platform.isAndroid) return;
+    final bool dirty = _outputDirty;
+    _outputDirty = false;
+    final bool mixing = _mix.armed || _isCrossfading;
+    try {
+      final List<Player> decks = mixing
+          ? deckPlayers.where((Player p) => _deckPlaying(() => p)).toList()
+          : <Player>[_activeAutomix];
+      for (final Player d in decks) {
+        final OutputFix fix = await ensureDeckOutput(
+          d,
+          dirty: dirty,
+          reopenPath: mixing ? null : state.currentTrackPath,
+        );
+        if (fix != OutputFix.none) djTrace('AUDIO OUT ${fix.name}');
+      }
+    } catch (_) {}
+  }
+
+  /// 3.1.96: Play del volante en frio. Espera la sesion guardada y suena;
+  /// false si no hay nada que sonar.
+  Future<bool> coldPlayFromSession() async {
+    await _persistReady;
+    if (state.isPlaying) return true;
+    if (state.currentTrackPath == null) return false;
+    await togglePlayPause();
+    return true;
+  }
+
   /// Llamada/alarma/otra app: pausa ambos decks (también a mitad de un cruce)
   /// sin tocar cola, posición ni sesión. Devuelve `true` si estaba sonando.
   Future<bool> pauseForInterruption() async {
@@ -403,6 +450,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       await _playDecksHeld();
       final String? line = _mix.resumeAll();
       if (line != null) djTrace(line);
+      unawaited(_guardOutput());
       return;
     }
     _mix.resumeAll();
@@ -415,6 +463,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       } catch (_) {}
     }
     unawaited(_planVariableMixWindow());
+    unawaited(_guardOutput());
   }
 
   void _releaseMix() {
@@ -2387,9 +2436,13 @@ class AutomixNotifier extends Notifier<AutomixState> {
   }
 
   Future<void> togglePlayPause() async {
+    // 3.1.96: la orden del usuario reemplaza la pausa del sistema.
+    _pausedByInterruption = false;
     if (_mix.armed) {
-      if (_mix.paused) await _claimPlayback();
+      final bool resuming = _mix.paused;
+      if (resuming) await _claimPlayback();
       await _toggleMixHold();
+      if (resuming) unawaited(_guardOutput());
       return;
     }
     if (state.currentTrackPath == null) return;
@@ -2412,6 +2465,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       } catch (e) {
         debugPrint("🔴 [AUTOMIX OPEN]: $e");
       }
+      unawaited(_guardOutput());
       _saveSnapshot();
       return;
     }
@@ -2441,6 +2495,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
                 : 0);
       await _forceOpenAndPlay(path, seekMs: resumeMs);
     }
+    unawaited(_guardOutput());
     if (!state.isPlaying) _saveSnapshot();
   }
 

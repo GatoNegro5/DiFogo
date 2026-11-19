@@ -40,6 +40,7 @@ import '../core/exact_mix.dart';
 import '../core/genre_mix_fx.dart';
 import '../core/post_mix_tempo_recovery.dart';
 import '../services/adaptive_eq.dart' show AdaptiveEq;
+import '../services/audio_interruption.dart' show OutputFix, ensureDeckOutput;
 import '../services/track_tags.dart';
 import '../core/audio/dj_audio_handler.dart';
 import 'equalizer_provider.dart';
@@ -224,6 +225,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   bool _sessionWasPlaying = false;
   bool _freezePersist = false;
   bool _sessionHydrated = false;
+  // 3.1.96: sesion leida (Play del volante en frio la espera).
+  Future<void> _persistReady = Future<void>.value();
   int _lastOsSecond = -1;
   // Regulación sutil de tempo (ver tempo_drift.dart) y BPM real de la pista
   // entrante (etiqueta/nombre o medido por beat_grid).
@@ -259,7 +262,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     }
 
     _attachListeners(_playerA);
-    _initPersistence();
+    _persistReady = _initPersistence();
     attachPlaybackExclusion();
 
     // TIPO DE MEZCLA persistente: cada cambio de fórmula baja a disco.
@@ -681,6 +684,56 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
   bool _pausedByInterruption = false;
 
+  // 3.1.96: la salida de audio cambio (Bluetooth <-> parlante): el proximo
+  // Play o reanudacion recarga la salida de mpv (solo Android).
+  bool _outputDirty = false;
+
+  void markOutputDirty() {
+    _outputDirty = true;
+  }
+
+  /// 3.1.96: la pausa del sistema no se reanudara (Bluetooth fuera, foco
+  /// perdido): la marca no queda colgada.
+  void dropInterruptionResume() {
+    _pausedByInterruption = false;
+  }
+
+  /// 3.1.96 (Android): tras Play/reanudar, `ao-reload` si la salida cambio o
+  /// si la posicion no avanza; en un cruce, ambos decks sin reabrir.
+  Future<void> _guardOutput() async {
+    if (!Platform.isAndroid) return;
+    final bool dirty = _outputDirty;
+    _outputDirty = false;
+    final bool mixing = _mix.armed || _isCrossfading;
+    try {
+      final List<Player> decks = mixing
+          ? deckPlayers.where((Player p) => _deckPlaying(() => p)).toList()
+          : <Player>[_activePlayer];
+      for (final Player d in decks) {
+        final OutputFix fix = await ensureDeckOutput(
+          d,
+          dirty: dirty,
+          reopenPath: mixing ? null : state.currentTrackPath,
+        );
+        if (fix != OutputFix.none) _djTrace('AUDIO OUT ${fix.name}');
+      }
+    } catch (_) {}
+  }
+
+  /// 3.1.96: Play del volante en frio. Espera la sesion guardada y suena;
+  /// false si no hay nada que sonar.
+  Future<bool> coldPlayFromSession() async {
+    await _persistReady;
+    if (state.isPlaying) return true;
+    if (state.currentTrackPath == null &&
+        state.queue.isEmpty &&
+        !state.radioOn) {
+      return false;
+    }
+    await togglePlayPause();
+    return true;
+  }
+
   /// Llamada/alarma/otra app: pausa ambos decks (también a mitad de un cruce)
   /// sin tocar cola, posición ni sesión. Devuelve `true` si estaba sonando.
   Future<bool> pauseForInterruption() async {
@@ -707,6 +760,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       await _playDecksHeld();
       final String? line = _mix.resumeAll();
       if (line != null) _djTrace(line);
+      unawaited(_guardOutput());
       return;
     }
     _mix.resumeAll();
@@ -718,6 +772,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         await _standbyPlayer.play();
       } catch (_) {}
     }
+    unawaited(_guardOutput());
   }
 
   void _releaseMix() {
@@ -1161,7 +1216,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       // la misma ruta (mayúsculas, separadores) y las _K se quitan al abrir.
       // 3.1.88: una estacion grande se resuelve en un isolate (antes un
       // existsSync por pista en el hilo de la interfaz).
-      final LiveDjSessionRestore restored = queuePaths.length > kAutomixSyncLimit
+      final LiveDjSessionRestore restored =
+          queuePaths.length > kAutomixSyncLimit
           ? await restoreLiveDjSessionAsync(
               Map<String, dynamic>.from(data),
               LiveDjMixStrategy.values.length,
@@ -1888,9 +1944,13 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   }
 
   Future<void> togglePlayPause() async {
+    // 3.1.96: la orden del usuario reemplaza la pausa del sistema.
+    _pausedByInterruption = false;
     if (_mix.armed) {
-      if (_mix.paused) await _claimPlayback();
+      final bool resuming = _mix.paused;
+      if (resuming) await _claimPlayback();
       await _toggleMixHold();
+      if (resuming) unawaited(_guardOutput());
       return;
     }
     if (state.queue.isEmpty &&
@@ -1947,6 +2007,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         await AdaptiveEq.awaitProfile(path);
         await _activePlayer.play();
         _attachListeners(_activePlayer);
+        unawaited(_guardOutput());
       } catch (e) {
         debugPrint("🔴 [LIVEDJ OPEN]: $e");
         if (state.queue.isNotEmpty) await forceNext();
@@ -1960,6 +2021,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     if (!playingNow) await _claimPlayback();
     await _activePlayer.playOrPause();
     if (!playingNow) _mix.resumeAll();
+    if (!playingNow) unawaited(_guardOutput());
     if (!state.isPlaying) _saveSnapshot();
   }
 
@@ -3836,7 +3898,8 @@ List<File> liveDjFreshTracks(
 ) {
   final Set<String> seen = <String>{
     for (final File f in queue) audioPathKey(f.path),
-    if (currentPath != null && currentPath.isNotEmpty) audioPathKey(currentPath),
+    if (currentPath != null && currentPath.isNotEmpty)
+      audioPathKey(currentPath),
   };
   return <File>[
     for (final File f in incoming)
