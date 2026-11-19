@@ -6454,15 +6454,176 @@ fn karaoke_backend(model_path: &str) -> Result<KInfer, String> {
     }))
 }
 
+/// 3.1.91: frecuencia de la pista vocal opcional (entrada de Whisper/VAD).
+const V_RATE: u32 = 16000;
+
+/// 3.1.91: muestra vocal = mezcla - instrumental * K_COMPENSATE, en [-1, 1].
+/// Un NaN (p. ej. inf - inf) cuenta como silencio.
+fn vocal_sample(mix: f32, inst: f32) -> f32 {
+    let v = mix - inst * K_COMPENSATE;
+    if v.is_nan() {
+        0.0
+    } else {
+        v.clamp(-1.0, 1.0)
+    }
+}
+
+/// 3.1.91: cabecera WAV PCM 16-bit mono a V_RATE con `data_bytes` de datos.
+fn vocal_wav_header(data_bytes: u32) -> [u8; 44] {
+    let mut h = [0u8; 44];
+    h[0..4].copy_from_slice(b"RIFF");
+    h[4..8].copy_from_slice(&data_bytes.saturating_add(36).to_le_bytes());
+    h[8..12].copy_from_slice(b"WAVE");
+    h[12..16].copy_from_slice(b"fmt ");
+    h[16..20].copy_from_slice(&16u32.to_le_bytes());
+    h[20..22].copy_from_slice(&1u16.to_le_bytes());
+    h[22..24].copy_from_slice(&1u16.to_le_bytes());
+    h[24..28].copy_from_slice(&V_RATE.to_le_bytes());
+    h[28..32].copy_from_slice(&(V_RATE * 2).to_le_bytes());
+    h[32..34].copy_from_slice(&2u16.to_le_bytes());
+    h[34..36].copy_from_slice(&16u16.to_le_bytes());
+    h[36..40].copy_from_slice(b"data");
+    h[40..44].copy_from_slice(&data_bytes.to_le_bytes());
+    h
+}
+
+/// 3.1.91: pista vocal en streaming: WAV 16-bit mono 16 kHz en `<ruta>.part`,
+/// rename al cerrar. Si no se cierra con `finish` (error o cancelado), el
+/// `.part` se borra al soltarla. En RAM solo los buffers de una ventana.
+struct VocalWav {
+    out: Option<std::io::BufWriter<File>>,
+    part: std::path::PathBuf,
+    path: std::path::PathBuf,
+    rs: Resampler,
+    samples: u64,
+    mono: Vec<(f32, f32)>,
+    res: Vec<(f32, f32)>,
+    bytes: Vec<u8>,
+}
+
+impl VocalWav {
+    fn create(path: &Path) -> Result<Self, String> {
+        use std::io::Write;
+        let mut s = path.as_os_str().to_os_string();
+        s.push(".part");
+        let part = std::path::PathBuf::from(s);
+        let f = File::create(&part).map_err(|e| e.to_string())?;
+        let mut out = std::io::BufWriter::with_capacity(1 << 16, f);
+        if let Err(e) = out.write_all(&vocal_wav_header(0)) {
+            drop(out);
+            let _ = std::fs::remove_file(&part);
+            return Err(e.to_string());
+        }
+        Ok(VocalWav {
+            out: Some(out),
+            part,
+            path: path.to_path_buf(),
+            rs: Resampler::new(K_RATE, V_RATE),
+            samples: 0,
+            mono: Vec::new(),
+            res: Vec::new(),
+            bytes: Vec::new(),
+        })
+    }
+
+    /// Una ventana: mezcla L/R y su instrumental crudo (sin compensar).
+    fn push_window(&mut self, l: &[f32], r: &[f32], il: &[f32], ir: &[f32]) -> Result<(), String> {
+        use std::io::Write;
+        let n = l.len().min(r.len()).min(il.len()).min(ir.len());
+        self.mono.clear();
+        self.mono.extend((0..n).map(|j| {
+            let m = 0.5 * (vocal_sample(l[j], il[j]) + vocal_sample(r[j], ir[j]));
+            (m, m)
+        }));
+        self.res.clear();
+        self.rs.process(&self.mono, &mut self.res);
+        self.bytes.clear();
+        for &(v, _) in &self.res {
+            let s = (v.clamp(-1.0, 1.0) * 32767.0).round() as i16;
+            self.bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        self.samples += self.res.len() as u64;
+        let out = self.out.as_mut().ok_or("WAV vocal cerrado")?;
+        out.write_all(&self.bytes).map_err(|e| e.to_string())
+    }
+
+    /// Cierra: tamanos RIFF/data, rename atomico del `.part`.
+    fn finish(mut self) -> Result<(), String> {
+        use std::io::{Seek, SeekFrom, Write};
+        let out = self.out.take().ok_or("WAV vocal cerrado")?;
+        let samples = self.samples;
+        let part = self.part.clone();
+        let path = self.path.clone();
+        let r = (move || -> Result<(), String> {
+            let data = u32::try_from(samples.saturating_mul(2))
+                .map_err(|_| "WAV vocal de mas de 4 GB".to_string())?;
+            let mut f = out.into_inner().map_err(|e| e.to_string())?;
+            f.seek(SeekFrom::Start(0)).map_err(|e| e.to_string())?;
+            f.write_all(&vocal_wav_header(data)).map_err(|e| e.to_string())?;
+            f.flush().map_err(|e| e.to_string())?;
+            drop(f);
+            let _ = std::fs::remove_file(&path);
+            std::fs::rename(&part, &path).map_err(|e| e.to_string())
+        })();
+        if r.is_err() {
+            let _ = std::fs::remove_file(&self.part);
+        }
+        r
+    }
+}
+
+impl Drop for VocalWav {
+    fn drop(&mut self) {
+        if let Some(out) = self.out.take() {
+            drop(out);
+            let _ = std::fs::remove_file(&self.part);
+        }
+    }
+}
+
 /// 3.1.16: nucleo del karaoke por ventanas, con la inferencia como parametro.
 /// `next` entrega PCM estereo a K_RATE por trozos (None = fin); `emit` recibe
 /// el instrumental entrelazado. Mismos bloques y recortes que el bucle de
 /// bloque completo (3.1.08-3.1.15): la salida es muestra por muestra igual.
+// 3.1.91: firma de siempre (sin voz); la usan las pruebas 3116.
+#[cfg(test)]
 fn kar_stream(
     next: &mut dyn FnMut() -> Result<Option<Vec<(f32, f32)>>, String>,
     infer: &mut dyn FnMut(&[f32]) -> Result<Vec<f32>, String>,
     emit: &mut dyn FnMut(&[f32]) -> Result<(), String>,
     total_hint: usize,
+) -> Result<usize, String> {
+    kar_stream_with(next, infer, emit, total_hint, None)
+}
+
+/// 3.1.91: igual que `kar_stream`; con `vocals_out_path` escribe ademas la
+/// voz (mezcla - instrumental * K_COMPENSATE) como WAV 16 kHz mono. Con None
+/// no abre nada ni calcula la voz.
+fn kar_stream_with(
+    next: &mut dyn FnMut() -> Result<Option<Vec<(f32, f32)>>, String>,
+    infer: &mut dyn FnMut(&[f32]) -> Result<Vec<f32>, String>,
+    emit: &mut dyn FnMut(&[f32]) -> Result<(), String>,
+    total_hint: usize,
+    vocals_out_path: Option<&Path>,
+) -> Result<usize, String> {
+    let mut vocals = match vocals_out_path {
+        Some(p) => Some(VocalWav::create(p)?),
+        None => None,
+    };
+    // Un error o "Cancelado" suelta `vocals` y su Drop borra el `.part`.
+    let n = kar_stream_core(next, infer, emit, total_hint, vocals.as_mut())?;
+    if let Some(v) = vocals {
+        v.finish()?;
+    }
+    Ok(n)
+}
+
+fn kar_stream_core(
+    next: &mut dyn FnMut() -> Result<Option<Vec<(f32, f32)>>, String>,
+    infer: &mut dyn FnMut(&[f32]) -> Result<Vec<f32>, String>,
+    emit: &mut dyn FnMut(&[f32]) -> Result<(), String>,
+    total_hint: usize,
+    mut vocals: Option<&mut VocalWav>,
 ) -> Result<usize, String> {
     let trim = K_FFT / 2;
     let chunk = K_HOP * (K_DIM_T - 1);
@@ -6523,6 +6684,16 @@ fn kar_stream(
             }
             emit(&inter)?;
             n_out += take;
+            // 3.1.91: la voz solo lee la mezcla y el instrumental crudo de la
+            // ventana; `inter` (el _K) ya salio y no se toca.
+            if let Some(v) = vocals.as_deref_mut() {
+                v.push_window(
+                    &buf[0][trim..trim + take],
+                    &buf[1][trim..trim + take],
+                    &w0[trim..trim + take],
+                    &w1[trim..trim + take],
+                )?;
+            }
             buf[0].drain(..gen);
             buf[1].drain(..gen);
             if total_hint > 0 {
@@ -6543,8 +6714,22 @@ pub fn karaoke_separate(
     model_path: String,
     output_path: String,
 ) -> Result<bool, String> {
+    karaoke_separate_with(input_path, model_path, output_path, None)
+}
+
+/// 3.1.91: ruta interna de `karaoke_separate` (sin binding FRB) con la pista
+/// vocal opcional; con None es exactamente la separacion de siempre.
+fn karaoke_separate_with(
+    input_path: String,
+    model_path: String,
+    output_path: String,
+    vocals_out_path: Option<&Path>,
+) -> Result<bool, String> {
     if !on_worker_thread() {
-        return run_on_master_worker(move || karaoke_separate(input_path, model_path, output_path));
+        let vocals = vocals_out_path.map(Path::to_path_buf);
+        return run_on_master_worker(move || {
+            karaoke_separate_with(input_path, model_path, output_path, vocals.as_deref())
+        });
     }
     let _prio = PriorityGuard::enter();
     KAR_CANCEL.store(false, Ordering::Relaxed);
@@ -6626,7 +6811,7 @@ pub fn karaoke_separate(
         }
     };
     let mut emit = |inter: &[f32]| sink.push(inter, 2);
-    let res = kar_stream(&mut next, &mut infer_duty, &mut emit, total_hint);
+    let res = kar_stream_with(&mut next, &mut infer_duty, &mut emit, total_hint, vocals_out_path);
     if let Err(e) = res {
         drop(sink);
         let _ = std::fs::remove_file(&tmp);
@@ -9374,5 +9559,234 @@ mod kar_3122_tests {
         assert!(b.is_ok(), "builder: {:?}", b.err());
         let h = super::eco_spawn(|| ()).unwrap();
         assert!(<super::EcoThreads as ThreadManager>::join(h).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod vocals_3191_tests {
+    use super::*;
+
+    fn tmp(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("vocals_3191_{}_{}.wav", std::process::id(), tag))
+    }
+
+    fn part_of(p: &Path) -> std::path::PathBuf {
+        let mut s = p.as_os_str().to_os_string();
+        s.push(".part");
+        std::path::PathBuf::from(s)
+    }
+
+    fn limpiar(p: &Path) {
+        let _ = std::fs::remove_file(p);
+        let _ = std::fs::remove_file(part_of(p));
+    }
+
+    fn seno(n: usize, hz: f64, amp: f32) -> Vec<f32> {
+        (0..n)
+            .map(|i| ((std::f64::consts::TAU * hz * i as f64 / K_RATE as f64).sin() as f32) * amp)
+            .collect()
+    }
+
+    /// Lee y valida la cabecera; devuelve las muestras.
+    fn leer_wav(p: &Path) -> Vec<i16> {
+        let b = std::fs::read(p).unwrap();
+        let u32_at = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+        let u16_at = |i: usize| u16::from_le_bytes([b[i], b[i + 1]]);
+        assert!(b.len() >= 44);
+        assert_eq!(&b[0..4], b"RIFF");
+        assert_eq!(u32_at(4) as usize, b.len() - 8);
+        assert_eq!(&b[8..12], b"WAVE");
+        assert_eq!(&b[12..16], b"fmt ");
+        assert_eq!(u32_at(16), 16);
+        assert_eq!(u16_at(20), 1, "PCM");
+        assert_eq!(u16_at(22), 1, "mono");
+        assert_eq!(u32_at(24), 16000);
+        assert_eq!(u32_at(28), 32000);
+        assert_eq!(u16_at(32), 2);
+        assert_eq!(u16_at(34), 16);
+        assert_eq!(&b[36..40], b"data");
+        assert_eq!(u32_at(40) as usize, b.len() - 44);
+        assert_eq!((b.len() - 44) % 2, 0);
+        b[44..].chunks(2).map(|c| i16::from_le_bytes([c[0], c[1]])).collect()
+    }
+
+    #[test]
+    fn vocals_3191_voz_con_clamp_sin_nan() {
+        assert_eq!(K_COMPENSATE, 1.022);
+        let casos = [
+            (0.5f32, 0.2f32),
+            (1.0, -1.0),
+            (-1.0, 1.0),
+            (f32::MAX, -f32::MAX),
+            (f32::MIN, f32::MAX),
+            (f32::NAN, 0.0),
+            (0.0, f32::NAN),
+            (f32::INFINITY, f32::INFINITY),
+            (f32::NEG_INFINITY, 0.0),
+            (f32::MIN_POSITIVE, -f32::MIN_POSITIVE),
+        ];
+        for (m, i) in casos {
+            let v = vocal_sample(m, i);
+            assert!(v.is_finite() && (-1.0..=1.0).contains(&v), "{m} {i} -> {v}");
+            let s = (v * 32767.0).round() as i16;
+            assert!(s >= -32767);
+        }
+        assert!((vocal_sample(0.5, 0.2) - (0.5 - 0.2 * 1.022)).abs() < 1e-6);
+        assert_eq!(vocal_sample(1.0, -1.0), 1.0);
+        assert_eq!(vocal_sample(-1.0, 1.0), -1.0);
+        assert_eq!(vocal_sample(f32::NAN, 0.0), 0.0);
+        assert_eq!(vocal_sample(f32::INFINITY, f32::INFINITY), 0.0);
+    }
+
+    #[test]
+    fn vocals_3191_wav_streaming_y_k_identico() {
+        let t0 = std::time::Instant::now();
+        let n = K_RATE as usize * 12;
+        let gen = K_HOP * (K_DIM_T - 1) - K_FFT;
+        assert_eq!((n + gen - 1) / gen, 3, "12 s deben dar 3 ventanas");
+        let l = seno(n, 440.0, 0.5);
+        let r = seno(n, 330.0, 0.4);
+        let fuente = |l: Vec<f32>, r: Vec<f32>| {
+            let mut pos = 0usize;
+            move || -> Result<Option<Vec<(f32, f32)>>, String> {
+                if pos >= l.len() {
+                    return Ok(None);
+                }
+                let end = (pos + 1152).min(l.len());
+                let p: Vec<(f32, f32)> = (pos..end).map(|i| (l[i], r[i])).collect();
+                pos = end;
+                Ok(Some(p))
+            }
+        };
+
+        // 1) _K: con voz y sin voz el instrumental emitido es identico.
+        let mut sin_voz: Vec<f32> = Vec::new();
+        {
+            let mut next = fuente(l.clone(), r.clone());
+            let mut emit = |x: &[f32]| -> Result<(), String> {
+                sin_voz.extend_from_slice(x);
+                Ok(())
+            };
+            let mut inf = |d: &[f32]| -> Result<Vec<f32>, String> { Ok(d.to_vec()) };
+            assert_eq!(kar_stream(&mut next, &mut inf, &mut emit, n).unwrap(), n);
+        }
+        let ruta = tmp("k");
+        limpiar(&ruta);
+        let mut con_voz: Vec<f32> = Vec::new();
+        {
+            let mut next = fuente(l.clone(), r.clone());
+            let mut emit = |x: &[f32]| -> Result<(), String> {
+                con_voz.extend_from_slice(x);
+                Ok(())
+            };
+            let mut inf = |d: &[f32]| -> Result<Vec<f32>, String> { Ok(d.to_vec()) };
+            let got = kar_stream_with(&mut next, &mut inf, &mut emit, n, Some(&ruta)).unwrap();
+            assert_eq!(got, n);
+        }
+        assert!(sin_voz == con_voz, "el _K cambio con la voz activada");
+        assert!(!part_of(&ruta).exists());
+        let _ = leer_wav(&ruta);
+        limpiar(&ruta);
+
+        // 2) Instrumental en cero: la voz es la mezcla; WAV en 3 ventanas,
+        //    duracion y continuidad contra un resampleo de una sola pasada.
+        let ruta = tmp("ok");
+        limpiar(&ruta);
+        {
+            let mut next = fuente(l.clone(), r.clone());
+            let mut emit = |_x: &[f32]| -> Result<(), String> { Ok(()) };
+            let mut inf = |d: &[f32]| -> Result<Vec<f32>, String> { Ok(vec![0f32; d.len()]) };
+            let got = kar_stream_with(&mut next, &mut inf, &mut emit, n, Some(&ruta)).unwrap();
+            assert_eq!(got, n);
+        }
+        assert!(!part_of(&ruta).exists(), "quedo el .part");
+        let s = leer_wav(&ruta);
+        let esperado = n * 16000 / K_RATE as usize;
+        assert!(
+            (s.len() as i64 - esperado as i64).abs() <= 2,
+            "{} muestras, esperadas {esperado}",
+            s.len()
+        );
+        let mono: Vec<(f32, f32)> = (0..n)
+            .map(|i| {
+                let m = 0.5 * (l[i] + r[i]);
+                (m, m)
+            })
+            .collect();
+        let mut rs = Resampler::new(K_RATE, 16000);
+        let mut refv = Vec::new();
+        rs.process(&mono, &mut refv);
+        let m = s.len().min(refv.len());
+        let mut peor = 0f32;
+        for i in 0..m {
+            peor = peor.max((s[i] as f32 / 32767.0 - refv[i].0).abs());
+        }
+        let pico = s.iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
+        println!(
+            "VOCALS3191 {} muestras (esperadas {esperado}) peor {peor:.2e} pico {pico} en {:?}",
+            s.len(),
+            t0.elapsed()
+        );
+        assert!(peor < 2e-4, "salto o costura de {peor}");
+        assert!(pico > 10000 && pico <= 32767);
+        limpiar(&ruta);
+        assert!(!ruta.exists() && !part_of(&ruta).exists());
+    }
+
+    #[test]
+    fn vocals_3191_error_y_ruta_invalida_no_dejan_archivos() {
+        let n = K_RATE as usize * 12;
+        let l = seno(n, 440.0, 0.5);
+        let ruta = tmp("err");
+        limpiar(&ruta);
+        let part = part_of(&ruta);
+        let mut pos = 0usize;
+        let mut next = || -> Result<Option<Vec<(f32, f32)>>, String> {
+            if pos >= n {
+                return Ok(None);
+            }
+            let end = (pos + 1152).min(n);
+            let p: Vec<(f32, f32)> = (pos..end).map(|i| (l[i], l[i])).collect();
+            pos = end;
+            Ok(Some(p))
+        };
+        let mut llamadas = 0usize;
+        let mut inf = |d: &[f32]| -> Result<Vec<f32>, String> {
+            llamadas += 1;
+            if llamadas >= 2 {
+                Err("falla simulada".to_string())
+            } else {
+                Ok(d.to_vec())
+            }
+        };
+        let mut vio_part = false;
+        let e = {
+            let mut emit = |_x: &[f32]| -> Result<(), String> {
+                if part.exists() {
+                    vio_part = true;
+                }
+                Ok(())
+            };
+            kar_stream_with(&mut next, &mut inf, &mut emit, n, Some(&ruta)).unwrap_err()
+        };
+        assert_eq!(e, "falla simulada");
+        assert!(vio_part, "el .part debia existir mientras escribia");
+        assert!(!part.exists(), "el .part quedo tras el error");
+        assert!(!ruta.exists());
+
+        // Carpeta inexistente: error al abrir, sin streaming ni archivos.
+        let malo = std::env::temp_dir()
+            .join(format!("vocals_3191_no_existe_{}", std::process::id()))
+            .join("v.wav");
+        let mut nada = || -> Result<Option<Vec<(f32, f32)>>, String> { Ok(None) };
+        let mut emitidas = 0usize;
+        let mut emit = |x: &[f32]| -> Result<(), String> {
+            emitidas += x.len();
+            Ok(())
+        };
+        let mut inf = |d: &[f32]| -> Result<Vec<f32>, String> { Ok(d.to_vec()) };
+        assert!(kar_stream_with(&mut nada, &mut inf, &mut emit, 0, Some(&malo)).is_err());
+        assert_eq!(emitidas, 0);
+        assert!(!malo.exists() && !part_of(&malo).exists());
     }
 }
