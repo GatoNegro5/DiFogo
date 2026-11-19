@@ -743,6 +743,174 @@ Map<String, dynamic> readLyricFailMap(String dir) =>
 void writeLyricFailMap(String dir, Map<String, dynamic> data) =>
     GatomixStore.writeMap(dir, 'lyricFail', data);
 
+// ---------------------------------------------------------------------------
+// 3.2.3: ADN acustico por pista (seccion `dna` del documento de la carpeta).
+// Escritura atomica (editAsync) y con mezcla: guardar el idioma no borra las
+// metricas y guardar metricas no borra el idioma. En la biblioteca protegida
+// GatomixStore.fileOf da el espejo: nunca se escribe junto al audio.
+// ---------------------------------------------------------------------------
+
+const String kTrackDnaSection = 'dna';
+
+/// Entrada `dna[path]`. Los campos nulos no pisan lo guardado.
+class TrackDnaEntry {
+  final double? energy;
+  final double? bassRatio;
+  final double? brightness;
+  final double? beatDensity;
+  final String? genre;
+  final int? year;
+  final String? lang;
+  final int? mtimeMs;
+
+  const TrackDnaEntry({
+    this.energy,
+    this.bassRatio,
+    this.brightness,
+    this.beatDensity,
+    this.genre,
+    this.year,
+    this.lang,
+    this.mtimeMs,
+  });
+
+  bool get isEmpty =>
+      energy == null &&
+      bassRatio == null &&
+      brightness == null &&
+      beatDensity == null &&
+      genre == null &&
+      year == null &&
+      lang == null &&
+      mtimeMs == null;
+
+  /// [newer] gana campo a campo; lo que trae nulo se conserva.
+  TrackDnaEntry mergedWith(TrackDnaEntry newer) => TrackDnaEntry(
+    energy: newer.energy ?? energy,
+    bassRatio: newer.bassRatio ?? bassRatio,
+    brightness: newer.brightness ?? brightness,
+    beatDensity: newer.beatDensity ?? beatDensity,
+    genre: newer.genre ?? genre,
+    year: newer.year ?? year,
+    lang: newer.lang ?? lang,
+    mtimeMs: newer.mtimeMs ?? mtimeMs,
+  );
+
+  Map<String, dynamic> toJson() => <String, dynamic>{
+    if (_dnaUnit(energy) != null) 'energy': _dnaUnit(energy),
+    if (_dnaUnit(bassRatio) != null) 'bassRatio': _dnaUnit(bassRatio),
+    if (_dnaUnit(brightness) != null) 'brightness': _dnaUnit(brightness),
+    if (_dnaUnit(beatDensity) != null) 'beatDensity': _dnaUnit(beatDensity),
+    if (genre != null && genre!.trim().isNotEmpty) 'genre': genre!.trim(),
+    if (year != null && year! > 0) 'year': year,
+    if (whisperLangCode(lang) != null) 'lang': whisperLangCode(lang),
+    if (mtimeMs != null && mtimeMs! > 0) 'mtimeMs': mtimeMs,
+  };
+
+  static TrackDnaEntry? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    double? d(String k) {
+      final Object? v = raw[k];
+      return v is num ? _dnaUnit(v.toDouble()) : null;
+    }
+
+    int? i(String k) {
+      final Object? v = raw[k];
+      return v is num && v.isFinite && v > 0 ? v.toInt() : null;
+    }
+
+    final Object? g = raw['genre'];
+    return TrackDnaEntry(
+      energy: d('energy'),
+      bassRatio: d('bassRatio'),
+      brightness: d('brightness'),
+      beatDensity: d('beatDensity'),
+      genre: g is String && g.trim().isNotEmpty ? g.trim() : null,
+      year: i('year'),
+      lang: whisperLangCode(raw['lang']),
+      mtimeMs: i('mtimeMs'),
+    );
+  }
+}
+
+double? _dnaUnit(double? v) {
+  if (v == null || !v.isFinite) return null;
+  return v.clamp(0.0, 1.0).toDouble();
+}
+
+String? _dnaSlot(Map<String, dynamic> map, String path) {
+  if (map.containsKey(path)) return path;
+  final String want = audioPathKey(path);
+  for (final String k in map.keys) {
+    if (audioPathKey(k) == want) return k;
+  }
+  return null;
+}
+
+/// ADN guardado de [path] (null si no hay).
+TrackDnaEntry? readTrackDna(String path) {
+  if (path.isEmpty) return null;
+  final Map<String, dynamic> map = GatomixStore.readMap(
+    File(path).parent.path,
+    kTrackDnaSection,
+  );
+  final String? slot = _dnaSlot(map, path);
+  return slot == null ? null : TrackDnaEntry.fromJson(map[slot]);
+}
+
+/// Mezcla [dna] en `dna[path]` sin borrar lo que ya habia. Una sola edicion
+/// atomica por llamada; en la biblioteca protegida escribe en el espejo.
+Future<bool> saveTrackDna(String path, TrackDnaEntry dna) async {
+  if (path.isEmpty || dna.toJson().isEmpty) return false;
+  return GatomixStore.editAsync(File(path).parent.path, (
+    Map<String, dynamic> doc,
+  ) {
+    final dynamic raw = doc[kTrackDnaSection];
+    final Map<String, dynamic> map = raw is Map
+        ? Map<String, dynamic>.from(raw)
+        : <String, dynamic>{};
+    final String? slot = _dnaSlot(map, path);
+    final dynamic prevRaw = slot == null ? null : map[slot];
+    final TrackDnaEntry prev =
+        TrackDnaEntry.fromJson(prevRaw) ?? const TrackDnaEntry();
+    final Map<String, dynamic> next = prev.mergedWith(dna).toJson();
+    if (slot == path && jsonEqual(prevRaw, next)) return false;
+    if (slot != null && slot != path) map.remove(slot);
+    map[path] = next;
+    doc[kTrackDnaSection] = map;
+    return true;
+  });
+}
+
+/// Codigo de idioma de Whisper valido (2-3 letras minusculas) o null.
+String? whisperLangCode(Object? raw) {
+  if (raw is! String) return null;
+  final String s = raw.trim().toLowerCase();
+  if (!RegExp(r'^[a-z]{2,3}$').hasMatch(s)) return null;
+  return s;
+}
+
+/// Idioma detectado que Whisper deja en `words_json` (clave `lang`).
+String? whisperLangOfWordsJson(String wordsJson) {
+  try {
+    final Object? o = jsonDecode(wordsJson);
+    if (o is Map) return whisperLangCode(o['lang']);
+  } catch (_) {}
+  return null;
+}
+
+/// Guarda en `dna[audioPath].lang` el idioma que detecto Whisper, si es
+/// valido. No toca las metricas. Nunca lanza.
+Future<bool> saveWhisperLang(String audioPath, String wordsJson) async {
+  final String? lang = whisperLangOfWordsJson(wordsJson);
+  if (lang == null) return false;
+  try {
+    return await saveTrackDna(audioPath, TrackDnaEntry(lang: lang));
+  } catch (_) {
+    return false;
+  }
+}
+
 dynamic mergeJson(dynamic fresh, dynamic old) {
   if (old == null) return fresh;
   if (fresh == null) return old;

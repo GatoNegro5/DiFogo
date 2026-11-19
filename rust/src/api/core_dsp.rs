@@ -9807,3 +9807,391 @@ mod vocals_3191_tests {
         assert!(!malo.exists() && !part_of(&malo).exists());
     }
 }
+
+
+// ============================================================================
+// 3.2.3: ADN acustico por pista y etiquetas basicas. Solo lectura: nunca
+// escribe el audio ni sus etiquetas. Sin binding Dart todavia (regenerar FRB
+// requiere autorizacion explicita de Gabriel).
+// ============================================================================
+
+/// Etiquetas ID3 basicas de una pista. Vacio/0 si faltan o no hay etiqueta.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TrackMeta {
+    pub genre: String,
+    pub year: i32,
+    pub artist: String,
+    pub title: String,
+}
+
+/// Lee genero, anio, artista y titulo (ID3). Nunca falla: un archivo sin
+/// etiqueta, inexistente o ilegible devuelve campos vacios y anio 0.
+pub fn read_track_meta(input_path: String) -> TrackMeta {
+    let tag = match Tag::read_from_path(&input_path) {
+        Ok(t) => t,
+        Err(_) => return TrackMeta::default(),
+    };
+    let clean = |s: Option<&str>| s.map(|v| v.trim().to_string()).unwrap_or_default();
+    let genre = tag
+        .genre_parsed()
+        .map(|g| g.trim().to_string())
+        .unwrap_or_default();
+    let year = tag
+        .year()
+        .or_else(|| tag.date_recorded().map(|d| d.year))
+        .or_else(|| tag.date_released().map(|d| d.year))
+        .filter(|y| *y > 0 && *y < 10000)
+        .unwrap_or(0);
+    TrackMeta {
+        genre,
+        year,
+        artist: clean(tag.artist()),
+        title: clean(tag.title()),
+    }
+}
+
+/// ADN acustico de un tramo. Todas las metricas van de 0 a 1.
+/// `ok` es falso si no se pudo decodificar o el tramo es demasiado corto.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TrackDna {
+    pub ok: bool,
+    /// RMS normalizado: -40 dBFS -> 0, -6 dBFS -> 1.
+    pub energy: f64,
+    /// Energia espectral bajo 150 Hz / energia total (sin DC).
+    pub bass_ratio: f64,
+    /// Centroide espectral en escala log: 100 Hz -> 0, 8 kHz -> 1.
+    pub brightness: f64,
+    /// Onsets por segundo / 8, recortado a 1.
+    pub beat_density: f64,
+}
+
+const DNA_SPAN_SECS: u32 = 30;
+const DNA_BASS_HZ: f64 = 150.0;
+const DNA_FFT: usize = 4096;
+const DNA_ONSETS_FULL: f64 = 8.0;
+
+/// Decodifica ~30 s desde el 30 % de la pista (desde 0 si dura menos de
+/// 60 s) y calcula su ADN. Solo lectura. Nunca entra en panico.
+pub fn track_dna(input_path: String) -> TrackDna {
+    let _prio = PriorityGuard::enter();
+    let dur_ms = decoded_duration_ms(&input_path).unwrap_or(0);
+    let start_secs = if dur_ms > 60_000 {
+        ((dur_ms as f64 * 0.30) / 1000.0) as u32
+    } else {
+        0
+    };
+    let d = match decode_channels(&input_path, start_secs, DNA_SPAN_SECS, 2) {
+        Ok(d) => d,
+        Err(_) => return TrackDna::default(),
+    };
+    if d.ch.is_empty() || d.ch[0].is_empty() {
+        return TrackDna::default();
+    }
+    let mono = to_mono(&d);
+    dna_from_mono(&mono, d.rate)
+}
+
+fn dna_unit(v: f64) -> f64 {
+    if v.is_finite() {
+        v.clamp(0.0, 1.0)
+    } else {
+        0.0
+    }
+}
+
+/// Funcion pura del ADN sobre PCM mono (probada con senales sinteticas).
+fn dna_from_mono(mono: &[f32], rate: u32) -> TrackDna {
+    if rate < 8000 || mono.len() < rate as usize || mono.len() < DNA_FFT {
+        return TrackDna::default();
+    }
+    // Energia: RMS en dBFS.
+    let sum_sq: f64 = mono.iter().map(|&s| (s as f64) * (s as f64)).sum();
+    let rms = (sum_sq / mono.len() as f64).sqrt();
+    let energy = if rms > 1e-9 {
+        dna_unit((20.0 * rms.log10() + 40.0) / 34.0)
+    } else {
+        0.0
+    };
+
+    // Espectro de potencia promedio (Hann, ventanas sin solape).
+    let mut planner = rustfft::FftPlanner::<f32>::new();
+    let fft = planner.plan_fft_forward(DNA_FFT);
+    let hann: Vec<f32> = (0..DNA_FFT)
+        .map(|i| {
+            let x = 2.0 * std::f32::consts::PI * i as f32 / DNA_FFT as f32;
+            0.5 - 0.5 * x.cos()
+        })
+        .collect();
+    let half = DNA_FFT / 2;
+    let mut power = vec![0f64; half + 1];
+    let mut buf = vec![rustfft::num_complex::Complex::new(0f32, 0f32); DNA_FFT];
+    let mut start = 0usize;
+    while start + DNA_FFT <= mono.len() {
+        for i in 0..DNA_FFT {
+            buf[i] = rustfft::num_complex::Complex::new(mono[start + i] * hann[i], 0.0);
+        }
+        fft.process(&mut buf);
+        for k in 0..=half {
+            let re = buf[k].re as f64;
+            let im = buf[k].im as f64;
+            power[k] += re * re + im * im;
+        }
+        start += DNA_FFT;
+    }
+    let bin_hz = rate as f64 / DNA_FFT as f64;
+    let mut total = 0f64;
+    let mut bass = 0f64;
+    let mut weighted = 0f64;
+    for (k, p) in power.iter().enumerate().skip(1) {
+        let hz = k as f64 * bin_hz;
+        total += p;
+        weighted += p * hz;
+        if hz < DNA_BASS_HZ {
+            bass += p;
+        }
+    }
+    let (bass_ratio, brightness) = if total > 1e-12 && total.is_finite() {
+        let centroid = weighted / total;
+        let bright = if centroid > 100.0 {
+            (centroid / 100.0).ln() / (8000.0f64 / 100.0).ln()
+        } else {
+            0.0
+        };
+        (dna_unit(bass / total), dna_unit(bright))
+    } else {
+        (0.0, 0.0)
+    };
+
+    // Densidad de onsets con el detector complejo existente.
+    let beat_density = match onset_envelope(mono, rate) {
+        Some((odf, env_rate)) if env_rate > 0.0 && !odf.is_empty() => {
+            let n_fft = odf_stft_hop(rate, 256.0).0 as f64;
+            let secs = mono.len() as f64 / rate as f64;
+            let count = dna_count_onsets(&odf, env_rate, rms * n_fft * 0.02);
+            dna_unit(count as f64 / secs / DNA_ONSETS_FULL)
+        }
+        _ => 0.0,
+    };
+
+    TrackDna {
+        ok: true,
+        energy,
+        bass_ratio,
+        brightness,
+        beat_density,
+    }
+}
+
+/// Picos de la envolvente: maximo local en +-70 ms, sobre el doble de la
+/// mediana, sobre media + 1,5 desviaciones y sobre un piso absoluto
+/// proporcional al RMS (una senal estacionaria no cuenta ruido numerico).
+fn dna_count_onsets(odf: &[f64], env_rate: f64, floor: f64) -> usize {
+    let n = odf.len();
+    if n < 3 {
+        return 0;
+    }
+    let mut sorted: Vec<f64> = odf.iter().copied().filter(|v| v.is_finite()).collect();
+    if sorted.len() < 3 {
+        return 0;
+    }
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let median = sorted[sorted.len() / 2];
+    let mean = sorted.iter().sum::<f64>() / sorted.len() as f64;
+    let var = sorted.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / sorted.len() as f64;
+    let thr = (median * 2.0).max(mean + 1.5 * var.sqrt()).max(floor);
+    let win = ((env_rate * 0.07).round() as usize).max(1);
+    let mut count = 0usize;
+    let mut last: Option<usize> = None;
+    for i in 0..n {
+        let v = odf[i];
+        if !(v > thr) {
+            continue;
+        }
+        let lo = i.saturating_sub(win);
+        let hi = (i + win).min(n - 1);
+        let mut is_max = true;
+        for j in lo..=hi {
+            if j != i && (odf[j] > v || (odf[j] == v && j < i)) {
+                is_max = false;
+                break;
+            }
+        }
+        if !is_max {
+            continue;
+        }
+        if let Some(l) = last {
+            if i - l < win {
+                continue;
+            }
+        }
+        last = Some(i);
+        count += 1;
+    }
+    count
+}
+
+#[cfg(test)]
+mod track_dna_3203_tests {
+    use super::*;
+
+    const RATE: u32 = 44_100;
+
+    fn sine(hz: f64, secs: f64, amp: f32) -> Vec<f32> {
+        let n = (secs * RATE as f64) as usize;
+        (0..n)
+            .map(|i| amp * (2.0 * std::f64::consts::PI * hz * i as f64 / RATE as f64).sin() as f32)
+            .collect()
+    }
+
+    fn noise(secs: f64, amp: f32) -> Vec<f32> {
+        let n = (secs * RATE as f64) as usize;
+        let mut x: u64 = 0x9E37_79B9_7F4A_7C15;
+        (0..n)
+            .map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                let u = (x >> 11) as f64 / (1u64 << 53) as f64;
+                amp * (2.0 * u - 1.0) as f32
+            })
+            .collect()
+    }
+
+    fn clicks(secs: f64, per_sec: f64) -> Vec<f32> {
+        let n = (secs * RATE as f64) as usize;
+        let step = (RATE as f64 / per_sec) as usize;
+        let mut v = vec![0f32; n];
+        let mut i = step / 2;
+        while i + 64 < n {
+            for k in 0..64 {
+                v[i + k] = 0.9 * (1.0 - k as f32 / 64.0) * if k % 2 == 0 { 1.0 } else { -1.0 };
+            }
+            i += step;
+        }
+        v
+    }
+
+    fn in_unit(d: &TrackDna) {
+        for v in [d.energy, d.bass_ratio, d.brightness, d.beat_density] {
+            assert!(v.is_finite() && (0.0..=1.0).contains(&v), "fuera de 0-1: {d:?}");
+        }
+    }
+
+    #[test]
+    fn dna_low_sine_vs_bright_signals() {
+        let low = dna_from_mono(&sine(60.0, 10.0, 0.5), RATE);
+        let high = dna_from_mono(&sine(6000.0, 10.0, 0.5), RATE);
+        let wn = dna_from_mono(&noise(10.0, 0.5), RATE);
+        for d in [&low, &high, &wn] {
+            assert!(d.ok);
+            in_unit(d);
+        }
+        assert!(low.bass_ratio > 0.9, "{low:?}");
+        assert!(high.bass_ratio < 0.05, "{high:?}");
+        assert!(wn.bass_ratio < 0.05, "{wn:?}");
+        assert!(low.brightness < 0.1, "{low:?}");
+        assert!(high.brightness > 0.8, "{high:?}");
+        assert!(wn.brightness > 0.9, "{wn:?}");
+        assert!(low.energy > 0.7 && high.energy > 0.7, "{low:?} {high:?}");
+    }
+
+    #[test]
+    fn dna_silence_is_zero_energy() {
+        let d = dna_from_mono(&vec![0f32; RATE as usize * 5], RATE);
+        assert!(d.ok);
+        in_unit(&d);
+        assert_eq!(d.energy, 0.0);
+        assert_eq!(d.beat_density, 0.0);
+    }
+
+    #[test]
+    fn dna_click_train_denser_than_sine() {
+        let c = dna_from_mono(&clicks(10.0, 4.0), RATE);
+        let s = dna_from_mono(&sine(440.0, 10.0, 0.5), RATE);
+        in_unit(&c);
+        in_unit(&s);
+        assert!(c.beat_density > 0.3 && c.beat_density < 0.7, "{c:?}");
+        assert!(s.beat_density < 0.1, "{s:?}");
+        assert!(c.beat_density > s.beat_density + 0.2);
+    }
+
+    #[test]
+    fn dna_too_short_is_not_ok() {
+        assert!(!dna_from_mono(&sine(440.0, 0.5, 0.5), RATE).ok);
+        assert!(!dna_from_mono(&[], RATE).ok);
+    }
+
+    fn temp_path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("difogo_dna_3203_{}_{name}", std::process::id()))
+    }
+
+    #[test]
+    fn dna_read_track_meta_untagged_and_missing() {
+        let p = temp_path("untagged.mp3");
+        std::fs::write(&p, vec![0x55u8; 4096]).unwrap();
+        let m = read_track_meta(p.to_string_lossy().to_string());
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(m, TrackMeta::default());
+        let missing = read_track_meta(temp_path("no_existe.mp3").to_string_lossy().to_string());
+        assert_eq!(missing, TrackMeta::default());
+    }
+
+    #[test]
+    fn dna_read_track_meta_tagged() {
+        let p = temp_path("tagged.mp3");
+        std::fs::write(&p, vec![0u8; 256]).unwrap();
+        let mut t = Tag::new();
+        t.set_genre("Salsa");
+        t.set_year(1998);
+        t.set_artist("Artista");
+        t.set_title("Tema");
+        t.write_to_path(&p, Version::Id3v24).unwrap();
+        let before = std::fs::read(&p).unwrap();
+        let m = read_track_meta(p.to_string_lossy().to_string());
+        let after = std::fs::read(&p).unwrap();
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(before, after, "read_track_meta no debe escribir");
+        assert_eq!(m.genre, "Salsa");
+        assert_eq!(m.year, 1998);
+        assert_eq!(m.artist, "Artista");
+        assert_eq!(m.title, "Tema");
+    }
+
+    fn write_wav(p: &std::path::Path, mono: &[f32]) {
+        let data_len = (mono.len() * 2) as u32;
+        let mut b: Vec<u8> = Vec::with_capacity(44 + data_len as usize);
+        b.extend_from_slice(b"RIFF");
+        b.extend_from_slice(&(36 + data_len).to_le_bytes());
+        b.extend_from_slice(b"WAVEfmt ");
+        b.extend_from_slice(&16u32.to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&1u16.to_le_bytes());
+        b.extend_from_slice(&RATE.to_le_bytes());
+        b.extend_from_slice(&(RATE * 2).to_le_bytes());
+        b.extend_from_slice(&2u16.to_le_bytes());
+        b.extend_from_slice(&16u16.to_le_bytes());
+        b.extend_from_slice(b"data");
+        b.extend_from_slice(&data_len.to_le_bytes());
+        for s in mono {
+            b.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+        }
+        std::fs::write(p, b).unwrap();
+    }
+
+    #[test]
+    fn dna_track_dna_reads_wav_and_missing_file() {
+        let p = temp_path("bright.wav");
+        write_wav(&p, &sine(6000.0, 5.0, 0.5));
+        let before = std::fs::read(&p).unwrap();
+        let d = track_dna(p.to_string_lossy().to_string());
+        let after = std::fs::read(&p).unwrap();
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(before, after, "track_dna no debe escribir");
+        assert!(d.ok, "{d:?}");
+        in_unit(&d);
+        assert!(d.brightness > 0.8 && d.bass_ratio < 0.05, "{d:?}");
+        let missing = track_dna(temp_path("no_existe.wav").to_string_lossy().to_string());
+        assert!(!missing.ok);
+        assert_eq!(missing, TrackDna::default());
+    }
+}

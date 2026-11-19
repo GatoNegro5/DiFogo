@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:difogo/src/rust/api/core_dsp.dart' as rust_dsp;
 import 'package:difogo/src/rust/api/whisper_lrc.dart' as rust_whisper;
 
+import '../core/gatomix_store.dart' show saveWhisperLang;
 import '../core/library_guard.dart';
 import '../core/lyric_ai_align.dart' show parseTimedWordsJson;
 import '../core/lyric_match.dart' show lyricMayDownload;
@@ -294,6 +295,8 @@ class KaraokeEngine {
       vocalsPath,
       model,
     );
+    // 3.2.3: idioma detectado por Whisper -> dna[src].lang.
+    await saveWhisperLang(src, t.wordsJson);
     bool wroteWords = false;
     bool wroteLrc = false;
     final File wordsFile = File(wordsPath);

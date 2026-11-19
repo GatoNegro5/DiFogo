@@ -183,6 +183,9 @@ Future<String?> generateLocalLyricsOfflineWith(
         wav,
         model,
       );
+      // 3.2.3: idioma detectado por Whisper -> dna[path].lang (espejo en la
+      // biblioteca protegida; no borra las metricas del ADN).
+      await saveWhisperLang(audioPath, t.wordsJson);
       if (t.lrcText.trim().isEmpty) return null;
       // Biblioteca protegida: lrcWriteFile da el espejo, nunca junto al audio.
       final File out = lrcWriteFile(audioPath, lrc);
