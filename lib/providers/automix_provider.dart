@@ -180,7 +180,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
   StreamSubscription? _completedSub;
 
   bool _isCrossfading = false;
-  bool get nextTrackLocked => _isCrossfading;
+  // 3.2.0: tambien con la rampa previa de A comprometida (siguiente fija).
+  bool get nextTrackLocked => _isCrossfading || _drift.preRollActive;
   // 3.1.14: BPM de las pistas sin medir mientras suena la sesion.
   BpmBackfillWorker? _backfill;
   // queueEpoch: la lista inmutable del ultimo orden aplicado.
@@ -874,7 +875,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
           );
           if (i >= 0) lock = i + 1;
         }
-        if (_isCrossfading && state.nextTrackPath != null) {
+        if (nextTrackLocked && state.nextTrackPath != null) {
           final int i = kept.indexWhere(
             (String p) => sameAudioPath(p, state.nextTrackPath),
           );
@@ -887,7 +888,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
           keyOf: harmonicKeyOf,
           lockedPrefix: lock,
           playing: state.currentTrackPath,
-          pinned: _isCrossfading ? state.nextTrackPath : null,
+          pinned: nextTrackLocked ? state.nextTrackPath : null,
         );
         ordered = dedupeAudioPaths(merged);
       } else {
@@ -895,6 +896,15 @@ class AutomixNotifier extends Notifier<AutomixState> {
       }
     }
     ordered = dedupeAudioPaths(ordered);
+    // 3.2.0: rampa previa comprometida: la siguiente no cambia (tambien en
+    // Secuencial); si el usuario la quito, manda la cola.
+    if (_drift.preRollActive && !_isCrossfading) {
+      ordered = pinNextTrack(
+        ordered,
+        current: state.currentTrackPath,
+        pinned: state.nextTrackPath,
+      );
+    }
     if (listEquals(state.playlist, ordered)) {
       _lastSyncPlaylist = state.playlist;
       return;
@@ -1249,8 +1259,29 @@ class AutomixNotifier extends Notifier<AutomixState> {
     return 0;
   }
 
+  /// 3.2.0: con la rampa previa comprometida la siguiente queda justo
+  /// despues de la actual, venga de donde venga el cambio de orden.
+  void _pinLockedNext() {
+    if (!_drift.preRollActive || _isCrossfading) return;
+    final List<String> pinned = pinNextTrack(
+      state.playlist,
+      current: state.currentTrackPath,
+      pinned: state.nextTrackPath,
+    );
+    if (identical(pinned, state.playlist)) return;
+    final int cur = state.currentTrackPath == null
+        ? -1
+        : pinned.indexWhere((String p) => sameAudioPath(p, state.currentTrackPath));
+    state = state.copyWith(
+      playlist: pinned,
+      currentIndex: cur >= 0 ? cur : state.currentIndex,
+    );
+    _scheduleSnapshot();
+  }
+
   Future<void> _recalculateMixWindow() async {
     if (state.duration.inMilliseconds == 0) return;
+    _pinLockedNext();
     final nextIdx = _calculateNextIndex();
     final nextPath = nextIdx != -1 ? state.playlist[nextIdx] : null;
     // 3.1.33 (Hueco A): perfil de EQ y sonoridad en cache antes del cruce.
@@ -1673,6 +1704,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
         );
         if (!_mix.armed) {
           await _dropPhase();
+          await _stopAbortedIncoming(incomingPlayer, nextTrack);
           return;
         }
       } catch (e) {
@@ -1793,6 +1825,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       );
       if (!_mix.armed) {
         await _dropPhase();
+        await _stopAbortedIncoming(incomingPlayer, nextTrack);
         return;
       }
     } catch (e) {
@@ -1841,6 +1874,21 @@ class AutomixNotifier extends Notifier<AutomixState> {
       incomingRate: incomingRate,
       isManualSkip: true,
     );
+  }
+
+  /// 3.2.0: cruce abortado despues de play(): la entrante no queda sonando a
+  /// volumen 0. Si otra accion ya tomo el deck (cruce nuevo, Play en frio u
+  /// otra pista abierta) no se toca.
+  Future<void> _stopAbortedIncoming(Player incoming, String path) async {
+    if (_isCrossfading || _mix.armed) return;
+    if (identical(incoming, _activeAutomix)) return;
+    if (!deckHoldsAudioPath(incoming, path)) return;
+    try {
+      await incoming.setVolume(0.0);
+    } catch (_) {}
+    try {
+      await incoming.stop();
+    } catch (_) {}
   }
 
   Future<void> _triggerCrossfade() async {
@@ -1897,6 +1945,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       );
       if (!_mix.armed) {
         await _dropPhase();
+        await _stopAbortedIncoming(incomingPlayer, nextTrack);
         return;
       }
     } catch (e) {

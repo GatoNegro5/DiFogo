@@ -195,6 +195,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   // Pista elegida para el relevo, antes de que el deck termine de abrirla.
   // La rampa de tempo la usa; no espera al throttle de la UI.
   String? _driftNextPath;
+  // 3.2.0: cola y pista con las que se fijo _driftNextPath por ultima vez.
+  List<File>? _driftHeadQueue;
+  String? _driftHeadCurrent;
   // 3.1.33 (Hueco B): ultima siguiente precalentada en AdaptiveEq.
   String? _warmedPath;
   int _radioSaveSerial = 0;
@@ -1183,7 +1186,15 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       state.sortMode,
       _extractBpm,
     );
-    state = state.copyWith(queue: ordered.map((p) => File(p)).toList());
+    // 3.2.0: con la rampa previa comprometida la cabeza (siguiente) no cambia.
+    final List<String> kept = _drift.preRollActive && !_isCrossfading
+        ? pinNextTrack(
+            ordered,
+            current: state.currentTrackPath,
+            pinned: _standbyArmedPath ?? _driftNextPath,
+          )
+        : ordered;
+    state = state.copyWith(queue: kept.map((p) => File(p)).toList());
   }
 
   void toggleMixStrategy() {
@@ -1390,14 +1401,13 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     );
   }
 
-  int _liveLockedPrefix() {
-    if (state.queue.isEmpty) return 0;
-    if (_isCrossfading) return 1;
-    if (_standbyArmedPath == null) return 0;
-    final int i = liveDjWindowIndexOf(state.queue, _standbyArmedPath);
-    if (i >= 0) return i + 1;
-    return 0;
-  }
+  int _liveLockedPrefix() => liveDjLockedPrefix(
+    queue: state.queue,
+    crossfading: _isCrossfading,
+    preRoll: _drift.preRollActive,
+    armed: _standbyArmedPath,
+    driftNext: _driftNextPath,
+  );
 
   Future<void> _insertLiveRandom(List<File> files, int epoch) async {
     if (epoch != _addEpoch) {
@@ -1445,7 +1455,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       keyOf: harmonicKeyOf,
       lockedPrefix: _liveLockedPrefix(),
       playing: state.currentTrackPath,
-      pinned: _standbyArmedPath,
+      pinned: _standbyArmedPath ?? (_drift.preRollActive ? _driftNextPath : null),
     );
     final Map<String, File> byKey = <String, File>{
       for (final File f in <File>[...state.queue, ...fresh])
@@ -1678,6 +1688,23 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
   void _rememberDriftNext() {
     if (_isCrossfading) return;
+    // 3.2.0: la precargada manda mientras siga en la ventana; con la rampa
+    // previa comprometida la fijada no cambia salvo que el usuario la quite.
+    if (!state.radioOn) {
+      final String? armed = _standbyArmedPath;
+      if (armed != null && liveDjWindowIndexOf(state.queue, armed) >= 0) {
+        _driftNextPath = armed;
+        return;
+      }
+      final String? pinned = _driftNextPath;
+      if (_drift.preRollActive &&
+          pinned != null &&
+          liveDjWindowIndexOf(state.queue, pinned) >= 0) {
+        return;
+      }
+    } else if (_drift.preRollActive) {
+      return;
+    }
     final String? next = state.radioOn
         ? ((state.radioNextPath != null && state.radioNextPath!.isNotEmpty)
               ? state.radioNextPath
@@ -1736,6 +1763,19 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
         // 3.1.99: la rampa de A llega a m/a en el disparo (barMixOut); no
         // se arma mientras la vuelta post-mezcla sigue en curso.
+        // 3.2.0: la siguiente de la rampa sigue a la cabeza de la cola hasta
+        // que la rampa la fija (solo cuando cambia la cola o la pista).
+        if (!identical(state.queue, _driftHeadQueue) ||
+            state.currentTrackPath != _driftHeadCurrent) {
+          _driftHeadQueue = state.queue;
+          _driftHeadCurrent = state.currentTrackPath;
+          _rememberDriftNext();
+        }
+        final double driftNextBpm = _extractBpm(
+          _driftNextPath ?? _standbyArmedPath,
+        );
+        // 3.2.0: precarga a mas tardar cuando se compromete la rampa previa.
+        final int armLeadMs = _drift.preRollArmLeadMs(driftNextBpm);
         if (!_isCrossfading && !_mix.paused && !_postMix.running) {
           final double curRate = player.state.rate;
           final String? blocked = _drift.takeBlockedReport();
@@ -1745,7 +1785,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
             durMs: durMs,
             mixOutMs: barMixOut,
             rate: curRate,
-            nextBpm: _extractBpm(_driftNextPath ?? _standbyArmedPath),
+            nextBpm: driftNextBpm,
           );
           final String? blockedAfter = _drift.takeBlockedReport();
           if (blockedAfter != null) _djTrace('MIDPOINT FUERA $blockedAfter');
@@ -1772,7 +1812,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         if (!_isStandbyArmed &&
             !_isCrossfading &&
             !_mix.paused &&
-            posMs >= (barMixOut - 10000) &&
+            posMs >= (barMixOut - armLeadMs) &&
             barMixOut > 10000) {
           _isStandbyArmed = true;
           _standbyArmedPath = null;
@@ -2082,6 +2122,20 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   }
 
   /// `true` si el deck tiene cargada (y con duración) exactamente `path`.
+  /// 3.2.0: cruce abortado despues de play(): la entrante no queda sonando a
+  /// volumen 0. Si otra accion ya tomo el deck no se toca.
+  Future<void> _stopAbortedIncoming(Player incoming, String path) async {
+    if (_isCrossfading || _mix.armed) return;
+    if (identical(incoming, _activePlayer)) return;
+    if (!deckHoldsAudioPath(incoming, path)) return;
+    try {
+      await incoming.setVolume(0.0);
+    } catch (_) {}
+    try {
+      await incoming.stop();
+    } catch (_) {}
+  }
+
   bool _deckHolds(Player deck, String path) {
     try {
       if (deck.state.duration.inMilliseconds <= 0) return false;
@@ -3089,18 +3143,22 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       }
       nextTrack = picked;
     } else {
-      int nextIdx = queueIndex ?? _nextQueueIndex();
-      // Fin natural sin mezcla: suena la pista que ya estaba precargada (la que
-      // la pantalla mostraba como "siguiente"), no una recalculada.
-      if (queueIndex == null &&
-          _nextFromCompletion &&
-          _standbyArmedPath != null) {
-        final int ai = liveDjWindowIndexOf(state.queue, _standbyArmedPath);
-        if (ai >= 0) nextIdx = ai;
-      }
+      // 3.2.0: sin fila tocada suena la precargada mientras siga en la
+      // ventana (antes solo en el fin natural); si no, la fijada por la rampa
+      // previa; si no, la cabeza.
+      final int nextIdx =
+          queueIndex ??
+          liveDjTriggerIndex(
+            queue: state.queue,
+            current: state.currentTrackPath,
+            armed: _standbyArmedPath,
+            pinned: _drift.preRollActive ? _driftNextPath : null,
+          );
+      final bool fromEnd = _nextFromCompletion;
       _nextFromCompletion = false;
       _djTrace(
-        'NEXT elegido idx=$nextIdx de ${state.queue.length} jit=$forceJit',
+        'NEXT elegido idx=$nextIdx de ${state.queue.length} jit=$forceJit '
+        'fin=$fromEnd',
       );
       if (nextIdx < 0 || nextIdx >= state.queue.length) {
         await _stopWhenNoNext();
@@ -3350,6 +3408,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       }
       if (!_mix.armed) {
         await _dropPhase();
+        await _stopAbortedIncoming(incomingPlayer, nextTrack);
         return;
       }
     } catch (e) {
@@ -3873,6 +3932,44 @@ int liveDjHeadIndex(List<File> queue, String? currentPath) => offAirNextIndex(
   ],
   currentPath: currentPath,
 );
+
+/// 3.2.0: pistas de la cola que una insercion automatica no toca. En un
+/// cruce la cabeza; con la precargada, hasta ella; con la rampa previa
+/// comprometida, hasta la fijada (o al menos la cabeza).
+int liveDjLockedPrefix({
+  required List<File> queue,
+  required bool crossfading,
+  required bool preRoll,
+  String? armed,
+  String? driftNext,
+}) {
+  if (queue.isEmpty) return 0;
+  if (crossfading) return 1;
+  final int i = liveDjWindowIndexOf(queue, armed);
+  if (i >= 0) return i + 1;
+  if (preRoll) {
+    final int d = liveDjWindowIndexOf(queue, driftNext);
+    return d >= 0 ? d + 1 : 1;
+  }
+  return 0;
+}
+
+/// 3.2.0: siguiente en el disparo sin fila tocada: la precargada si sigue en
+/// la ventana; si no, la fijada por la rampa previa; si no, la cabeza.
+int liveDjTriggerIndex({
+  required List<File> queue,
+  String? current,
+  String? armed,
+  String? pinned,
+}) {
+  for (final String? p in <String?>[armed, pinned]) {
+    if (p == null || p.isEmpty) continue;
+    if (current != null && sameAudioPath(p, current)) continue;
+    final int i = liveDjWindowIndexOf(queue, p);
+    if (i >= 0) return i;
+  }
+  return liveDjHeadIndex(queue, current);
+}
 
 /// Indice de [path] dentro de la ventana (-1 si no esta o es null).
 int liveDjWindowIndexOf(List<File> queue, String? path) {

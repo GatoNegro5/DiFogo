@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:media_kit/media_kit.dart';
 
+import '../audio_path.dart' show sameAudioPath;
 import '../genre_mix_fx.dart' show bpmNoStretch;
 import 'mix_pause.dart';
 
@@ -13,6 +14,59 @@ const int kTempoRampStepMs = 200;
 
 /// 3.1.99: A ya esta en m/a si su rate difiere menos que esto.
 const double kTempoRampRateEpsilon = 0.003;
+
+/// 3.2.0: la rampa previa queda comprometida (siguiente congelada) este
+/// margen antes de su arranque; Live DJ precarga a mas tardar ahi.
+const int kPreRollLockLeadMs = 1000;
+
+/// 3.2.0: con la rampa previa comprometida la siguiente no cambia: si
+/// [pinned] sigue en [queue] queda justo despues de [current] (al frente si
+/// [current] no esta en la cola). Si el usuario la quito, o es la que suena,
+/// la cola vuelve igual (misma instancia).
+List<String> pinNextTrack(
+  List<String> queue, {
+  String? current,
+  String? pinned,
+}) {
+  if (pinned == null || pinned.isEmpty) return queue;
+  if (current != null && sameAudioPath(pinned, current)) return queue;
+  final int at = queue.indexWhere((String p) => sameAudioPath(p, pinned));
+  if (at < 0) return queue;
+  final int cur = current == null
+      ? -1
+      : queue.indexWhere((String p) => sameAudioPath(p, current));
+  if (at == cur + 1) return queue;
+  final List<String> out = List<String>.from(queue);
+  final String keep = out.removeAt(at);
+  final int cur2 = current == null
+      ? -1
+      : out.indexWhere((String p) => sameAudioPath(p, current));
+  out.insert(cur2 + 1, keep);
+  return out;
+}
+
+/// 3.2.0: true si [deck] tiene abierta exactamente [path] (sin exigir
+/// duracion: sirve para soltar un deck que acaba de arrancar).
+bool deckHoldsAudioPath(Player deck, String path) {
+  try {
+    final List<Media> medias = deck.state.playlist.medias;
+    final int idx = deck.state.playlist.index;
+    if (idx < 0 || idx >= medias.length) return false;
+    String norm(String s) {
+      var t = s;
+      try {
+        t = Uri.decodeFull(s);
+      } catch (_) {}
+      return t.replaceAll('\\', '/').replaceFirst('file:///', '').toLowerCase();
+    }
+
+    final String loaded = norm(medias[idx].uri);
+    final String want = norm(path);
+    return loaded == want || loaded.endsWith(want) || want.endsWith(loaded);
+  } catch (_) {
+    return false;
+  }
+}
 
 /// 3.1.99: plan simetrico. A (saliente) va de 1.0 a m/a antes del cruce y B
 /// (entrante) entra a m/b y vuelve a 1.0 despues; cada mitad mueve
@@ -28,7 +82,6 @@ class SymmetricTempoPlan {
     required this.active,
     required this.blocked,
     required this.noStretch,
-    required this.note,
   });
 
   final double a;
@@ -46,7 +99,12 @@ class SymmetricTempoPlan {
 
   /// Diferencia < 2 % (3.1.97): ninguno se mueve.
   final bool noStretch;
-  final String note;
+
+  /// 3.2.0: texto armado solo al pedirlo (el plan se consulta en cada tick).
+  String get note =>
+      'mid a=${a.toStringAsFixed(3)} b=${b.toStringAsFixed(3)} '
+      'm=${midpoint.toStringAsFixed(3)} rateA=${outRate.toStringAsFixed(4)} '
+      'rateB=${inRate.toStringAsFixed(4)}';
 
   /// Duracion real de cada mitad: (delta / 2) / 0.5 BPM/s = delta segundos.
   int get rampMs =>
@@ -77,10 +135,6 @@ SymmetricTempoPlan symmetricTempoPlan(double a, double b) {
     active: musical && !noStretch && !blocked && delta > 1e-9,
     blocked: blocked,
     noStretch: noStretch,
-    note:
-        'mid a=${a.toStringAsFixed(3)} b=${b.toStringAsFixed(3)} '
-        'm=${m.toStringAsFixed(3)} rateA=${outRate.toStringAsFixed(4)} '
-        'rateB=${inRate.toStringAsFixed(4)}',
   );
 }
 
@@ -90,6 +144,20 @@ SymmetricTempoPlan symmetricTempoPlan(double a, double b) {
 MidpointEntry symmetricEntry(double a, double b, {double outRateNow = 1.0}) {
   final SymmetricTempoPlan plan = symmetricTempoPlan(a, b);
   if (!plan.active) {
+    // 3.2.0: sin plan pero A desplazado (rampa vieja o volviendo a 1.0): B
+    // iguala el BPM real de A si cabe en 0.88-1.12; si no, 1.0.
+    if (_musicalBpm(a) &&
+        _musicalBpm(b) &&
+        (outRateNow - 1.0).abs() > kTempoRampRateEpsilon) {
+      final double matched = a * outRateNow / b;
+      final String note =
+          'sin plan matchA=${outRateNow.toStringAsFixed(4)} '
+          'rateB=${matched.toStringAsFixed(4)}';
+      if (matched < TempoDrift.minRate || matched > TempoDrift.maxRate) {
+        return MidpointEntry(incomingRate: 1, blocked: true, note: note);
+      }
+      return MidpointEntry(incomingRate: matched, blocked: false, note: note);
+    }
     return MidpointEntry(
       incomingRate: 1,
       blocked: plan.blocked,
@@ -378,6 +446,21 @@ class TempoDrift {
   MidpointTempoPlan? _inPlan;
   double _outNext = 0;
   bool _outFired = false;
+  bool _outCommitted = false;
+  bool _outRamped = false;
+
+  /// 3.2.0: true desde que la rampa previa de A queda comprometida
+  /// ([kPreRollLockLeadMs] antes de su arranque) y mientras A camina o
+  /// espera en m/a, hasta el cruce ([begin]) o una pareja sin plan.
+  bool get preRollActive => _outCommitted || _outRamped;
+
+  /// 3.2.0: cuanto antes del punto de mezcla hay que tener la siguiente
+  /// precargada: el mayor entre [floorMs] y el arranque comprometido.
+  int preRollArmLeadMs(double nextBpm, {int floorMs = 10000}) {
+    final SymmetricTempoPlan plan = symmetricTempoPlan(natural, nextBpm);
+    if (!plan.active) return floorMs;
+    return max(floorMs, plan.leadTrackMs + kPreRollLockLeadMs);
+  }
   bool _reported = false;
 
   /// Pista que acaba de quedar sonando. [rate] es el tempo con el que entró
@@ -390,6 +473,8 @@ class TempoDrift {
     _originSet = false;
     _outFired = false;
     _outNext = 0;
+    _outCommitted = false;
+    _outRamped = false;
     _reported = false;
     midpointBlocked = false;
     midpointNote = '';
@@ -422,6 +507,8 @@ class TempoDrift {
     _inPlan = null;
     _outFired = false;
     _outNext = 0;
+    _outCommitted = false;
+    _outRamped = false;
     _inStep = 99;
     midpointBlocked = false;
     midpointNote = '';
@@ -455,6 +542,20 @@ class TempoDrift {
   /// con el rate que tenga y B se iguala a ese).
   void cancelRamp() {
     _rampGen++;
+  }
+
+  /// 3.2.0: A vuelve a 1.0 en linea recta a 0.5 BPM/s si una rampa previa
+  /// lo movio; suelta el compromiso. Null si A nunca se movio.
+  double? _returnHome(double rate) {
+    final bool moved = _outRamped;
+    _outRamped = false;
+    _outCommitted = false;
+    if (!moved) return null;
+    final double off = (rate - 1.0).abs();
+    final int ms = _musicalBpm(natural)
+        ? (natural * off / kTempoRampBpmPerSec * 1000).round()
+        : kTempoRampStepMs;
+    return _armLinear(1.0, ms);
   }
 
   int _gap(
@@ -526,7 +627,9 @@ class TempoDrift {
     // nueva, BPM conocido tarde) la rampa se comprime al tiempo que queda;
     // con menos de 200 ms no se mueve y B iguala el rate real de A.
     if (!outgoingRamp) return null;
-    if (!_musicalBpm(nextBpm) || mixOutMs <= 0) return null;
+    // 3.2.0: sin siguiente conocida (quitada a mano, cola vacia, mezcla
+    // desarmada) A no se queda en el m/a viejo: vuelve a 1.0.
+    if (!_musicalBpm(nextBpm) || mixOutMs <= 0) return _returnHome(rate);
     if (_outFired && (_outNext - nextBpm).abs() <= 0.05) return null;
     final SymmetricTempoPlan plan = symmetricTempoPlan(natural, nextBpm);
     if (!plan.active) {
@@ -536,11 +639,19 @@ class TempoDrift {
         midpointBlocked = true;
         midpointNote = plan.note;
       }
-      return null;
+      // 3.2.0: pareja nueva sin plan (< 2 % o fuera de rango): A vuelve
+      // suave a 1.0 en vez de quedar en el m/a viejo.
+      return _returnHome(rate);
     }
-    if (posMs < mixOutMs - plan.leadTrackMs) return null;
+    final int start = mixOutMs - plan.leadTrackMs;
+    // 3.2.0: la pareja cambio y su arranque aun no llega: si A ya se habia
+    // movido vuelve a 1.0 y la rampa nueva arranca a su hora.
+    if (posMs < start - kPreRollLockLeadMs) return _returnHome(rate);
+    _outCommitted = true;
+    if (posMs < start) return null;
     _outFired = true;
     _outNext = nextBpm;
+    _outRamped = true;
     final int remain = mixOutMs - posMs;
     if (remain < kTempoRampStepMs) return null;
     if ((plan.outRate - rate).abs() < 0.002) return null;
