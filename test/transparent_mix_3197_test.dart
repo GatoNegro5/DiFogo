@@ -54,11 +54,11 @@ void main() {
     expect(postMixRecoveryMs(1.0), 0);
     final String am = _read('lib/providers/automix_provider.dart');
     final String ld = _read('lib/providers/livedj_provider.dart');
-    expect(am.contains('transparentLockRate('), isTrue);
-    expect(ld.contains('transparentLockRate('), isTrue);
-    // El master lock y su ventana siguen intactos.
-    expect(am.contains('masterLockEntry(fadingBpm, incomingBpm)'), isTrue);
-    expect(ld.contains('masterLockEntry(fadingBpm, incomingBpm)'), isTrue);
+    // 3.1.99: la regla < 2 % vive en el plan simetrico de los dos motores.
+    expect(am.contains('symmetricEntry('), isTrue);
+    expect(ld.contains('symmetricEntry('), isTrue);
+    final String td = _read('lib/core/audio/tempo_drift.dart');
+    expect(td.contains('bpmNoStretch(a, b)'), isTrue);
   });
 
   test('3197 (c) modo normal: sin highpass / low-pass / echo', () {

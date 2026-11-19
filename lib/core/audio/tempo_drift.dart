@@ -2,7 +2,133 @@ import 'dart:math';
 
 import 'package:media_kit/media_kit.dart';
 
+import '../genre_mix_fx.dart' show bpmNoStretch;
 import 'mix_pause.dart';
+
+/// 3.1.99 Rampa simetrica al punto medio: 0.5 BPM/s (2 BPM cada 4 s).
+const double kTempoRampBpmPerSec = 0.5;
+
+/// 3.1.99: un micro-paso de rate cada 200 ms (antes y despues del cruce).
+const int kTempoRampStepMs = 200;
+
+/// 3.1.99: A ya esta en m/a si su rate difiere menos que esto.
+const double kTempoRampRateEpsilon = 0.003;
+
+/// 3.1.99: plan simetrico. A (saliente) va de 1.0 a m/a antes del cruce y B
+/// (entrante) entra a m/b y vuelve a 1.0 despues; cada mitad mueve
+/// delta/2 BPM a [kTempoRampBpmPerSec], o sea delta segundos.
+class SymmetricTempoPlan {
+  const SymmetricTempoPlan({
+    required this.a,
+    required this.b,
+    required this.midpoint,
+    required this.delta,
+    required this.outRate,
+    required this.inRate,
+    required this.active,
+    required this.blocked,
+    required this.noStretch,
+    required this.note,
+  });
+
+  final double a;
+  final double b;
+  final double midpoint;
+  final double delta;
+  final double outRate;
+  final double inRate;
+
+  /// true: hay que igualar (BPM conocidos, >= 2 % y las dos mitades en rango).
+  final bool active;
+
+  /// m/a o m/b fuera de 0.88-1.12: ninguno se iguala (los dos a 1.0x).
+  final bool blocked;
+
+  /// Diferencia < 2 % (3.1.97): ninguno se mueve.
+  final bool noStretch;
+  final String note;
+
+  /// Duracion real de cada mitad: (delta / 2) / 0.5 BPM/s = delta segundos.
+  int get rampMs =>
+      active ? (delta / 2 / kTempoRampBpmPerSec * 1000).round() : 0;
+
+  /// Milisegundos de pista que recorre A durante su rampa lineal (rate de
+  /// 1.0 a m/a): la rampa arranca a esta distancia antes de la entrada de B.
+  int get leadTrackMs => active ? (rampMs * (1 + outRate) / 2).round() : 0;
+}
+
+SymmetricTempoPlan symmetricTempoPlan(double a, double b) {
+  final double m = (a + b) / 2;
+  final double outRate = a > 0 ? m / a : 1;
+  final double inRate = b > 0 ? m / b : 1;
+  final bool musical = _musicalBpm(a) && _musicalBpm(b);
+  final bool noStretch = musical && bpmNoStretch(a, b);
+  bool outside(double r) => r < TempoDrift.minRate || r > TempoDrift.maxRate;
+  final bool blocked =
+      musical && !noStretch && (outside(outRate) || outside(inRate));
+  final double delta = (a - b).abs();
+  return SymmetricTempoPlan(
+    a: a,
+    b: b,
+    midpoint: m,
+    delta: delta,
+    outRate: outRate,
+    inRate: inRate,
+    active: musical && !noStretch && !blocked && delta > 1e-9,
+    blocked: blocked,
+    noStretch: noStretch,
+    note:
+        'mid a=${a.toStringAsFixed(3)} b=${b.toStringAsFixed(3)} '
+        'm=${m.toStringAsFixed(3)} rateA=${outRate.toStringAsFixed(4)} '
+        'rateB=${inRate.toStringAsFixed(4)}',
+  );
+}
+
+/// 3.1.99: rate de B al entrar. Con A ya en m/a ([outRateNow]) es m/b. Si
+/// A no llego (cruce adelantado, BPM conocido tarde) B iguala el BPM real
+/// de A (a * rate / b), si cabe en 0.88-1.12. Sin plan activo: 1.0.
+MidpointEntry symmetricEntry(double a, double b, {double outRateNow = 1.0}) {
+  final SymmetricTempoPlan plan = symmetricTempoPlan(a, b);
+  if (!plan.active) {
+    return MidpointEntry(
+      incomingRate: 1,
+      blocked: plan.blocked,
+      note: plan.noStretch ? 'sin stretch (<2%)' : plan.note,
+    );
+  }
+  if ((outRateNow - plan.outRate).abs() <= kTempoRampRateEpsilon) {
+    return MidpointEntry(
+      incomingRate: plan.inRate,
+      blocked: false,
+      note: plan.note,
+    );
+  }
+  final double matched = a * outRateNow / b;
+  final String note =
+      '${plan.note} matchA=${outRateNow.toStringAsFixed(4)} '
+      'rateB=${matched.toStringAsFixed(4)}';
+  if (matched < TempoDrift.minRate || matched > TempoDrift.maxRate) {
+    return MidpointEntry(incomingRate: 1, blocked: true, note: note);
+  }
+  return MidpointEntry(incomingRate: matched, blocked: false, note: note);
+}
+
+/// 3.1.99: rates de la rampa lineal de [from] a [to] en [ms], un valor cada
+/// [stepMs] (el primero es [from], el ultimo [to] exacto).
+List<double> tempoLinearSchedule(
+  double from,
+  double to, {
+  required int ms,
+  int stepMs = kTempoRampStepMs,
+}) {
+  if (ms <= 0 || stepMs <= 0) return <double>[to];
+  final List<double> out = <double>[];
+  for (int elapsed = 0; elapsed < ms; elapsed += stepMs) {
+    out.add(from + (to - from) * (elapsed / ms));
+  }
+  out.add(to);
+  return out;
+}
 
 /// Un paso de la rampa: [offsetMs] desde el punto de mezcla (negativo = antes)
 /// y el BPM con el que la pista queda sonando al completar el paso.
@@ -142,19 +268,14 @@ MidpointEntry masterLockEntry(double a, double b) {
   return MidpointEntry(incomingRate: rate, blocked: false, note: note);
 }
 
+/// 3.1.99: B al punto medio (m/b) con la regla < 2 % y el rango de las dos
+/// mitades (m/a y m/b); fuera de eso 1.0.
 MidpointEntry midpointEntry(double a, double b) {
   if (!_musicalBpm(a) || !_musicalBpm(b)) {
     return const MidpointEntry(incomingRate: 1, blocked: false, note: '');
   }
-  final MidpointTempoPlan plan = midpointTempoPlan(a, b);
-  if (plan.rateLimited) {
-    return MidpointEntry(incomingRate: 1, blocked: true, note: plan.note);
-  }
-  return MidpointEntry(
-    incomingRate: plan.incomingRate,
-    blocked: false,
-    note: plan.note,
-  );
+  final SymmetricTempoPlan plan = symmetricTempoPlan(a, b);
+  return symmetricEntry(a, b, outRateNow: plan.active ? plan.outRate : 1.0);
 }
 
 List<int> _outgoingOffsets(int n) {
@@ -241,10 +362,12 @@ class TempoDrift {
   bool midpointBlocked = false;
   String midpointNote = '';
 
-  /// 3.1.71 master lock: false = la saliente no se toca antes del cruce (ni
-  /// rate ni tono). Solo las pruebas del plan viejo al punto medio la ponen
-  /// en true.
-  bool outgoingRamp = false;
+  /// 3.1.99: true = la saliente camina en linea recta (0.5 BPM/s) hasta el
+  /// punto medio antes del cruce (se levanta el veto de 3.1.71).
+  bool outgoingRamp = true;
+
+  /// 3.1.99: la rampa armada es lineal en pasos de [kTempoRampStepMs].
+  bool rampLinear = false;
 
   int _gen = 0;
   int _rampGen = 0;
@@ -252,9 +375,9 @@ class TempoDrift {
   bool _originSet = false;
   int _originMs = 0;
   int _inStep = 0;
-  int _outStep = 0;
   MidpointTempoPlan? _inPlan;
-  MidpointTempoPlan? _outPlan;
+  double _outNext = 0;
+  bool _outFired = false;
   bool _reported = false;
 
   /// Pista que acaba de quedar sonando. [rate] es el tempo con el que entró
@@ -264,9 +387,9 @@ class TempoDrift {
     _rampGen++;
     natural = naturalBpm;
     _inStep = 0;
-    _outStep = 0;
     _originSet = false;
-    _outPlan = null;
+    _outFired = false;
+    _outNext = 0;
     _reported = false;
     midpointBlocked = false;
     midpointNote = '';
@@ -297,9 +420,9 @@ class TempoDrift {
     natural = 0.0;
     _phaseIn = false;
     _inPlan = null;
-    _outPlan = null;
+    _outFired = false;
+    _outNext = 0;
     _inStep = 99;
-    _outStep = 99;
     midpointBlocked = false;
     midpointNote = '';
   }
@@ -315,8 +438,23 @@ class TempoDrift {
 
   double? _arm(double rate, int ms) {
     _rampGen++;
+    rampLinear = false;
     rampMs = ms < 400 ? 400 : (ms > 8000 ? 8000 : ms);
     return _clamp(rate);
+  }
+
+  /// 3.1.99: rampa lineal sin techo (delta s; hasta ~30 s dentro del rango).
+  double? _armLinear(double rate, int ms) {
+    _rampGen++;
+    rampLinear = true;
+    rampMs = ms < kTempoRampStepMs ? kTempoRampStepMs : ms;
+    return _clamp(rate);
+  }
+
+  /// 3.1.99: suelta la rampa en curso sin tocar el rate (el cruce toma a A
+  /// con el rate que tenga y B se iguala a ese).
+  void cancelRamp() {
+    _rampGen++;
   }
 
   int _gap(
@@ -382,28 +520,33 @@ class TempoDrift {
       if (_phaseIn) return null;
     }
 
-    // 3.1.71: antes la saliente bajaba/subia su rate en pasos a -10/-5 s (o
-    // -12/-9/-6/-3 s) del punto de mezcla: el cambio de sonido de 6-7 s
-    // antes de la mezcla. Ahora B se ajusta a A en silencio.
+    // 3.1.99: rampa simetrica. A va de su rate a m/a en linea recta a
+    // 0.5 BPM/s y llega a BPM_mid justo en [mixOutMs] (entrada de B). El
+    // arranque queda delta s (reales) antes. Si queda menos (salto, cola
+    // nueva, BPM conocido tarde) la rampa se comprime al tiempo que queda;
+    // con menos de 200 ms no se mueve y B iguala el rate real de A.
     if (!outgoingRamp) return null;
     if (!_musicalBpm(nextBpm) || mixOutMs <= 0) return null;
-    if (_outPlan == null || (_outPlan!.b - nextBpm).abs() > 0.05) {
-      _outPlan = midpointTempoPlan(natural, nextBpm);
-      _outStep = 0;
-      if (_outPlan!.rateLimited) {
+    if (_outFired && (_outNext - nextBpm).abs() <= 0.05) return null;
+    final SymmetricTempoPlan plan = symmetricTempoPlan(natural, nextBpm);
+    if (!plan.active) {
+      _outFired = true;
+      _outNext = nextBpm;
+      if (plan.blocked) {
         midpointBlocked = true;
-        midpointNote = _outPlan!.note;
+        midpointNote = plan.note;
       }
+      return null;
     }
-    if (_outPlan!.rateLimited) return null;
-    final int rel = posMs - mixOutMs;
-    final int? due = _due(_outPlan!.outgoing, _outStep, rel);
-    if (due == null) return null;
-    _outStep = due + 1;
-    final double target = _outPlan!.outgoing[due].bpm / natural;
-    if (target < minRate || target > maxRate) return null;
-    if ((target - rate).abs() < 0.002) return null;
-    return _arm(target, _gap(_outPlan!.outgoing, due, rel, untilMix: true));
+    if (posMs < mixOutMs - plan.leadTrackMs) return null;
+    _outFired = true;
+    _outNext = nextBpm;
+    final int remain = mixOutMs - posMs;
+    if (remain < kTempoRampStepMs) return null;
+    if ((plan.outRate - rate).abs() < 0.002) return null;
+    final double avg = (rate + plan.outRate) / 2;
+    final int realMs = avg > 0 ? (remain / avg).round() : remain;
+    return _armLinear(plan.outRate, realMs);
   }
 
   /// Rampa lenta (senoidal) del rate. El temporizador es propio: no depende
@@ -419,6 +562,9 @@ class TempoDrift {
     final int g = _gen;
     final int r = _rampGen;
     final int dur = ms ?? rampMs;
+    // 3.1.99: lineal en pasos de 200 ms (rampa simetrica); senoidal en 100 ms.
+    final bool linear = rampLinear;
+    final int stepMs = linear ? kTempoRampStepMs : 100;
     final int epoch = hold?.epoch ?? 0;
     final MixRunClock clock = hold?.clock() ?? MixRunClock();
     try {
@@ -430,11 +576,15 @@ class TempoDrift {
           continue;
         }
         final double t = clock.elapsedMilliseconds / dur;
-        await p.setRate(tempoRampValue(from, to, t));
+        await p.setRate(
+          linear
+              ? from + (to - from) * t.clamp(0.0, 1.0)
+              : tempoRampValue(from, to, t),
+        );
         if (hold != null) {
-          await hold.slice(100, clock);
+          await hold.slice(stepMs, clock);
         } else {
-          await Future<void>.delayed(const Duration(milliseconds: 100));
+          await Future<void>.delayed(Duration(milliseconds: stepMs));
         }
       }
       if (g == _gen && r == _rampGen) await p.setRate(to);

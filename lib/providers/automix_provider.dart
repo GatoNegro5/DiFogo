@@ -19,7 +19,6 @@ import '../core/audio/phase_lock.dart';
 import '../core/audio/tempo_drift.dart';
 import '../core/dj_trace.dart';
 import '../core/audio/dj_audio_handler.dart';
-import '../core/genre_mix_fx.dart' show transparentLockRate;
 import '../core/post_mix_tempo_recovery.dart';
 
 import '../core/audio_path.dart';
@@ -1656,7 +1655,11 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
       final fadingBpm = _extractBpm(state.currentTrackPath);
       final incomingBpm = _extractBpm(nextTrack);
-      final double incomingRate = _midpointRate(fadingBpm, incomingBpm);
+      final double incomingRate = _midpointRate(
+      fadingBpm,
+      incomingBpm,
+      fadingPlayer,
+    );
 
       try {
         await incomingPlayer.setRate(incomingRate);
@@ -1772,7 +1775,11 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
     final fadingBpm = _extractBpm(state.currentTrackPath);
     final incomingBpm = _extractBpm(nextTrack);
-    final double incomingRate = _midpointRate(fadingBpm, incomingBpm);
+    final double incomingRate = _midpointRate(
+      fadingBpm,
+      incomingBpm,
+      fadingPlayer,
+    );
 
     try {
       await incomingPlayer.setRate(incomingRate);
@@ -1872,7 +1879,11 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
     final fadingBpm = _extractBpm(state.currentTrackPath);
     final incomingBpm = _extractBpm(nextTrack);
-    final double incomingRate = _midpointRate(fadingBpm, incomingBpm);
+    final double incomingRate = _midpointRate(
+      fadingBpm,
+      incomingBpm,
+      fadingPlayer,
+    );
 
     try {
       await incomingPlayer.setRate(incomingRate);
@@ -2033,27 +2044,32 @@ class AutomixNotifier extends Notifier<AutomixState> {
       } catch (_) {}
 
       _releaseMix();
-      _startPostMixRecovery(incomingPlayer);
+      _startPostMixRecovery(
+        incomingPlayer,
+        bpm: _extractBpm(state.currentTrackPath),
+      );
     }
   }
 
   /// 3.1.90: A ya salio y B quedo sola como master: su rate vuelve a 1.0
   /// en 4-8 s (pasos de 200 ms, tono conservado). Un cruce nuevo o una
   /// pista nueva la sueltan; en pausa queda en 1.0 en silencio.
-  void _startPostMixRecovery(Player p) {
+  void _startPostMixRecovery(Player p, {double bpm = 0}) {
     double from;
     try {
       from = p.state.rate;
     } catch (_) {
       return;
     }
-    final int ms = postMixRecoveryMs(from);
+    // 3.1.99: con el BPM de B la vuelta dura delta s a 0.5 BPM/s.
+    final int ms = postMixRecoveryMs(from, bpm: bpm);
     if (ms > 0) {
       djTrace('POST-MIX rate ${from.toStringAsFixed(3)} -> 1.000 en $ms ms');
     }
     unawaited(
       _postMix.run(
         fromRate: from,
+        bpm: bpm,
         setRate: p.setRate,
         alive: () => !_isCrossfading,
         paused: () {
@@ -2151,19 +2167,24 @@ class AutomixNotifier extends Notifier<AutomixState> {
     );
   }
 
-  /// 3.1.71 master lock: B al BPM de A (rate a/b); A no cambia de tempo.
-  double _midpointRate(double fadingBpm, double incomingBpm) {
-    final MidpointEntry entry = masterLockEntry(fadingBpm, incomingBpm);
-    if (entry.blocked) djTrace('MIDPOINT FUERA ${entry.note}');
-    // 3.1.97: con menos de 2 % de diferencia de BPM B suena a 1.0x nativo:
-    // sin scaletempo (mpv solo lo inserta con speed != 1) ni rampa post-mezcla.
-    final double rate = transparentLockRate(
+  /// 3.1.99 punto medio: A ya camino a m/a antes del cruce y B entra a m/b
+  /// (mismo BPM_mid). Regla < 2 %: 1.0x; una mitad fuera de 0.88-1.12:
+  /// 1.0x. Si A no llego a m/a, B iguala el rate real de A.
+  double _midpointRate(double fadingBpm, double incomingBpm, Player fading) {
+    _drift.cancelRamp();
+    double outRate = 1.0;
+    try {
+      outRate = fading.state.rate;
+    } catch (_) {}
+    final MidpointEntry entry = symmetricEntry(
       fadingBpm,
       incomingBpm,
-      entry.incomingRate,
+      outRateNow: outRate,
     );
-    if (rate != entry.incomingRate) djTrace('SIN STRETCH (<2% BPM) 1.000x');
-    return rate;
+    djTrace(
+      entry.blocked ? 'MIDPOINT FUERA ${entry.note}' : 'MIDPOINT ${entry.note}',
+    );
+    return entry.incomingRate;
   }
 
   final Map<String, int> _exactDurCache = {};
@@ -2236,16 +2257,21 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _positionSub = player.stream.position.listen((Duration pos) {
       final posMs = pos.inMilliseconds;
 
+      // 3.1.99: no se arma mientras la vuelta post-mezcla sigue en curso.
       if (!_isCrossfading &&
           !_mix.paused &&
+          !_postMix.running &&
           state.duration.inMilliseconds > 0) {
         final double curRate = player.state.rate;
         final String? blocked = _drift.takeBlockedReport();
         if (blocked != null) djTrace('MIDPOINT FUERA $blocked');
+        // 3.1.99: la rampa de A termina donde entra B (disparo DAWN).
         final double? tgt = _drift.tick(
           posMs: posMs,
           durMs: state.duration.inMilliseconds,
-          mixOutMs: state.customMixOutMs,
+          mixOutMs: state.autoMixArmed && state.customMixOutMs > kDawnLeadMs
+              ? state.customMixOutMs - kDawnLeadMs
+              : 0,
           rate: curRate,
           nextBpm: _extractBpm(state.nextTrackPath),
         );

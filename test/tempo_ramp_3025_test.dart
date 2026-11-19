@@ -12,19 +12,29 @@ void _expectMidpoint(String mode) {
   expect(plan.incomingRate, closeTo(131 / 134, 1e-12), reason: mode);
 
   final TempoDrift before = TempoDrift();
-  // 3.1.71: el plan viejo al punto medio queda solo para esta prueba; por
-  // defecto la saliente ya no cambia de tempo (master lock).
-  before.outgoingRamp = true;
+  // 3.1.99: rampa simetrica lineal (delta 6 -> 6 s reales antes de la
+  // entrada, 6070 ms de pista) hasta m/a = 131/128.
+  expect(before.outgoingRamp, isTrue);
   before.begin(outBpm, 1.0);
-  final double? toward = before.tick(
+  final double? early = before.tick(
     posMs: 170000,
     durMs: 200000,
     mixOutMs: 180000,
     rate: 1.0,
     nextBpm: inBpm,
   );
-  expect(toward, isNotNull, reason: '$mode da el primer paso 10 s antes');
-  expect(toward!, closeTo(129.5 / 128, 1e-9));
+  expect(early, isNull, reason: '$mode: 10 s antes todavia no');
+  final double? toward = before.tick(
+    posMs: 180000 - 6070,
+    durMs: 200000,
+    mixOutMs: 180000,
+    rate: 1.0,
+    nextBpm: inBpm,
+  );
+  expect(toward, isNotNull, reason: '$mode arranca delta s antes');
+  expect(toward!, closeTo(131 / 128, 1e-9));
+  expect(before.rampMs, 6000);
+  expect(before.rampLinear, isTrue);
   final List<double> up = tempoRampSchedule(1.0, toward);
   expect(up.length, greaterThanOrEqualTo(50));
   expect(up.first, 1.0);

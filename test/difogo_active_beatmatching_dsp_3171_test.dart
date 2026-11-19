@@ -36,7 +36,7 @@ double _bothAudible(double Function(double) vin, double Function(double) vout) {
 }
 
 void main() {
-  test('3171 Deck A: rate, ganancia y EQ quietos en los 7 s previos', () {
+  test('3171/3199 Deck A: rampa al punto medio, ganancia y EQ quietos', () {
     for (final (double a, double b) pair in <(double, double)>[
       (128, 134),
       (128, 140),
@@ -57,16 +57,24 @@ void main() {
         );
         if (next != null) rate = next;
       }
-      expect(rate, 1.0, reason: 'A no cambia de rate: $pair');
-      // B se ajusta en silencio al BPM de A.
-      final MidpointEntry e = masterLockEntry(pair.$1, pair.$2);
+      // 3.1.99: A llega a m/a en la entrada de B; con < 2 % no se mueve.
+      final SymmetricTempoPlan plan = symmetricTempoPlan(pair.$1, pair.$2);
+      expect(
+        rate,
+        closeTo(plan.active ? plan.outRate : 1.0, 1e-9),
+        reason: 'A al punto medio: $pair',
+      );
+      // B entra al mismo BPM_mid (m/b).
+      final MidpointEntry e = midpointEntry(pair.$1, pair.$2);
       expect(e.blocked, isFalse);
-      expect(e.incomingRate, closeTo(pair.$1 / pair.$2, 1e-12));
+      expect(e.incomingRate, closeTo(plan.active ? plan.inRate : 1.0, 1e-12));
     }
-    // Fuera de +-12 %: B entra a su tempo, A tampoco se toca.
-    final MidpointEntry far = masterLockEntry(128, 150);
+    // Una mitad fuera de 0.88-1.12: ninguno se iguala (los dos a 1.0x).
+    final MidpointEntry far = midpointEntry(128, 165);
     expect(far.blocked, isTrue);
     expect(far.incomingRate, 1.0);
+    // masterLockEntry (a/b) sigue como funcion pura.
+    expect(masterLockEntry(128, 150).blocked, isTrue);
     // Ganancia de A al abrir el cruce: 1.0 con las dos curvas.
     expect(equalPowerOutGain(0), 1.0);
     expect(mpvVolumeForGain(equalPowerOutGain(0)), closeTo(100, 1e-9));
@@ -107,8 +115,9 @@ void main() {
       isFalse,
     );
     expect(engine.contains('if (dnaOutExtra != null) {'), isTrue);
-    expect(ld.contains('masterLockEntry(fadingBpm, incomingBpm)'), isTrue);
-    expect(ld.contains('midpointEntry(fadingBpm, incomingBpm)'), isFalse);
+    // 3.1.99: punto medio simetrico (antes master lock a/b).
+    expect(ld.contains('symmetricEntry('), isTrue);
+    expect(ld.contains('masterLockEntry(fadingBpm, incomingBpm)'), isFalse);
     final int setRate = ld.indexOf(
       'await incomingPlayer.setRate(incomingRate);',
     );
@@ -213,8 +222,8 @@ void main() {
     expect(am.contains('mixFormulaProvider'), isFalse);
     expect(am.contains('phraseGrid'), isFalse);
     expect(am.contains('stealthGap'), isFalse);
-    expect(am.contains('masterLockEntry(fadingBpm, incomingBpm)'), isTrue);
-    expect(am.contains('midpointEntry('), isFalse);
+    expect(am.contains('symmetricEntry('), isTrue);
+    expect(am.contains('masterLockEntry(fadingBpm, incomingBpm)'), isFalse);
     final String engine = _slice(
       am,
       'Future<void> _executeMixEngine({',

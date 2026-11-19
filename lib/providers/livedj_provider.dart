@@ -1734,7 +1734,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
             ? state.customMixOutMs
             : _calculateRadioMixOut(durMs, state.currentTrackPath);
 
-        if (!_isCrossfading && !_mix.paused) {
+        // 3.1.99: la rampa de A llega a m/a en el disparo (barMixOut); no
+        // se arma mientras la vuelta post-mezcla sigue en curso.
+        if (!_isCrossfading && !_mix.paused && !_postMix.running) {
           final double curRate = player.state.rate;
           final String? blocked = _drift.takeBlockedReport();
           if (blocked != null) _djTrace('MIDPOINT FUERA $blocked');
@@ -3238,20 +3240,21 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     _incomingNatBpm = incomingBpm;
     // 3.1.71 master lock: A sigue a su tempo; B entra al BPM de A (rate a/b)
     // puesto en silencio antes de subir su fader. Vale para eco y filtro.
+    // 3.1.99 punto medio: A camino a m/a antes del cruce; B entra a m/b.
+    // Regla < 2 % y rango de las dos mitades: 1.0x. Si A no llego, B iguala
+    // el rate real de A. La rampa de A en curso se suelta aqui.
+    _drift.cancelRamp();
     final double outRate = fadingPlayer.state.rate;
-    final MidpointEntry entry = masterLockEntry(fadingBpm, incomingBpm);
+    final MidpointEntry entry = symmetricEntry(
+      fadingBpm,
+      incomingBpm,
+      outRateNow: outRate,
+    );
     if (entry.blocked) {
       _djTrace('MIDPOINT FUERA ${entry.note}');
     } else {
-      // 3.1.97: con menos de 2 % de diferencia de BPM B suena a 1.0x nativo.
-      incomingRate = transparentLockRate(
-        fadingBpm,
-        incomingBpm,
-        entry.incomingRate,
-      );
-      if (incomingRate != entry.incomingRate) {
-        _djTrace('SIN STRETCH (<2% BPM) 1.000x');
-      }
+      incomingRate = entry.incomingRate;
+      _djTrace('MIDPOINT ${entry.note}');
     }
     _mix.setRampBpm(
       _incomingNatBpm > 0 && incomingRate > 0
@@ -3768,7 +3771,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       _driftNextPath = null;
 
       _releaseMix();
-      _startPostMixRecovery(incomingPlayer);
+      _startPostMixRecovery(incomingPlayer, bpm: _incomingNatBpm);
       if (_radioOffAfterFade) {
         _radioOffAfterFade = false;
         if (state.radioOn || _radioFreeze != null) _turnRadioOff();
@@ -3781,20 +3784,22 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   /// 3.1.90: A ya salio y B quedo sola como master: su rate vuelve a 1.0
   /// en 4-8 s (pasos de 200 ms, tono conservado). Un cruce nuevo o una
   /// pista nueva la sueltan; en pausa queda en 1.0 en silencio.
-  void _startPostMixRecovery(Player p) {
+  void _startPostMixRecovery(Player p, {double bpm = 0}) {
     double from;
     try {
       from = p.state.rate;
     } catch (_) {
       return;
     }
-    final int ms = postMixRecoveryMs(from);
+    // 3.1.99: con el BPM de B la vuelta dura delta s a 0.5 BPM/s.
+    final int ms = postMixRecoveryMs(from, bpm: bpm);
     if (ms > 0) {
       _djTrace('POST-MIX rate ${from.toStringAsFixed(3)} -> 1.000 en $ms ms');
     }
     unawaited(
       _postMix.run(
         fromRate: from,
+        bpm: bpm,
         setRate: p.setRate,
         alive: () => !_isCrossfading,
         paused: () => _mix.paused || !_deckPlaying(() => p),

@@ -1,5 +1,7 @@
 import 'dart:math';
 
+import 'audio/tempo_drift.dart' show kTempoRampBpmPerSec;
+
 /// 3.1.90: retorno al BPM natural (rate 1.0) despues del handoff.
 ///
 /// Durante el cruce el master lock no se toca. Cuando la saliente ya salio
@@ -24,11 +26,19 @@ const double kPostMixMaxStep = 0.02;
 /// Milisegundos por unidad de rate: 0.16 (0.84x) da 8 s, 0.08 da 4 s.
 const int kPostMixMsPerUnit = 50000;
 
+/// 3.1.99: con [bpm] (BPM natural de la entrante) conocido la vuelta va a
+/// 0.5 BPM/s lineal: B recorre b * |1 - r| BPM (= delta / 2) en delta
+/// segundos, sin piso ni techo. Sin BPM queda la rampa 3.1.90 (4-8 s).
+bool _musicalBpm(double bpm) => bpm >= 40 && bpm <= 250;
+
 /// Duracion de la rampa desde [fromRate]; 0 = no hace falta.
-int postMixRecoveryMs(double fromRate) {
+int postMixRecoveryMs(double fromRate, {double bpm = 0}) {
   if (!fromRate.isFinite || fromRate <= 0) return 0;
   final double d = (fromRate - 1.0).abs();
   if (d <= kPostMixRateEpsilon) return 0;
+  if (_musicalBpm(bpm)) {
+    return (bpm * d / kTempoRampBpmPerSec * 1000).round();
+  }
   final int ms = (d * kPostMixMsPerUnit).round();
   if (ms < kPostMixMinMs) return kPostMixMinMs;
   if (ms > kPostMixMaxMs) return kPostMixMaxMs;
@@ -46,12 +56,18 @@ double postMixRateAt(double from, double t) {
 List<double> postMixRecoverySchedule(
   double fromRate, {
   int stepMs = kPostMixStepMs,
+  double bpm = 0,
 }) {
-  final int ms = postMixRecoveryMs(fromRate);
+  final int ms = postMixRecoveryMs(fromRate, bpm: bpm);
   if (ms == 0 || stepMs <= 0) return const <double>[];
   final int n = (ms / stepMs).ceil();
+  // 3.1.99: con BPM, pasos iguales (0.1 BPM cada 200 ms = 0.5 BPM/s).
+  final bool linear = _musicalBpm(bpm);
   return <double>[
-    for (int i = 1; i < n; i++) postMixRateAt(fromRate, i / n),
+    for (int i = 1; i < n; i++)
+      linear
+          ? fromRate + (1.0 - fromRate) * (i / n)
+          : postMixRateAt(fromRate, i / n),
     1.0,
   ];
 }
@@ -80,11 +96,13 @@ class PostMixTempoRecovery {
     required bool Function() paused,
     Future<void> Function(Duration step)? wait,
     int stepMs = kPostMixStepMs,
+    double bpm = 0,
   }) async {
     final int g = ++_gen;
     final List<double> steps = postMixRecoverySchedule(
       fromRate,
       stepMs: stepMs,
+      bpm: bpm,
     );
     if (steps.isEmpty) {
       _running = false;
