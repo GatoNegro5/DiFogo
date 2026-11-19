@@ -21,6 +21,7 @@ import '../core/audio/phase_lock.dart';
 import '../core/audio/tempo_drift.dart';
 import '../core/dj_trace.dart';
 import '../core/audio/dj_audio_handler.dart';
+import '../core/post_mix_tempo_recovery.dart';
 
 import '../core/audio_path.dart';
 import '../core/automix_genre_session.dart';
@@ -204,6 +205,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
   String? _lastDurationPlanKey;
   int _lastUiPosMs = -1;
   final TempoDrift _drift = TempoDrift();
+  // 3.1.90: rampa a 1.0x tras el handoff (4-8 s, pasos de 200 ms).
+  final PostMixTempoRecovery _postMix = PostMixTempoRecovery();
   final MixPause _mix = MixPause();
   PhaseLockSession? _phaseLock;
   bool _deckAWasOn = false;
@@ -254,6 +257,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
     );
 
     ref.onDispose(() {
+      _postMix.cancel();
       // 3.1.86: lo pendiente del debounce no se pierde al cerrar.
       if (_snapDirty) unawaited(_saveSnapshot());
       lrcSub.cancel();
@@ -1921,13 +1925,12 @@ class AutomixNotifier extends Notifier<AutomixState> {
     } catch (e) {
       debugPrint("🔴 [ERROR DSP AUTOMIX]: $e");
     } finally {
-      final double? matched = await _dropPhase();
-      // 3.1.71: B arranco al BPM de A; con su fader arriba TempoDrift la
-      // lleva gradual a su BPM.
-      _drift.begin(
-        _extractBpm(state.currentTrackPath),
-        matched ?? incomingRate,
-      );
+      await _dropPhase();
+      // 3.1.71: B arranco al BPM de A (master lock, sin tocar en el cruce).
+      // 3.1.90: TempoDrift ya no la devuelve a su BPM (tardaba 15-34 s o se
+      // quedaba colgada entre 0.88x y 0.90x); lo hace _startPostMixRecovery
+      // justo despues del handoff, en 4-8 s.
+      _drift.begin(_extractBpm(state.currentTrackPath), 1.0);
       final String? blocked = _drift.takeBlockedReport();
       if (blocked != null) djTrace('MIDPOINT FUERA $blocked');
 
@@ -1941,7 +1944,39 @@ class AutomixNotifier extends Notifier<AutomixState> {
       } catch (_) {}
 
       _releaseMix();
+      _startPostMixRecovery(incomingPlayer);
     }
+  }
+
+  /// 3.1.90: A ya salio y B quedo sola como master: su rate vuelve a 1.0
+  /// en 4-8 s (pasos de 200 ms, tono conservado). Un cruce nuevo o una
+  /// pista nueva la sueltan; en pausa queda en 1.0 en silencio.
+  void _startPostMixRecovery(Player p) {
+    double from;
+    try {
+      from = p.state.rate;
+    } catch (_) {
+      return;
+    }
+    final int ms = postMixRecoveryMs(from);
+    if (ms > 0) {
+      djTrace('POST-MIX rate ${from.toStringAsFixed(3)} -> 1.000 en $ms ms');
+    }
+    unawaited(
+      _postMix.run(
+        fromRate: from,
+        setRate: p.setRate,
+        alive: () => !_isCrossfading,
+        paused: () {
+          if (_mix.paused) return true;
+          try {
+            return !p.state.playing;
+          } catch (_) {
+            return true;
+          }
+        },
+      ),
+    );
   }
 
   Future<void> _playIncomingInPhase({
@@ -2493,6 +2528,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
     // Sustitución en frío: sin audio saliente no hay nada que fundir.
     if (!wasPlaying) {
+      _postMix.cancel();
       _drift.begin(_extractBpm(newPath), 1.0);
       await incomingPlayer.setRate(1.0);
       await incomingPlayer.setVolume(100.0);
@@ -2565,6 +2601,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
   Future<void> _forceOpenAndPlay(String path, {int seekMs = 0}) async {
     _releaseMix();
     final Player incoming = _standbyPlayer;
+    _postMix.cancel();
     _drift.begin(_extractBpm(path), 1.0);
     try {
       await incoming.setRate(1.0);

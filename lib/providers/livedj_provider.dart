@@ -38,6 +38,7 @@ import '../core/audio/tempo_drift.dart';
 import '../core/dj_trace.dart';
 import '../core/exact_mix.dart';
 import '../core/genre_mix_fx.dart';
+import '../core/post_mix_tempo_recovery.dart';
 import '../services/adaptive_eq.dart' show AdaptiveEq;
 import '../services/track_tags.dart';
 import '../core/audio/dj_audio_handler.dart';
@@ -227,6 +228,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   // Regulación sutil de tempo (ver tempo_drift.dart) y BPM real de la pista
   // entrante (etiqueta/nombre o medido por beat_grid).
   final TempoDrift _drift = TempoDrift();
+  // 3.1.90: rampa a 1.0x tras el handoff (4-8 s, pasos de 200 ms).
+  final PostMixTempoRecovery _postMix = PostMixTempoRecovery();
   final MixPause _mix = MixPause();
   PhaseLockSession? _phaseLock;
   bool _deckAWasOn = false;
@@ -269,6 +272,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     });
 
     ref.onDispose(() {
+      _postMix.cancel();
       _positionSub?.cancel();
       _durationSub?.cancel();
       _playingSub?.cancel();
@@ -1243,6 +1247,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       // 3.1.49: el deck se carga y se posiciona aunque la ruta guardada no
       // sea Live DJ (5); solo suena solo si estaba sonando en Live DJ.
       if (currentTrackPath != null) {
+        _postMix.cancel();
         _drift.begin(_extractBpm(currentTrackPath), 1.0);
         try {
           await _activePlayer.setRate(1.0);
@@ -1914,6 +1919,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       }
       try {
         await _claimPlayback();
+        _postMix.cancel();
         _drift.begin(_extractBpm(path), 1.0);
         try {
           await _activePlayer.setRate(1.0);
@@ -3651,10 +3657,12 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     } catch (e) {
       debugPrint("🔴 [ERROR DSP]: $e");
     } finally {
-      final double? matched = await _dropPhase();
-      // 3.1.71: B arranco al BPM de A; ya con su fader arriba (100 %, por
-      // encima del 60 % del cruce) TempoDrift la lleva gradual a su BPM.
-      _drift.begin(_incomingNatBpm, matched ?? incomingRate);
+      await _dropPhase();
+      // 3.1.71: B arranco al BPM de A (master lock, sin tocar en el cruce).
+      // 3.1.90: TempoDrift ya no la devuelve a su BPM (tardaba 15-34 s o se
+      // quedaba colgada entre 0.88x y 0.90x); lo hace _startPostMixRecovery
+      // justo despues del handoff, en 4-8 s.
+      _drift.begin(_incomingNatBpm, 1.0);
       final String? blocked = _drift.takeBlockedReport();
       if (blocked != null) _djTrace('MIDPOINT FUERA $blocked');
 
@@ -3672,6 +3680,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       _driftNextPath = null;
 
       _releaseMix();
+      _startPostMixRecovery(incomingPlayer);
       if (_radioOffAfterFade) {
         _radioOffAfterFade = false;
         if (state.radioOn || _radioFreeze != null) _turnRadioOff();
@@ -3679,6 +3688,30 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       // Terminada la mezcla: se reponen las próximas en segundo plano.
       if (state.radioOn) unawaited(_radioRefill());
     }
+  }
+
+  /// 3.1.90: A ya salio y B quedo sola como master: su rate vuelve a 1.0
+  /// en 4-8 s (pasos de 200 ms, tono conservado). Un cruce nuevo o una
+  /// pista nueva la sueltan; en pausa queda en 1.0 en silencio.
+  void _startPostMixRecovery(Player p) {
+    double from;
+    try {
+      from = p.state.rate;
+    } catch (_) {
+      return;
+    }
+    final int ms = postMixRecoveryMs(from);
+    if (ms > 0) {
+      _djTrace('POST-MIX rate ${from.toStringAsFixed(3)} -> 1.000 en $ms ms');
+    }
+    unawaited(
+      _postMix.run(
+        fromRate: from,
+        setRate: p.setRate,
+        alive: () => !_isCrossfading,
+        paused: () => _mix.paused || !_deckPlaying(() => p),
+      ),
+    );
   }
 
   Future<void> parkIdleDecks({bool force = false}) async {
