@@ -102,33 +102,64 @@ void main() {
     );
   });
 
-  test('1500 pistas: el índice gana al bucle que llamaba audioPathKey por candidato', () {
-    final List<String> pool = spread(1500);
-    final Stopwatch neu = Stopwatch()..start();
-    final List<String> order = buildDifferentRound(
-      pool: pool,
-      bpmOf: bpmOf,
-      rng: Random(7),
-    );
-    neu.stop();
-    final Stopwatch old = Stopwatch()..start();
-    var ops = 0;
-    for (var left = pool.length; left > 1; left--) {
-      for (var j = 0; j < left; j++) {
-        audioPathKey(pool[j]);
-        ops++;
+  test(
+    '1500 pistas: el índice gana al bucle que llamaba audioPathKey por candidato',
+    () {
+      final List<String> pool = spread(1500);
+      // 3.2.10 (CI Linux): una sola medicion en frio era flaky (el JIT de la
+      // primera vuelta puede tardar mas que el bucle viejo). Ahora: una vuelta
+      // de calentamiento de cada uno sin medir, 3 repeticiones alternadas y
+      // comparacion de medianas con margen, mas un techo absoluto holgado.
+      int runNew(int seed) {
+        final Stopwatch sw = Stopwatch()..start();
+        final List<String> order = buildDifferentRound(
+          pool: pool,
+          bpmOf: bpmOf,
+          rng: Random(seed),
+        );
+        sw.stop();
+        expectPermutation(order, pool);
+        return sw.elapsedMicroseconds;
       }
-    }
-    old.stop();
-    expectPermutation(order, pool);
-    expect(
-      neu.elapsedMicroseconds,
-      lessThan(old.elapsedMicroseconds),
-      reason:
-          'nuevo ${neu.elapsedMilliseconds} ms, '
-          'bucle viejo $ops claves en ${old.elapsedMilliseconds} ms',
-    );
-  });
+
+      var ops = 0;
+      int runOld() {
+        final Stopwatch sw = Stopwatch()..start();
+        ops = 0;
+        for (var left = pool.length; left > 1; left--) {
+          for (var j = 0; j < left; j++) {
+            audioPathKey(pool[j]);
+            ops++;
+          }
+        }
+        sw.stop();
+        return sw.elapsedMicroseconds;
+      }
+
+      int median(List<int> xs) => (List<int>.of(xs)..sort())[xs.length ~/ 2];
+
+      runNew(6);
+      runOld();
+      final List<int> neu = <int>[];
+      final List<int> old = <int>[];
+      for (var r = 0; r < 3; r++) {
+        neu.add(runNew(7 + r));
+        old.add(runOld());
+      }
+      // El bucle viejo es O(n^2): n(n+1)/2 - 1 claves por vuelta.
+      expect(ops, pool.length * (pool.length + 1) ~/ 2 - 1);
+      final int mNew = median(neu);
+      final int mOld = median(old);
+      final String why =
+          'nuevo $neu us (mediana $mNew), bucle viejo $ops claves en $old us '
+          '(mediana $mOld)';
+      // Claramente mas rapido: con el JIT caliente ronda 0.2x en local; el
+      // margen 0.75x absorbe el jitter de los runners de CI.
+      expect(mNew, lessThan(mOld * 3 ~/ 4), reason: why);
+      // Techo absoluto holgado (no es el criterio principal).
+      expect(mNew, lessThan(2000000), reason: why);
+    },
+  );
 
   test('300 pistas: la ola sigue siendo de saltos cortos', () {
     final List<String> pool = <String>[
