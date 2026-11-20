@@ -289,12 +289,19 @@ fn words_json(dur_s: f64, lang: &str, model: &str, words: &[TimedWordOut]) -> St
 }
 
 /// `ggml-small.bin` -> `small` (como el nombre de modelo del script Python).
+/// 3.2.12: independiente de plataforma: corta tras la ultima '/' o '\\' a
+/// mano (en Linux `Path::file_stem` no separa `C:\\m\\ggml-small.bin`), luego
+/// quita la extension (ultimo '.', no al inicio) y el prefijo `ggml-`.
 fn model_label(model_path: &str) -> String {
-    let stem = std::path::Path::new(model_path)
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    stem.strip_prefix("ggml-").unwrap_or(&stem).to_string()
+    let name = model_path
+        .rsplit(|c: char| c == '/' || c == '\\')
+        .next()
+        .unwrap_or(model_path);
+    let stem = match name.rfind('.') {
+        Some(i) if i > 0 => &name[..i],
+        _ => name,
+    };
+    stem.strip_prefix("ggml-").unwrap_or(stem).to_string()
 }
 
 /// `[mm:ss.xx]` truncando, igual que `_stamp` (lyric_ai_align.dart:57-61).
