@@ -1028,6 +1028,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       _saveSnapshot();
       return;
     }
+    // 3.2.5: ADN a memoria antes del orden, con tope de espera; lo que no
+    // llegue a tiempo ordena como en 3.2.4.
+    await warmHarmonicDna(paths).timeout(kDnaWarmWait, onTimeout: () {});
+    if (epoch != _addEpoch) return;
     final String sessionPath = _sessionFilePath();
     final String? playing = state.currentTrackPath;
     final Map<String, Object?> raw = await compute(
@@ -1036,6 +1040,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         'paths': paths,
         'sessionPath': sessionPath,
         'playing': playing,
+        'dna': harmonicDnaPayload(paths),
         'known': <String, double>{
           for (final String p in paths)
             if ((TrackTags.peek(p)?.bpm ?? 0) > 0) p: TrackTags.peek(p)!.bpm,
@@ -1113,6 +1118,11 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     // 3.1.88: solo la ventana de 48 desde la cabeza (O(1) por transicion).
     final int fixed = _liveFixedCount();
     worker.enqueue(liveDjBackfillCandidates(state.queue, fixed, knownBpm));
+    // 3.2.5: ADN de la misma ventana (tambien las que ya tienen BPM): cache
+    // en memoria y worker (mismo HeavyWorkGate, pausa en los cruces, dedup).
+    final List<String> dnaWin = liveDjDnaWindow(state.queue, fixed);
+    unawaited(warmHarmonicDna(dnaWin));
+    worker.enqueueDna(dnaWin);
   }
 
   int _liveFixedCount() {
@@ -1141,6 +1151,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         continueFrom: from,
         // 3.2.1: micro-bloques de sub-genero/idioma tambien en el reorden.
         subOf: harmonicBlockOf,
+        // 3.2.5: ADN acustico (cache en memoria).
+        dnaOf: harmonicDnaOf,
       ).tracks,
     );
     if (ordered == null) return;
@@ -2632,6 +2644,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       return;
     }
     _radioAssembleEpoch = epoch;
+    // 3.2.5: ADN de la Radio: lo que ya esta en memoria va en el mensaje; el
+    // calentado (async, por carpeta) sirve para el refinado y la vuelta
+    // siguiente.
+    unawaited(warmHarmonicDna(pool));
     final Map<String, Object?> msg = <String, Object?>{
       'pool': List<String>.from(pool),
       'seed': _radioRng.nextInt(1 << 31),
@@ -2643,6 +2659,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       'pairs': saved?.pairs ?? const <String>[],
       'previousPairs': saved?.previousPairs ?? const <String>[],
       'readTags': false,
+      'dna': harmonicDnaPayload(pool),
     };
     final Stopwatch sw = Stopwatch()..start();
     _djTrace(
@@ -2675,6 +2692,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           );
           final Map<String, Object?> tagged = Map<String, Object?>.from(msg);
           tagged['readTags'] = true;
+          tagged['dna'] = harmonicDnaPayload(pool);
           final Map<String, Object?> raw2 = await compute(
             assembleRadioOffUi,
             tagged,
@@ -4000,6 +4018,17 @@ List<String> liveDjBackfillCandidates(
   );
 }
 
+/// 3.2.5: `queue[fixed..fixed+48)` para el ADN (con o sin BPM, sin `_K`).
+/// El tope de la ventana evita inundar el worker con estaciones grandes.
+List<String> liveDjDnaWindow(List<File> queue, int fixed) {
+  final int start = fixed < 0 ? 0 : fixed;
+  final int end = min(queue.length, start + kRollingWindowSize);
+  return <String>[
+    for (var i = start; i < end; i++)
+      if (!isKaraokeAudioPath(queue[i].path)) queue[i].path,
+  ];
+}
+
 /// Reorden armonico de `queue[fixed..fixed+48)`; la cabeza fija y el resto
 /// de la cola (mismos `File`) quedan igual. Null si no hay que mover.
 List<File>? liveDjReorderWindow(
@@ -4068,6 +4097,8 @@ Map<String, Object?> shuffleOffUi(Map<String, Object?> msg) {
   GatomixStore.migrate(File(sessionPath).parent.path);
   preloadQueueBpmSync(paths);
   final ModeWave wave = loadModeWave(sessionPath, <String>[...paths, ?playing]);
+  // 3.2.5: ADN enviado por el hilo de UI (este isolate no tiene la cache).
+  primeHarmonicDna(msg['dna']);
   final HarmonicOrder order = buildHarmonicShuffle(
     paths,
     knownBpm,
@@ -4079,7 +4110,9 @@ Map<String, Object?> shuffleOffUi(Map<String, Object?> msg) {
     startWaveUp: wave.waveUp,
     startInWave: wave.inWave,
     subOf: harmonicBlockOf,
+    dnaOf: liveHarmonicDnaOf,
   );
+  primeHarmonicDna(null);
   GatomixStore.commitShuffleMemory(order.tracks, anchor: playing);
   return <String, Object?>{
     'tracks': order.tracks,

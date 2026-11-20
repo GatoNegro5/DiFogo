@@ -24,6 +24,7 @@ import '../core/post_mix_tempo_recovery.dart';
 import '../core/audio_path.dart';
 import '../core/automix_genre_session.dart';
 import '../core/dna_mix.dart';
+import '../core/gatomix_radio.dart' show warmHarmonicDna, kDnaWarmWait;
 import '../core/gatomix_store.dart';
 import '../core/genre_track_pool.dart';
 import '../services/track_tags.dart';
@@ -701,6 +702,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
         .where((p) => !isKaraokeAudioPath(p))
         .toList();
     await preloadQueueBpm(paths);
+    // 3.2.5: ADN a memoria antes del orden, con tope de espera.
+    await warmHarmonicDna(paths).timeout(kDnaWarmWait, onTimeout: () {});
     _applyShuffleBank(advance: true);
   }
 
@@ -746,6 +749,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
       startInWave: wave.inWave,
       // 3.2.2: micro-bloques de sub-genero/idioma (como Live DJ en 3.2.1).
       subOf: harmonicBlockOf,
+      // 3.2.5: ADN acustico (cache en memoria).
+      dnaOf: harmonicDnaOf,
     );
     String? head;
     if (playing != null) {
@@ -1177,6 +1182,13 @@ class AutomixNotifier extends Notifier<AutomixState> {
     );
     // 3.1.87: solo la ventana desde la actual (O(1) por transicion).
     worker.enqueue(backfillWindow(state.playlist, _autoFixedCount(), knownBpm));
+    // 3.2.5: ADN de la misma ventana (tambien las que ya tienen BPM).
+    final List<String> dnaWin = automixDnaWindow(
+      state.playlist,
+      _autoFixedCount(),
+    );
+    unawaited(warmHarmonicDna(dnaWin));
+    worker.enqueueDna(dnaWin);
   }
 
   // 3.1.42: el reorden sigue solo en Aleatorio; la cache de la carpeta
@@ -1222,6 +1234,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
         keyOf: camelotFromPath,
         continueFrom: from,
         subOf: harmonicBlockOf,
+        dnaOf: harmonicDnaOf,
       ).tracks,
     );
     if (ordered == null) return;
@@ -3782,3 +3795,14 @@ final bpmCacheProvider =
 final wasapiRecordProvider = NotifierProvider<WasapiRecordNotifier, bool>(
   WasapiRecordNotifier.new,
 );
+
+/// 3.2.5: `playlist[fixed..fixed+48)` para el ADN (con o sin BPM, sin `_K`).
+/// El tope de la ventana evita inundar el worker con listas grandes.
+List<String> automixDnaWindow(List<String> playlist, int fixed) {
+  final int start = fixed < 0 ? 0 : fixed;
+  final int end = min(playlist.length, start + kAutomixHydrateWindow);
+  return <String>[
+    for (var i = start; i < end; i++)
+      if (!isKaraokeAudioPath(playlist[i])) playlist[i],
+  ];
+}

@@ -612,6 +612,8 @@ List<String> buildDifferentRound({
         rng: spin,
         // 3.2.2: micro-bloques de sub-genero/idioma tambien en la Radio.
         subOf: harmonicBlockOf,
+        // 3.2.5: ADN acustico (harmonicDnaOf; en el isolate, el enviado).
+        dnaOf: liveHarmonicDnaOf,
       ).tracks,
     );
     if (fixedFirst == null) _displaceFirst(built, banned, spin);
@@ -836,6 +838,8 @@ Future<Map<String, Object?>> assembleRadioOffUi(
     final int seed = raw['seed'] is int ? raw['seed'] as int : 1;
     final String? pinned = raw['pinned'] as String?;
     final String? playing = raw['playing'] as String?;
+    // 3.2.5: ADN que mando el hilo de UI (sin 'dna' se vacia).
+    primeHarmonicDna(raw['dna']);
     if (raw['readTags'] == true) {
       preloadQueueBpmSync(pool);
     } else {
@@ -1169,4 +1173,90 @@ class GatomixRadio {
       return const <String>[];
     }
   }
+}
+
+// ---------------------------------------------------------------------------
+// 3.2.5: ADN acustico en vivo. `harmonicDnaOf` lee solo la cache en memoria
+// del isolate actual; el Shuffle de Live DJ y la Radio arman el orden en otro
+// isolate (compute), asi que el hilo de UI manda el ADN que ya tiene en
+// memoria ([harmonicDnaPayload], solo tipos simples) y el isolate lo usa con
+// [primeHarmonicDna] + [liveHarmonicDnaOf]. Sin ADN: orden igual a 3.2.4.
+// ---------------------------------------------------------------------------
+
+/// Espera maxima del calentado de la cache antes de un Shuffle.
+const Duration kDnaWarmWait = Duration(milliseconds: 600);
+
+/// Carpetas nuevas que se calientan por llamada (una lectura async c/u).
+const int kDnaWarmMaxDirs = 64;
+
+final Map<String, HarmonicDna> _offUiDna = <String, HarmonicDna>{};
+final Set<String> _dnaWarmAsked = <String>{};
+
+/// ADN en memoria de [paths] para mandarlo a un isolate:
+/// ruta -> [energy, brightness, beatDensity, lang]. Solo memoria, sin disco.
+Map<String, List<Object?>> harmonicDnaPayload(Iterable<String> paths) {
+  final Map<String, List<Object?>> out = <String, List<Object?>>{};
+  for (final String p in paths) {
+    final HarmonicDna? d = harmonicDnaOf(p);
+    if (d == null) continue;
+    out[p] = <Object?>[d.energy, d.brightness, d.beatDensity, d.lang];
+  }
+  return out;
+}
+
+/// Carga en este isolate el ADN de [harmonicDnaPayload]; null lo vacia.
+void primeHarmonicDna(Object? payload) {
+  _offUiDna.clear();
+  if (payload is! Map) return;
+  double? num01(Object? v) => v is num && v.isFinite ? v.toDouble() : null;
+  for (final MapEntry<dynamic, dynamic> e in payload.entries) {
+    final Object? k = e.key;
+    final Object? v = e.value;
+    if (k is! String || v is! List || v.length < 4) continue;
+    final Object? lang = v[3];
+    _offUiDna[audioPathKey(k)] = HarmonicDna(
+      energy: num01(v[0]),
+      brightness: num01(v[1]),
+      beatDensity: num01(v[2]),
+      lang: lang is String && lang.isNotEmpty ? lang : null,
+    );
+  }
+}
+
+/// `dnaOf` para el Shuffle: el ADN enviado al isolate y, si no hay, la
+/// cache en memoria ([harmonicDnaOf]).
+HarmonicDna? liveHarmonicDnaOf(String path) {
+  if (_offUiDna.isNotEmpty) {
+    final HarmonicDna? d = _offUiDna[audioPathKey(path)];
+    if (d != null) return d;
+  }
+  return harmonicDnaOf(path);
+}
+
+/// Calienta la cache `dna` de las carpetas de [paths]: hasta [maxDirs]
+/// carpetas nuevas por llamada (una lectura async por carpeta, nunca por
+/// pista); las ya pedidas no se repiten. Solo lectura.
+Future<void> warmHarmonicDna(
+  Iterable<String> paths, {
+  int maxDirs = kDnaWarmMaxDirs,
+}) async {
+  final List<String> dirs = <String>[];
+  final Set<String> seen = <String>{};
+  for (final String p in paths) {
+    if (p.isEmpty) continue;
+    final String d = File(p).parent.path;
+    if (!seen.add(d) || _dnaWarmAsked.contains(d)) continue;
+    dirs.add(d);
+    if (dirs.length >= maxDirs) break;
+  }
+  _dnaWarmAsked.addAll(dirs);
+  for (final String d in dirs) {
+    await warmTrackDnaDir(d);
+  }
+}
+
+/// Pruebas: olvida las carpetas pedidas y el ADN del isolate.
+void debugForgetHarmonicDnaWarm() {
+  _dnaWarmAsked.clear();
+  _offUiDna.clear();
 }
