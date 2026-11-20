@@ -82,6 +82,8 @@ jobs:
         with:
           toolchain: 1.99.1
           targets: ${{ matrix.rust_targets }}
+          # 3.2.13: flutter_rust_bridge_codegen formatea con rustfmt.
+          components: rustfmt
 
       # 🛠️ INYECCIÓN 1.5: Caché Global de Rust (Evita recompilar crates nativos en cada push)
       - name: Cache Rust Dependencies
@@ -146,6 +148,7 @@ jobs:
           echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/difogo-release.jks" >> "$GITHUB_ENV"
 
       - name: Build Platform
+        if: matrix.target != 'windows'
         shell: bash
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
@@ -160,6 +163,25 @@ jobs:
           else
             ${{ matrix.build_cmd }} --build-name="${GITHUB_REF_NAME#v}"
           fi
+
+      # 3.2.13: MSBuild FileTracker (FTK1011): la ruta del .tlog del
+      # TryCompile de CMake de whisper-rs-sys bajo build\windows\x64\plugins\
+      # superaba MAX_PATH (266 > 260). Se compila desde la unidad corta W:
+      # (subst a la misma carpeta del workspace): las rutas bajan ~15-17
+      # caracteres y build\ queda en el mismo lugar para los pasos siguientes.
+      - name: Build Platform (Windows, ruta corta W:)
+        if: matrix.target == 'windows'
+        shell: cmd
+        run: |
+          subst W: "%GITHUB_WORKSPACE%"
+          if errorlevel 1 exit /b 1
+          cd /d W:\
+          set "V=%GITHUB_REF_NAME:~1%"
+          call flutter build windows --release --build-name=%V%
+          set "RC=%ERRORLEVEL%"
+          cd /d "%GITHUB_WORKSPACE%"
+          subst W: /D
+          exit /b %RC%
 
       - name: Verify Windows Executable
         if: matrix.target == 'windows'
