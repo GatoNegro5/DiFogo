@@ -8,6 +8,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/discovery_dedup_controller.dart';
 import '../core/genre_stations.dart';
 import '../core/mode_session.dart';
+import '../core/persistent_lists.dart';
 import '../ui/mobile/music_picker_screen.dart'
     show musicPickerShowsFile, musicPickerTechFolder;
 import '../services/smart_discovery_service.dart' show CuratorEntry;
@@ -370,14 +371,85 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
   bool _tracking = false;
   bool _loading = false;
 
-  GenreSessionDoc get _stationsDoc =>
-      _doc ??= GenreSessionDoc.read(genreSessionsPath());
+  // 3.2.6: el progreso de cada estacion vive en persistent_lists.json
+  // (genre:<estacion>, lista completa). difogo_genre_sessions.json queda
+  // como puente: vistos y estacion elegida, espejo para versiones viejas y
+  // migracion de lectura cuando la lista aun no existe.
+  PersistentLists? _listsView;
 
-  Future<void> _saveStations() {
+  PersistentLists get _lists => _listsView ??= PersistentLists(
+    PersistentListsStore.at(persistentListsPathNear(genreSessionsPath())),
+    kPersistentSpaceLiveDj,
+  );
+
+  GenreSessionDoc get _stationsDoc => _doc ??= _readStations();
+
+  GenreSessionDoc _readStations() {
+    final GenreSessionDoc d = GenreSessionDoc.read(genreSessionsPath());
+    for (final MapEntry<String, PersistentList> e in _lists.lists.entries) {
+      if (!e.key.startsWith('genre:')) continue;
+      final Object? st = e.value.meta['station'];
+      if (st is! String || st.isEmpty) continue;
+      d.stations[st] = stationFromPersistent(e.value, base: d.stations[st]);
+    }
+    return d;
+  }
+
+  /// Guarda [key] (o la activa) en su lista completa y el espejo viejo. La
+  /// sesion en memoria queda igual a la lista (pendientes conservadas).
+  Future<void> _saveStations([String? key]) {
     final GenreSessionDoc d = _stationsDoc;
     final String path = genreSessionsPath();
-    _write = _write.catchError((_) {}).then((_) => d.write(path));
+    final PersistentLists lists = _lists;
+    final String? k = key ?? d.active;
+    final GenreSession? s = k == null ? null : d.stations[k];
+    if (k != null && s != null) {
+      final PersistentList l = lists.upsertStation(k, s);
+      d.stations[k] = stationFromPersistent(l, base: s);
+    }
+    _write = _write.catchError((_) {}).then((_) async {
+      await d.write(path);
+      await lists.flush();
+    });
     return _write;
+  }
+
+  /// 3.2.6: la estacion solo anota progreso si la lista activa de Live DJ
+  /// es la suya (una carpeta activa no la contamina).
+  bool _stationTracked(String key) {
+    final String? a = _lists.activeKey;
+    return a == null || a == persistentGenreKey(key);
+  }
+
+  /// 3.2.6: lista persistente activa de Live DJ (`genre:` o `folder:`).
+  String? get activePersistentListKey => _lists.activeKey;
+
+  /// 3.2.6: reinicio intencional de la lista activa (boton en 3.2.7): borra
+  /// solo esa clave; la estacion conserva sus vistos y el siguiente Play
+  /// arma un orden nuevo.
+  Future<bool> resetActivePersistentList() async {
+    final PersistentLists lists = _lists;
+    final GenreSessionDoc d = _stationsDoc;
+    final String? st = d.active;
+    final String? key =
+        lists.activeKey ?? (st == null ? null : persistentGenreKey(st));
+    if (key == null) return false;
+    final bool had = lists.reset(key);
+    if (key.startsWith('genre:')) {
+      for (final String k in d.stations.keys.toList()) {
+        if (persistentGenreKey(k) != key) continue;
+        d.stations[k] = GenreSession(
+          subGenresChecked: d.stations[k]!.subGenresChecked,
+        );
+      }
+    }
+    final String path = genreSessionsPath();
+    _write = _write.catchError((_) {}).then((_) async {
+      await d.write(path);
+      await lists.flush();
+    });
+    await _write;
+    return had;
   }
 
   @visibleForTesting
@@ -397,7 +469,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     final GenreSessionDoc d = _stationsDoc;
     final String? key = d.active;
     final GenreSession? s = key == null ? null : d.stations[key];
-    if (key == null || s == null) return;
+    if (key == null || s == null || !_stationTracked(key)) return;
     final StationLive l = _live();
     if (l.current == null) return;
     d.stations[key] = s.copyWith(
@@ -405,7 +477,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       positionMs: l.positionMs,
       remainingQueuePaths: l.queue,
     );
-    await _saveStations();
+    await _saveStations(key);
   }
 
   Future<List<String>> _stationTracks(List<String> subs) async {
@@ -424,6 +496,8 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     _loading = true;
     final int epoch = ++_playEpoch;
     try {
+      // 3.2.6: listas persistentes cargadas (en otro isolate si es grande).
+      await _lists.store.load();
       // 3.1.67: congelar y guardar no frenan el arranque (la cadena de
       // escritura conserva el orden); se esperan despues de sonar.
       final Future<void> frozen = freezeActive();
@@ -475,6 +549,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     final String? current =
         plan.currentTrackPath ?? (queue.isEmpty ? null : queue.removeAt(0));
     d.active = key;
+    _lists.activeKey = persistentGenreKey(key);
     d.stations[key] = GenreSession(
       subGenresChecked: List<String>.from(subGenres),
       currentTrackPath: current,
@@ -482,7 +557,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       remainingQueuePaths: queue,
       playedPaths: plan.played,
     ).copyWith();
-    final Future<void> saved = _saveStations();
+    final Future<void> saved = _saveStations(key);
     final StationPlan run = StationPlan(
       currentTrackPath: current,
       positionMs: plan.positionMs,
@@ -698,14 +773,23 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     final GenreSessionDoc d = _stationsDoc;
     final String? key = d.active;
     final GenreSession? s = key == null ? null : d.stations[key];
-    if (key == null || s == null) return;
+    if (key == null || s == null || !_stationTracked(key)) return;
+    // 3.2.6: fin sin siguiente (cola vaciada): la anterior queda sonada y
+    // las pendientes guardadas se conservan (antes quedaban en cero).
+    final String? pk = previous == null ? null : stationPathKey(previous);
+    final List<String> keep = next == null && queue.isEmpty
+        ? <String>[
+            for (final String p in s.remainingQueuePaths)
+              if (stationPathKey(p) != pk) p,
+          ]
+        : queue;
     d.stations[key] = stationTrackChanged(
       s,
       previous: previous,
       next: next,
-      queue: queue,
+      queue: keep,
     );
-    await _saveStations();
+    await _saveStations(key);
   }
 
   int _lastTickSaveMs = -1;
@@ -723,7 +807,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     final GenreSessionDoc d = _stationsDoc;
     final String? key = d.active;
     final GenreSession? s = key == null ? null : d.stations[key];
-    if (key == null || s == null) return;
+    if (key == null || s == null || !_stationTracked(key)) return;
     final String k = stationPathKey(current);
     final bool mine =
         (s.currentTrackPath != null &&
@@ -742,7 +826,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       positionMs: positionMs < 0 ? 0 : positionMs,
       remainingQueuePaths: List<String>.from(queue),
     );
-    await _saveStations();
+    await _saveStations(key);
   }
 
   void _ensureTracker() {

@@ -213,23 +213,26 @@ void main() {
   });
 
   test('3198 provider: congela antes de vaciar y retoma sin sonadas', () {
+    // 3.2.6: la sesion por genero paso a lista persistente COMPLETA
+    // (persistent_lists.json); automix_genres.json queda de solo lectura
+    // para la migracion.
     final String src = File(
       'lib/providers/automix_provider.dart',
     ).readAsStringSync();
-    final int start = src.indexOf('Future<void> loadGenreQueue(');
+    final int start = src.indexOf('Future<void> _loadPersistentQueue(');
     final int end = src.indexOf('Future<void> applyManualLyrics(');
     expect(start, greaterThan(0));
     final String body = src.substring(start, end);
-    final int freeze = body.indexOf('freezeAutomixGenreSession(');
-    final int read = body.indexOf('await _genreSessionMap()');
+    final int read = body.indexOf('await _persistentLists()');
+    final int freeze = body.indexOf('_syncActiveList();');
     final int clear = body.indexOf('.clearQueue()');
-    expect(freeze, greaterThan(0));
-    expect(read, greaterThan(freeze));
-    expect(clear, greaterThan(read));
-    expect(body.contains('resumeAutomixGenreSessionAsync(saved, clean)'), true);
-    expect(body.contains('replaceAll(resume.played)'), isTrue);
-    expect(body.contains('removeAutomixGenreSession(sessions, signature)'), true);
+    expect(read, greaterThan(0));
+    expect(freeze, greaterThan(read));
+    expect(clear, greaterThan(freeze));
+    expect(body.contains('lists.planOrResume('), isTrue);
+    expect(body.contains('replaceAll(plan.list.played)'), isTrue);
     expect(body.contains('_sessionPositionMs = posMs;'), isTrue);
-    expect(body.contains('automixGenreSessionsPathFor(_getSessionFilePath())'), true);
+    expect(body.contains('readAutomixGenreSessionsAsync('), isTrue);
+    expect(body.contains('automixGenreSessionsToJson('), isFalse);
   });
 }

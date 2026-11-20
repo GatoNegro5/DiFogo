@@ -18,6 +18,8 @@ import '../core/gatomix_radio.dart';
 import '../core/gatomix_store.dart';
 import '../core/hal/platform_strategy.dart';
 import '../core/mode_session.dart';
+import '../core/persistent_lists.dart';
+import '../core/genre_stations.dart' show stationSmartShuffle;
 import '../core/livedj_next.dart';
 import '../core/bpm_backfill_worker.dart';
 import '../core/livedj_order.dart';
@@ -281,6 +283,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
     ref.onDispose(() {
       _postMix.cancel();
+      // 3.2.6: lo pendiente de la lista persistente no se pierde al cerrar.
+      unawaited(_listsView?.store.flushIfDirty() ?? Future<void>.value());
       _positionSub?.cancel();
       _durationSub?.cancel();
       _playingSub?.cancel();
@@ -644,7 +648,11 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     );
   }
 
-  Future<void> persistSession() => _saveSnapshot();
+  Future<void> persistSession() async {
+    await _saveSnapshot();
+    // 3.2.6: pausa/cierre de la app: la lista persistente baja a disco.
+    await _listsView?.store.flushIfDirty();
+  }
 
   /// 3.1.28: un solo motor suena a la vez (Automix o Live DJ). Si el otro
   /// motor toma la reproduccion, este pausa ambos decks (tambien a mitad de
@@ -934,6 +942,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     try {
       _kickBackfill();
       final path = _sessionFilePath();
+      _syncFolderList(path);
       if (_queueHold && state.queue.isNotEmpty) {
         _queueHold = false;
       }
@@ -978,6 +987,84 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         "🔴 [TRACKER ERROR FATAL] Fallo al guardar Snapshot: $e\n$stack",
       );
     }
+  }
+
+  // ---- 3.2.6 Listas persistentes completas de carpeta (folder:<ruta>) ----
+  // Las estaciones (genre:<id>) las anota el Hub; mismo archivo y espacio.
+  PersistentLists? _listsView;
+
+  PersistentLists _listsAt(String sessionPath) =>
+      _listsView ??= PersistentLists(
+        PersistentListsStore.at(persistentListsPathNear(sessionPath)),
+        kPersistentSpaceLiveDj,
+      );
+
+  PersistentLists get _lists => _listsAt(_sessionFilePath());
+
+  /// 3.2.6: lista persistente activa de Live DJ (`genre:` o `folder:`).
+  String? get activePersistentListKey => _lists.activeKey;
+
+  /// 3.2.6: la lista de carpeta activa sigue lo que suena (pista, segundo,
+  /// la anterior como sonada y el orden de la cola). Una cola vaciada no
+  /// borra las pendientes.
+  void _syncFolderList(String sessionPath) {
+    final PersistentLists lists = _listsAt(sessionPath);
+    if (!lists.store.isLoaded) {
+      unawaited(lists.store.load());
+      return;
+    }
+    final String? key = lists.activeKey;
+    if (key == null || !key.startsWith('folder:')) return;
+    final bool changed = lists.noteState(
+      key,
+      current: state.currentTrackPath,
+      positionMs: state.position.inMilliseconds,
+      upcoming: <String>[for (final File f in state.queue) f.path],
+    );
+    if (changed) lists.saveSoon();
+  }
+
+  /// 3.2.6: carpeta como lista persistente completa: retoma en la siguiente
+  /// pendiente (pista y segundo) o arma el 100 % en Smart Shuffle si no
+  /// existe o ya sono entera. Devuelve las pistas en cola (0 si no sono).
+  Future<int> playFolderList(String folderPath, List<File> files) async {
+    if (_isCrossfading) return 0;
+    final List<String> all = <String>[
+      for (final File f in files)
+        if (!isKaraokeAudioPath(f.path)) f.path,
+    ];
+    if (all.isEmpty) return 0;
+    final PersistentLists lists = _lists;
+    await lists.store.load();
+    final String key = persistentFolderKey(folderPath);
+    final PersistentPlan plan = lists.planOrResume(
+      key,
+      all,
+      (List<String> xs) => stationSmartShuffle(xs, Random()),
+    );
+    final bool ok = await loadStation(
+      currentPath: plan.current,
+      positionMs: plan.positionMs,
+      queue: <File>[for (final String p in plan.queue) File(p)],
+    );
+    if (ok) lists.activeKey = key;
+    await lists.flush();
+    return ok ? plan.queue.length : 0;
+  }
+
+  /// 3.2.6: reinicio intencional de la lista activa (boton en 3.2.7). Una
+  /// estacion la reinicia el Hub (conserva sus vistos); una carpeta borra
+  /// solo su clave.
+  Future<bool> resetActivePersistentList() async {
+    final PersistentLists lists = _lists;
+    await lists.store.load();
+    final String? key = lists.activeKey;
+    if (key == null || key.startsWith('genre:')) {
+      return ref.read(vibeHubProvider.notifier).resetActivePersistentList();
+    }
+    final bool had = lists.reset(key);
+    await lists.flush();
+    return had;
   }
 
   void shuffleQueue() {
@@ -1526,17 +1613,16 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       _saveSnapshot();
       return;
     }
+    // 3.2.6: vaciar la cola NO corta la pista que suena: llega a su final y
+    // ahi se detiene (cola vacia: sin cruce ni auto-encendido de la Radio).
+    // La lista persistente y su progreso no se tocan; el archivo del modo
+    // queda vacio como antes. Decks, curva DAWN y candados sin cambios.
     _queueHold = true;
-    _queueRestart = true;
     _radioFreeze = null;
     _sessionPositionMs = 0;
     _lastSavedPositionMs = 0;
     _sessionWasPlaying = false;
-    state = state.copyWith(
-      queue: <File>[],
-      position: Duration.zero,
-      clearCurrentTrackPath: true,
-    );
+    state = state.copyWith(queue: <File>[]);
     clearModeQueueSync(_sessionFilePath());
   }
 

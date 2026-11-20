@@ -31,6 +31,7 @@ import '../services/track_tags.dart';
 import '../core/bpm_backfill_worker.dart';
 import '../core/livedj_order.dart';
 import '../core/mode_session.dart';
+import '../core/persistent_lists.dart';
 import '../core/queue_bpm.dart';
 import 'directory_provider.dart';
 import '../core/stored_grid.dart';
@@ -227,6 +228,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
   // 3.1.98: sesiones por firma de genero (cache del archivo
   // automix_genres.json; se lee una vez en otro isolate).
   Map<String, AutomixGenreSessionState>? _genreSessions;
+  // 3.2.6: listas persistentes completas (genre:/folder:) y la activa.
+  PersistentLists? _listsView;
+  String? _activeListKey;
   // 3.1.86: guardado con debounce de 800 ms para cambios menores.
   int _lastSnapWriteMs = 0;
   bool _snapDirty = false;
@@ -250,7 +254,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
     }
 
     _attachListeners(_playerA);
-    _persistReady = _initPersistence();
+    _persistReady = _initPersistence().then((_) => _initPersistentLists());
     attachPlaybackExclusion();
 
     globalAudioHandler.onPlayPause = () => togglePlayPause();
@@ -266,6 +270,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
       _postMix.cancel();
       // 3.1.86: lo pendiente del debounce no se pierde al cerrar.
       if (_snapDirty) unawaited(_saveSnapshot());
+      // 3.2.6: lo pendiente de la lista persistente tampoco.
+      unawaited(_listsView?.store.flushIfDirty() ?? Future<void>.value());
       lrcSub.cancel();
       _cancelOutroProbe();
       _positionSub?.cancel();
@@ -323,10 +329,15 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _sessionWasPlaying = false;
     _genreSignature = null;
     _lastSyncInput = null;
+    // 3.2.6: sin siguiente la pista actual llega a su final y se detiene
+    // (_completedSub -> _stopWhenNoNext). Un cruce en curso o la rampa
+    // previa ya comprometida (3.2.0) no se tocan.
+    final bool keepNext = _isCrossfading || _drift.preRollActive;
     state = state.copyWith(
       playlist: const <String>[],
       currentIndex: -1,
       position: Duration.zero,
+      clearNextTrackPath: !keepNext,
     );
   }
 
@@ -336,7 +347,11 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _lastSavedPositionMs = state.position.inMilliseconds;
   }
 
-  Future<void> persistSession() => _saveSnapshot();
+  Future<void> persistSession() async {
+    await _saveSnapshot();
+    // 3.2.6: pausa/cierre de la app: la lista persistente baja a disco.
+    await _listsView?.store.flushIfDirty();
+  }
 
   /// 3.1.28: un solo motor suena a la vez (Automix o Live DJ). Si el otro
   /// motor toma la reproduccion, este pausa ambos decks (tambien a mitad de
@@ -571,6 +586,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _snapDirty = false;
     try {
       _kickBackfill();
+      _syncActiveList();
       final String filePath = _getSessionFilePath();
       if (_queueHold) {
         clearModeQueueSync(filePath, playbackList: true);
@@ -997,30 +1013,32 @@ class AutomixNotifier extends Notifier<AutomixState> {
 
   /// 3.1.86: cola nueva de generos. Borra la anterior, deja la pista 1
   /// lista en cuanto se conoce y suma el resto por lotes cediendo frames.
-  /// 3.1.98: antes de cambiar congela la sesion del genero saliente bajo su
-  /// firma; si el genero destino ya tiene sesion la retoma (pista, segundo,
-  /// cola sin las ya sonadas). Cola desde 0 solo sin sesion o agotado.
-  Future<void> loadGenreQueue(String signature, List<String> paths) async {
-    final String? outSig = _genreSignature;
-    AutomixGenreSessionState? outgoing;
-    if (outSig != null && outSig.isNotEmpty && outSig != signature) {
-      Set<String> played = const <String>{};
-      try {
-        played = ref.read(playedTracksProvider);
-      } catch (_) {}
-      outgoing = freezeAutomixGenreSession(
-        playlist: state.playlist,
-        currentIndex: state.currentIndex,
-        positionMs: _sessionPositionMs > 0
-            ? _sessionPositionMs
-            : state.position.inMilliseconds,
-        played: played,
-        savedAtMs: DateTime.now().millisecondsSinceEpoch,
+  /// 3.2.6: lista persistente COMPLETA por genero (`genre:<estacion>`, 100 %
+  /// de las pistas, ya no la ventana de 48): la saliente queda al dia antes
+  /// de vaciar y la entrante retoma en la siguiente pendiente (pista y
+  /// segundo), sin repetir hasta agotar el 100 %.
+  Future<void> loadGenreQueue(String signature, List<String> paths) =>
+      _loadPersistentQueue(
+        automixListKeyOf(signature),
+        paths,
+        signature: signature,
       );
-    }
-    // Se lee antes de vaciar automix.json (la migracion lo necesita).
-    Map<String, AutomixGenreSessionState> sessions = await _genreSessionMap();
-    final AutomixGenreSessionState? saved = sessions[signature];
+
+  /// 3.2.6: carpeta como lista persistente completa (`folder:<ruta>`); misma
+  /// regla que los generos. "Mezclar" se conecta en 3.2.7.
+  Future<void> loadFolderList(String folderPath, List<String> tracks) =>
+      _loadPersistentQueue(persistentFolderKey(folderPath), tracks);
+
+  Future<void> _loadPersistentQueue(
+    String key,
+    List<String> paths, {
+    String? signature,
+  }) async {
+    final PersistentLists lists = await _persistentLists();
+    // La saliente se anota con lo que suena antes de vaciar.
+    _syncActiveList();
+    _activeListKey = null;
+    final bool known = lists.has(key);
     // El deck no se queda con la pista del genero anterior: Play abre la
     // pista nueva (o la retomada en su segundo).
     await parkIdleDecks();
@@ -1032,48 +1050,41 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _genreSignature = signature;
     final List<String> clean = await automixLoadInChunks(
       paths,
-      onFirst: saved != null
+      onFirst: known
           ? null
           : (String first) {
-        state = state.copyWith(
-          playlist: <String>[first],
-          currentIndex: 0,
-          currentTrackPath: first,
-          position: Duration.zero,
-          lyrics: const <LyricLine>[],
-          activeLyricIndex: -1,
-        );
-      },
+              state = state.copyWith(
+                playlist: <String>[first],
+                currentIndex: 0,
+                currentTrackPath: first,
+                position: Duration.zero,
+                lyrics: const <LyricLine>[],
+                activeLyricIndex: -1,
+              );
+            },
     );
-    if (outgoing != null && outSig != null) {
-      sessions = putAutomixGenreSession(sessions, outSig, outgoing);
-    }
     if (clean.isEmpty) {
-      _storeGenreSessions(sessions);
+      unawaited(lists.flush());
       return;
     }
-    final AutomixGenreResume? resume = saved == null
-        ? null
-        : await resumeAutomixGenreSessionAsync(saved, clean);
-    if (saved != null && resume == null) {
-      // Genero agotado: cola nueva desde 0 y ya sonadas en cero.
-      sessions = removeAutomixGenreSession(sessions, signature);
-    }
-    _storeGenreSessions(sessions);
-    final List<String> queue = resume?.playlist ?? clean;
+    final bool random = state.mixStrategy == MixStrategy.random;
+    final PersistentPlan plan = lists.planOrResume(
+      key,
+      clean,
+      (List<String> xs) => random ? (List<String>.from(xs)..shuffle()) : xs,
+    );
+    final List<String> queue = plan.queue;
     try {
       ref.read(automixQueueProvider.notifier).restoreQueue(queue);
     } catch (_) {
       releaseQueueHold();
     }
-    if (resume != null) {
-      try {
-        ref.read(playedTracksProvider.notifier).replaceAll(resume.played);
-      } catch (_) {}
-    }
+    try {
+      ref.read(playedTracksProvider.notifier).replaceAll(plan.list.played);
+    } catch (_) {}
     _genreSignature = signature;
     _lastSyncInput = null;
-    final int posMs = resume?.positionMs ?? 0;
+    final int posMs = plan.positionMs;
     state = state.copyWith(
       playlist: queue,
       currentIndex: 0,
@@ -1087,18 +1098,22 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _sessionPositionMs = posMs;
     _sessionWasPlaying = false;
     _freezePersist = true;
+    _activeListKey = key;
+    lists.activeKey = key;
     await _saveSnapshot();
-    if (resume != null) {
-      djTrace('GENERO REANUDA $signature en $posMs ms (${queue.length})');
+    unawaited(lists.flush());
+    if (plan.resumed) {
+      djTrace('LISTA REANUDA $key en $posMs ms (${queue.length})');
     }
     unawaited(_loadLyrics(queue.first).catchError((Object _) {}));
     unawaited(_loadTrackMetadata(queue.first).catchError((Object _) {}));
-    if (resume == null && state.mixStrategy == MixStrategy.random) {
+    if (plan.fresh && random) {
       unawaited(_shufflePlaylistAsync().catchError((Object _) {}));
     }
   }
 
   /// 3.1.98: mapa de sesiones por genero (una lectura, en otro isolate).
+  /// 3.2.6: solo lectura, para la migracion a listas persistentes.
   Future<Map<String, AutomixGenreSessionState>> _genreSessionMap() async {
     final Map<String, AutomixGenreSessionState>? cached = _genreSessions;
     if (cached != null) return cached;
@@ -1111,17 +1126,83 @@ class AutomixNotifier extends Notifier<AutomixState> {
     }
   }
 
-  /// 3.1.98: guarda el mapa (atomico y en fila, solo al cambiar de genero).
-  void _storeGenreSessions(Map<String, AutomixGenreSessionState> sessions) {
-    _genreSessions = sessions;
+  /// 3.2.6: archivo de listas (junto a automix.json).
+  PersistentLists get _lists => _listsView ??= PersistentLists(
+    PersistentListsStore.at(persistentListsPathNear(_getSessionFilePath())),
+    kPersistentSpaceAutomix,
+  );
+
+  /// 3.2.6: listas cargadas y, una sola vez, la migracion de lectura desde
+  /// automix_genres.json (que no se borra ni se reescribe).
+  Future<PersistentLists> _persistentLists() async {
+    final PersistentLists lists = _lists;
+    await lists.store.load();
+    if (!lists.store.legacyDone(lists.space)) {
+      final Map<String, AutomixGenreSessionState> old =
+          await _genreSessionMap();
+      lists.importLegacyOnce(() => persistentListsFromAutomixSessions(old));
+    }
+    return lists;
+  }
+
+  Future<void> _initPersistentLists() async {
     try {
-      unawaited(
-        SessionStore.writeJson(
-          automixGenreSessionsPathFor(_getSessionFilePath()),
-          automixGenreSessionsToJson(sessions),
-        ).catchError((Object _) {}),
-      );
+      final PersistentLists lists = await _persistentLists();
+      _activeListKey ??= lists.activeKey;
     } catch (_) {}
+  }
+
+  /// 3.2.6: la lista activa sigue lo que suena: pista, segundo, ya sonadas y
+  /// el orden de lo que viene (las pendientes anteriores a un Play en fila
+  /// quedan al final). Pistas ajenas a la lista no la tocan; una cola
+  /// vaciada no borra pendientes.
+  void _syncActiveList() {
+    final String? key = _activeListKey;
+    final PersistentLists? lists = _listsView;
+    if (key == null || lists == null || !lists.store.isLoaded) return;
+    final String? cur = state.currentTrackPath;
+    if (cur == null) return;
+    final List<String> pl = state.playlist;
+    final int idx = state.currentIndex;
+    final List<String> upcoming = idx >= 0 && idx < pl.length
+        ? <String>[...pl.sublist(idx + 1), ...pl.sublist(0, idx)]
+        : pl;
+    Iterable<String> played = const <String>[];
+    try {
+      played = ref.read(playedTracksProvider);
+    } catch (_) {}
+    final bool changed = lists.noteState(
+      key,
+      current: cur,
+      positionMs: _freezePersist
+          ? _sessionPositionMs
+          : state.position.inMilliseconds,
+      upcoming: upcoming,
+      alsoPlayed: played,
+    );
+    if (changed) lists.saveSoon();
+  }
+
+  /// 3.2.6: Play en una fila de la lista activa (ver persistentPlayAt).
+  void _persistentPlayAt(String path) {
+    final String? key = _activeListKey;
+    final PersistentLists? lists = _listsView;
+    if (key == null || lists == null || !lists.store.isLoaded) return;
+    if (lists.playAt(key, path)) lists.saveSoon();
+  }
+
+  /// 3.2.6: lista persistente activa de Automix (`genre:` o `folder:`).
+  String? get activePersistentListKey => _activeListKey;
+
+  /// 3.2.6: reinicio intencional (boton en 3.2.7): borra SOLO la lista
+  /// activa; la siguiente carga de ese genero/carpeta arma un orden nuevo.
+  Future<bool> resetActivePersistentList() async {
+    final String? key = _activeListKey;
+    if (key == null) return false;
+    final PersistentLists lists = await _persistentLists();
+    final bool had = lists.reset(key);
+    await lists.flush();
+    return had;
   }
 
   Future<void> applyManualLyrics(String audioPath, String syncedLyrics) async {
@@ -1640,6 +1721,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
     _freezePersist = false;
 
     final String nextTrack = newPlaylist[startIndex];
+    // 3.2.6: Play en una fila: la lista sigue desde ahi y las pendientes
+    // anteriores quedan al final (no se pierden ni se repite nada).
+    _persistentPlayAt(nextTrack);
     if (_isCrossfading && !_deckHot) _releaseMix();
 
     if (!_deckHot || state.currentTrackPath == null) {
@@ -3474,6 +3558,8 @@ class AutomixQueueNotifier extends Notifier<List<File>> {
     _saveSession(newState);
   }
 
+  /// 3.2.6: vacia la cola y lo sonado del modo; la pista actual llega a su
+  /// final y se detiene. La lista persistente y su progreso no se tocan.
   void clearQueue() {
     _addEpoch++;
     _addChain = Future<void>.value();
@@ -3798,6 +3884,12 @@ final wasapiRecordProvider = NotifierProvider<WasapiRecordNotifier, bool>(
 
 /// 3.2.5: `playlist[fixed..fixed+48)` para el ADN (con o sin BPM, sin `_K`).
 /// El tope de la ventana evita inundar el worker con listas grandes.
+/// 3.2.6: clave persistente de una firma de generos (`estacion|subs`): la
+/// lista es de la estacion; otros vistos suman o quitan pistas sin
+/// reiniciar el progreso.
+String automixListKeyOf(String signature) =>
+    persistentGenreKey(signature.split('|').first);
+
 List<String> automixDnaWindow(List<String> playlist, int fixed) {
   final int start = fixed < 0 ? 0 : fixed;
   final int end = min(playlist.length, start + kAutomixHydrateWindow);
