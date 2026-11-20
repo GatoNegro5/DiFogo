@@ -178,10 +178,13 @@ class AutomixMobileLibrary extends ConsumerWidget {
 
 /// 3.2.7: carpeta de "Mezclar todo" para la clave `folder:<ruta>`. El
 /// selector solo entrega las pistas: es la carpeta comun de todas.
+/// 3.2.8: la carpeta sale de la ruta con barras normales (sin `File.parent`,
+/// que en Linux no corta en la barra invertida): igual en toda plataforma.
 String mixFolderPathOf(List<File> files) {
   List<String>? common;
   for (final File f in files) {
-    final List<String> parts = f.parent.path.replaceAll('\\', '/').split('/');
+    final List<String> all = f.path.replaceAll('\\', '/').split('/');
+    final List<String> parts = all.sublist(0, all.length - 1);
     final List<String>? c = common;
     if (c == null) {
       common = parts;
@@ -197,7 +200,11 @@ String mixFolderPathOf(List<File> files) {
   }
   final String out = (common ?? const <String>[]).join('/');
   if (out.isNotEmpty) return out;
-  return files.isEmpty ? '' : files.first.parent.path;
+  if (files.isEmpty) return '';
+  final String first = files.first.path.replaceAll('\\', '/');
+  final int cut = first.lastIndexOf('/');
+  if (cut < 0) return '.';
+  return cut == 0 ? '/' : first.substring(0, cut);
 }
 
 // --- COMPONENTE 1: ÁRBOL DE DIRECTORIOS ---
