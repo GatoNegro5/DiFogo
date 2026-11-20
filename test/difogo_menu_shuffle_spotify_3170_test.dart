@@ -326,10 +326,12 @@ void main() {
       );
       expect(find.textContaining('CARTRIDGE'), findsNothing);
       expect(tester.takeException(), isNull);
-      // La consola clasica sigue a un toque.
-      await tester.tap(find.byKey(const Key('livedj-spotify-toggle')));
-      await tester.pump();
-      expect(find.byKey(const Key('livedj-spotify-panel')), findsNothing);
+      // 3.2.9: Spotify Pro es la vista unica: sin conmutador en la barra y
+      // la Radio vive junto a Modo DJ.
+      expect(find.byKey(const Key('livedj-spotify-toggle')), findsNothing);
+      expect(find.byKey(const Key('livedj-spotify-panel')), findsOneWidget);
+      expect(find.byKey(const Key('livedj-mode-dj-button')), findsOneWidget);
+      expect(find.byKey(const Key('radio-discovery-toggle')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

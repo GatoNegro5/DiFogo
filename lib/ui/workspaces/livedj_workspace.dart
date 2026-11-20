@@ -1044,8 +1044,32 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                   ),
                 ),
                 const LiveDjModeDjButton(compact: true),
-                const LiveDjSpotifyToggle(),
-                Expanded(child: routingBar),
+                // 3.2.9: Radio junto a Modo DJ (antes en la cabecera de la
+                // cola); Spotify Pro es la vista unica: sin conmutador.
+                // Radio se achica si no cabe y el buscador se oculta si su
+                // hueco no alcanza (fuentes grandes): nunca desborda.
+                Expanded(
+                  child: LayoutBuilder(
+                    builder: (context, c) => Row(
+                      children: [
+                        ConstrainedBox(
+                          constraints: BoxConstraints(
+                            maxWidth: c.maxWidth > 4 ? c.maxWidth - 4 : 0,
+                          ),
+                          child: const RadioDiscoveryButton(compact: true),
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, c2) => c2.maxWidth < 72
+                                ? const SizedBox.shrink()
+                                : routingBar,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           )
@@ -1073,9 +1097,11 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                     ),
                   ),
                 ),
-                const LiveDjModeDjButton(),
+                // 3.2.9: Radio junto a Modo DJ (antes en la cabecera de la
+                // cola); Spotify Pro es la vista unica: sin conmutador.
+                const RadioDiscoveryButton(compact: true),
                 const SizedBox(width: 6),
-                const LiveDjSpotifyToggle(),
+                const LiveDjModeDjButton(),
               ],
             ),
           ),
@@ -1328,6 +1354,7 @@ class LiveDjCartridgePanel extends ConsumerWidget {
               // 3.1.84: telefono: "+ Agregar" con los chips compactos
               // Radio y Nuevas en su propia fila (antes boton largo y barra
               // de ancho completo); asi el titulo de la cola no se recorta.
+              // 3.2.9: Radio paso a la barra de AutomixDj (junto a Modo DJ).
               if (liveDjIsMobile()) ...<Widget>[
                 Row(
                   children: [
@@ -1345,8 +1372,6 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                       ),
                     ),
                     const SizedBox(width: 6),
-                    const RadioDiscoveryButton(compact: true),
-                    const SizedBox(width: 4),
                     const CuratorInboxButton(),
                   ],
                 ),
@@ -1355,8 +1380,6 @@ class LiveDjCartridgePanel extends ConsumerWidget {
               Row(
                 children: [
                   if (!liveDjIsMobile()) ...<Widget>[
-                    const RadioDiscoveryButton(compact: true),
-                    const SizedBox(width: 4),
                     if (ref.watch(liveDjClassicFolderViewProvider)) ...<Widget>[
                       const CuratorInboxButton(),
                       const SizedBox(width: 4),
