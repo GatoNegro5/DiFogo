@@ -14,7 +14,8 @@ import 'dart:io';
 ///
 /// Quedan fuera del blindaje las carpetas propias de la app dentro de
 /// Musica: DjPlaylists (sesiones), DiFogo_LAB / GatoMix_LAB y DiFogo_Inbox /
-/// GatoMix_Inbox (3.1.75: nombres nuevos y heredados).
+/// GatoMix_Inbox (3.1.75: nombres nuevos y heredados). 3.2.10: DESCUBRE
+/// (canciones nuevas de la Radio, fuera de ReGenial).
 
 /// Solo pruebas: raices de biblioteca falsas (p. ej. en %TEMP%).
 List<String>? debugLibraryRoots;
@@ -45,6 +46,8 @@ const Set<String> _appFolders = <String>{
   'djstudio_lab',
   'difogo_inbox',
   'gatomix_inbox',
+  // 3.2.10: canciones nuevas de la Radio (Musica/DESCUBRE).
+  'descubre',
   // Salida propia del descargador de YouTube (Musica\Descargas).
   'descargas',
 };

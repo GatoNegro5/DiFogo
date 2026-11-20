@@ -292,13 +292,16 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
-    expect(find.text('Nuevas (3)'), findsOneWidget);
+    // 3.2.10: el chip "Nuevas" salio de la cabecera del Hub; el conteo vive
+    // en la tarjeta fija /DESCUBRE.
+    expect(
+      find.byKey(const ValueKey<String>('curator-inbox-button')),
+      findsNothing,
+    );
+    expect(find.byKey(const Key('vibe-hub-descubre-card')), findsOneWidget);
+    expect(find.text('3 canciones por revisar'), findsOneWidget);
     expect(find.text('ESTACIONES & GÉNEROS'), findsOneWidget);
     expect(find.text('SMART VIBE'), findsNothing);
-    final OutlinedButton b = tester.widget<OutlinedButton>(
-      find.byKey(const ValueKey<String>('curator-inbox-button')),
-    );
-    expect(b.style!.side!.resolve(<WidgetState>{})!.color, GatoMixTheme.fire);
     expect(GatoMixTheme.fire, const Color(0xFFFF5722));
     expect(tester.takeException(), isNull);
   });

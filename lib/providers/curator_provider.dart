@@ -7,8 +7,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../core/discovery_dedup_controller.dart';
 import '../core/genre_stations.dart'
     show isStationSub, registerSavedTrack, stationSaveDir, stationSubOf;
+import '../core/library_guard.dart' show libraryWriteBlocked;
 import '../core/lyric_files.dart' show lrcPathForAudio;
-import '../core/mode_session.dart' show sessionDir;
+import '../core/mode_session.dart'
+    show automixStatePath, liveDjStatePath, sessionDir;
+import '../core/persistent_lists.dart';
 import '../core/radio_one_click.dart';
 import '../services/smart_discovery_service.dart';
 import '../ui/workspaces/yt_workspace.dart' show moveFile;
@@ -60,15 +63,93 @@ final discoveryDedupProvider = Provider<DiscoveryDedupController>(
 
 /// 3.1.87: arma una vez el indice de huellas de la biblioteca (listado
 /// async y huellas en isolate; solo lectura) y de la carpeta de guardado de
-/// la Radio.
-Future<void> ensureDiscoveryLibrary(DiscoveryDedupController d) =>
-    d.ensureLibrary(
-      () => listLibraryAudioAsync(<String>[
-        vibeMusicRoot(),
-        if (!_inTemp(vibeMusicRoot()) || _inTemp(radioFallbackRoot()))
-          radioFallbackRoot(),
-      ]),
-    );
+/// la Radio. 3.2.10: tambien [descubre] (`Musica/DESCUBRE`, la bandeja):
+/// la Radio no vuelve a bajar lo que ya espera ahi. El indice se arma antes
+/// de bajar: un tema recien bajado no se bloquea a si mismo.
+Future<void> ensureDiscoveryLibrary(
+  DiscoveryDedupController d, {
+  String? descubre,
+}) => d.ensureLibrary(
+  () => listLibraryAudioAsync(<String>[
+    vibeMusicRoot(),
+    if (!_inTemp(vibeMusicRoot()) || _inTemp(radioFallbackRoot()))
+      radioFallbackRoot(),
+    if (descubre != null && (!_inTemp(vibeMusicRoot()) || _inTemp(descubre)))
+      descubre,
+  ]),
+);
+
+/// Solo pruebas: archivos `persistent_lists.json` donde inyectar.
+@visibleForTesting
+List<String>? debugCuratorListsPaths;
+
+/// 3.2.10: archivos de listas persistentes (Automix y Live DJ). Con la
+/// biblioteca en %TEMP% y sin ruta de pruebas no hay ninguno.
+List<String> _persistentListsPaths() {
+  final List<String>? o = debugCuratorListsPaths;
+  if (o != null) return o;
+  final String? fixed = debugPersistentListsPath;
+  if (fixed != null) return <String>[fixed];
+  if (_inTemp(vibeMusicRoot())) return const <String>[];
+  return <String>{
+    persistentListsPathNear(automixStatePath()),
+    persistentListsPathNear(liveDjStatePath()),
+  }.toList();
+}
+
+/// 3.2.10: suma [path] al final de las pendientes de las listas que YA
+/// existen en [store] (Automix y Live DJ): `genre:<stationId>` y las
+/// `folder:` que contienen su carpeta (salvo [skipFolder], la bandeja).
+/// No reinicia nada: sonadas, actual y segundo quedan igual. Devuelve
+/// `espacio|clave` de cada lista tocada.
+List<String> persistentInjectTrack(
+  PersistentListsStore store,
+  String path, {
+  String? stationId,
+  String? skipFolder,
+}) {
+  final List<String> out = <String>[];
+  final String pk = persistentPathKey(path);
+  final int cut = pk.lastIndexOf('/');
+  final String dirKey = cut <= 0 ? pk : pk.substring(0, cut);
+  final String? genreKey = stationId == null || stationId.isEmpty
+      ? null
+      : persistentGenreKey(stationId);
+  final String? skip = skipFolder == null
+      ? null
+      : persistentFolderKey(skipFolder);
+  for (final String space in <String>[
+    kPersistentSpaceAutomix,
+    kPersistentSpaceLiveDj,
+  ]) {
+    for (final MapEntry<String, PersistentList> e
+        in store.listsOf(space).entries) {
+      final String key = e.key;
+      bool match = key == genreKey;
+      if (!match && key.startsWith('folder:') && key != skip) {
+        final String f = key.substring('folder:'.length);
+        match = dirKey == f || dirKey.startsWith('$f/');
+      }
+      if (!match) continue;
+      final PersistentList l = e.value;
+      if (l.order.any((String p) => persistentPathKey(p) == pk)) continue;
+      store.put(
+        space,
+        key,
+        PersistentList(
+          order: <String>[...l.order, path],
+          played: l.played,
+          currentPath: l.currentPath,
+          positionMs: l.positionMs,
+          updatedAtMs: l.updatedAtMs,
+          meta: l.meta,
+        ),
+      );
+      out.add('$space|$key');
+    }
+  }
+  return out;
+}
 
 class CuratorState {
   const CuratorState({
@@ -189,9 +270,16 @@ class CuratorNotifier extends Notifier<CuratorState> {
     state = state.copyWith(busy: true);
     try {
       final DiscoveryDedupController dedup = ref.read(discoveryDedupProvider);
-      await ensureDiscoveryLibrary(dedup);
+      await ensureDiscoveryLibrary(dedup, descubre: _service.inboxDir);
+      // 3.2.10: tampoco lo que ya espera en DESCUBRE (pendientes).
+      final Set<String> waiting = <String>{
+        for (final CuratorEntry e in state.pending)
+          normalizeTrackFingerprint(filename: e.file),
+      }..remove('');
       final List<CuratorEntry> got = await _service.discover(
-        skipTitle: (String title) => dedup.blocksCandidate(filename: title),
+        skipTitle: (String title) =>
+            dedup.blocksCandidate(filename: title) ||
+            waiting.contains(normalizeTrackFingerprint(filename: title)),
         genre: g,
         count: count < room ? count : room,
         knownIds: <String>{for (final CuratorEntry e in state.entries) e.id},
@@ -233,14 +321,26 @@ class CuratorNotifier extends Notifier<CuratorState> {
     );
   }
 
+  /// 3.2.10: carpeta DESCUBRE (la bandeja) de este servicio.
+  String get inboxDir => _service.inboxDir;
+
   /// [Agregar]: mueve el MP3 a la carpeta del genero, lo registra en la base
-  /// local y lo suma a la cola de Automix. Unica escritura en la biblioteca.
+  /// local y lo suma a la cola de Automix. 3.2.10 (parche de seguridad): la
+  /// carpeta sale de [radioSaveDir] y pasa por [libraryWriteBlocked] igual
+  /// que Guardar en 1 clic: JAMAS escribe en ReGenial (va a
+  /// `Musica/Descargas/<Estacion>/<Sub>`). Sale de DESCUBRE, letra en 2do
+  /// plano e inyeccion en las listas persistentes que ya existen.
   Future<String?> accept(String id) async {
     final CuratorEntry? e = _find(id);
     if (e == null || !File(e.file).existsSync()) return null;
-    final String dir = _destOf(e);
+    final String dir = radioSaveDir(
+      libraryDir: _destOf(e),
+      fallbackDir: _fallbackOf(e),
+    );
+    if (libraryWriteBlocked(dir, what: 'ACEPTAR')) return null;
     Directory(dir).createSync(recursive: true);
     final String dst = discoveryFreePath(dir, discoverySafeName(e.title));
+    if (libraryWriteBlocked(dst, what: 'ACEPTAR')) return null;
     moveFile(e.file, dst);
     // 3.1.88: igual que Guardar en 1 clic: huella al anti-duplicados y
     // letra `.lrc` en 2do plano (sin esperar).
@@ -272,9 +372,43 @@ class CuratorNotifier extends Notifier<CuratorState> {
         debugPrint('[CURATOR] indice de generos: $err');
       }
     }
+    await _injectPersistent(dst, e);
     ref.read(automixQueueProvider.notifier).addTrack(File(dst));
     _replace(e.copyWith(status: CuratorStatus.accepted, finalPath: dst));
     return dst;
+  }
+
+  /// 3.2.10: carpeta de respaldo fuera de ReGenial (`Musica/Descargas`):
+  /// `<Estacion>/<Sub>` canonica o la del genero.
+  String _fallbackOf(CuratorEntry e) {
+    final String? st = e.stationId;
+    final String? sub = e.subGenreId;
+    return st != null && sub != null && isStationSub(st, sub)
+        ? stationSaveDir(radioFallbackRoot(), st, sub)
+        : '${radioFallbackRoot()}${Platform.pathSeparator}'
+              '${e.genre.replaceAll('/', Platform.pathSeparator)}';
+  }
+
+  /// 3.2.10: el tema guardado entra al final de las pendientes de su lista
+  /// persistente (`genre:<estacion>` o la carpeta) si ya existe; nunca
+  /// reinicia el progreso. Un fallo no corta el guardado.
+  Future<void> _injectPersistent(String path, CuratorEntry e) async {
+    final String? station = e.stationId ?? stationSubOf(e.genre)?.key;
+    for (final String p in _persistentListsPaths()) {
+      try {
+        final PersistentListsStore store = PersistentListsStore.at(p);
+        await store.load();
+        final List<String> hit = persistentInjectTrack(
+          store,
+          path,
+          stationId: station,
+          skipFolder: _service.inboxDir,
+        );
+        if (hit.isNotEmpty) await store.flush();
+      } catch (err) {
+        debugPrint('[CURATOR] listas persistentes: $err');
+      }
+    }
   }
 
   /// 3.1.68: destino del tema: con estacion y sub-genero, la carpeta que ya
@@ -372,15 +506,9 @@ class CuratorNotifier extends Notifier<CuratorState> {
   Future<String?> saveFromRadio(String id) async {
     final CuratorEntry? e = _find(id);
     if (e == null || !File(e.file).existsSync()) return null;
-    final String? st = e.stationId;
-    final String? sub = e.subGenreId;
-    final String fallback = st != null && sub != null && isStationSub(st, sub)
-        ? stationSaveDir(radioFallbackRoot(), st, sub)
-        : '${radioFallbackRoot()}${Platform.pathSeparator}'
-              '${e.genre.replaceAll('/', Platform.pathSeparator)}';
     final String dir = radioSaveDir(
       libraryDir: _destOf(e),
-      fallbackDir: fallback,
+      fallbackDir: _fallbackOf(e),
     );
     final RadioSaveResult r = await radioSaveTrack(
       tempPath: e.file,
@@ -414,6 +542,8 @@ class CuratorNotifier extends Notifier<CuratorState> {
         debugPrint('[CURATOR] indice de generos: $err');
       }
     }
+    // 3.2.10: a su lista persistente (si ya existe) sin reiniciar progreso.
+    await _injectPersistent(r.path, e);
     _replace(e.copyWith(status: CuratorStatus.accepted, finalPath: r.path));
     // El temporal sigue abierto en el deck: se borra cuando lo suelte.
     unawaited(radioDeleteTemp(e.file).catchError((Object _) => false));

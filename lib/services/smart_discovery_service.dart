@@ -34,10 +34,85 @@ const Duration kDiscoveryMaxDuration = Duration(minutes: 8);
 
 /// 3.1.75: bandeja `DiFogo_Inbox`; una `GatoMix_Inbox` previa se renombra
 /// (o se sigue usando si no se puede o esta en la biblioteca protegida).
+/// 3.2.10: la bandeja es `Musica/DESCUBRE` (Win, Mac, Linux y Android); lo
+/// que habia en `Downloads/DiFogo_Inbox` (o `GatoMix_Inbox`) se migra una
+/// vez con movimiento seguro. iOS sigue con la bandeja de siempre.
 String discoveryInboxDir() {
   final String? o = debugCuratorInboxDir;
   if (o != null) return o;
-  return brandFolderPath(discoveryInboxParent(), kOldInboxName, kInboxName);
+  final String? d = descubreDir();
+  if (d == null) {
+    return brandFolderPath(discoveryInboxParent(), kOldInboxName, kInboxName);
+  }
+  _migrateLegacyInboxOnce(d);
+  return d;
+}
+
+bool _legacyInboxMigrated = false;
+
+/// Una vez por proceso. Bajo `flutter test` nunca toca carpetas reales.
+void _migrateLegacyInboxOnce(String dir) {
+  if (_legacyInboxMigrated) return;
+  _legacyInboxMigrated = true;
+  if (Platform.environment['FLUTTER_TEST'] == 'true') return;
+  final String parent = discoveryInboxParent();
+  final String sep = Platform.pathSeparator;
+  for (final String name in <String>[kInboxName, kOldInboxName]) {
+    migrateLegacyInbox('$parent$sep$name', dir);
+  }
+}
+
+/// 3.2.10: mueve los temas de la bandeja vieja [oldDir] a [newDir] (saltando
+/// nombres que ya existen; nunca borra un original si falla) y suma sus
+/// entradas a `curator_inbox.json` de [newDir] con la ruta nueva de cada
+/// archivo movido. El JSON viejo no se borra ni se reescribe; correrla de
+/// nuevo no duplica nada.
+InboxMigration migrateLegacyInbox(String oldDir, String newDir) {
+  final InboxMigration m = migrateInboxFiles(oldDir, newDir);
+  try {
+    _mergeLegacyInboxJson(oldDir, newDir, m.moved);
+  } catch (e) {
+    debugPrint('[CURATOR] migracion de la bandeja: $e');
+  }
+  return m;
+}
+
+String _inboxKey(String p) => p.replaceAll('\\', '/').toLowerCase();
+
+void _mergeLegacyInboxJson(
+  String oldDir,
+  String newDir,
+  Map<String, String> moved,
+) {
+  final CuratorInboxStore from = CuratorInboxStore(oldDir);
+  if (!File(from.path).existsSync()) return;
+  final CuratorInboxStore to = CuratorInboxStore(newDir);
+  final bool hasTo = File(to.path).existsSync();
+  final CuratorInboxData a = from.load();
+  final CuratorInboxData b = hasTo ? to.load() : CuratorInboxData.empty;
+  final Set<String> ids = <String>{for (final CuratorEntry e in b.entries) e.id};
+  final Map<String, String> byKey = <String, String>{
+    for (final MapEntry<String, String> e in moved.entries)
+      _inboxKey(e.key): e.value,
+  };
+  final List<CuratorEntry> add = <CuratorEntry>[
+    for (final CuratorEntry e in a.entries)
+      if (!ids.contains(e.id))
+        byKey[_inboxKey(e.file)] == null
+            ? e
+            : (CuratorEntry.fromJson(<String, dynamic>{
+                    ...e.toJson(),
+                    'file': byKey[_inboxKey(e.file)],
+                  }) ??
+                  e),
+  ];
+  if (add.isEmpty && hasTo) return;
+  to.save(
+    CuratorInboxData(
+      entries: <CuratorEntry>[...b.entries, ...add],
+      lastRun: <String, String>{...a.lastRun, ...b.lastRun},
+    ),
+  );
 }
 
 /// Carpeta que contiene la bandeja (Descargas del sistema).

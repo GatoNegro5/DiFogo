@@ -19,6 +19,10 @@ const String kOldQuarantineName = 'Cuarentena_GatoMix';
 const String kInboxName = 'DiFogo_Inbox';
 const String kOldInboxName = 'GatoMix_Inbox';
 
+/// 3.2.10: carpeta de las canciones nuevas de la Radio dentro de Musica
+/// (`Musica/DESCUBRE`), fuera de ReGenial y fuera del blindaje.
+const String kDescubreName = 'DESCUBRE';
+
 /// 3.1.75: respaldos de Masterizar. Los nuevos van a `.difogo_original`; los
 /// viejos `.gatomix_original` se siguen leyendo y excluyendo.
 const String kOriginalDirName = '.difogo_original';
@@ -80,6 +84,123 @@ String brandFolderPath(String parent, String oldName, String newName) {
     return '$parent$sep$oldName';
   }
   return '$parent$sep$newName';
+}
+
+/// Solo pruebas: carpeta de Musica falsa (en %TEMP%) para DESCUBRE.
+String? debugDescubreMusicRoot;
+
+/// 3.2.10: carpeta de Musica del sistema donde vive DESCUBRE: Windows
+/// `%USERPROFILE%\Music`, Android `/storage/emulated/0/Music`, macOS/Linux
+/// `~/Music`. null en iOS (sigue con la bandeja de siempre).
+String? descubreMusicRoot() {
+  final String? o = debugDescubreMusicRoot;
+  if (o != null) return o;
+  if (Platform.isIOS) return null;
+  final String sep = Platform.pathSeparator;
+  if (Platform.isAndroid) return '/storage/emulated/0/Music';
+  final String? home = Platform.isWindows
+      ? Platform.environment['USERPROFILE']
+      : Platform.environment['HOME'];
+  return home == null ? null : '$home${sep}Music';
+}
+
+/// 3.2.10: `Musica/DESCUBRE` (null en iOS).
+String? descubreDir() {
+  final String? m = descubreMusicRoot();
+  return m == null ? null : '$m${Platform.pathSeparator}$kDescubreName';
+}
+
+/// Resultado de [migrateInboxFiles].
+class InboxMigration {
+  const InboxMigration(this.moved, this.skipped, this.failed);
+
+  /// Ruta vieja -> ruta nueva de cada archivo movido.
+  final Map<String, String> moved;
+
+  /// Ya existia un archivo con ese nombre en destino: no se toca.
+  final int skipped;
+
+  /// No se pudo mover: el original queda intacto.
+  final int failed;
+
+  static const InboxMigration none = InboxMigration(<String, String>{}, 0, 0);
+}
+
+String _slashKey(String p) {
+  String s = p.replaceAll('\\', '/').toLowerCase();
+  while (s.length > 1 && s.endsWith('/')) {
+    s = s.substring(0, s.length - 1);
+  }
+  return s;
+}
+
+/// Mueve [src] a [dst] (que no existe). Rename y, si falla (otra unidad),
+/// copia verificada por tamano y luego borra el original. Si algo falla se
+/// borra solo la copia parcial: el original nunca se pierde.
+bool _moveSafe(String src, String dst) {
+  try {
+    File(src).renameSync(dst);
+    return true;
+  } catch (_) {}
+  try {
+    File(src).copySync(dst);
+    if (File(dst).lengthSync() != File(src).lengthSync()) {
+      throw const FileSystemException('copia incompleta');
+    }
+  } catch (_) {
+    try {
+      if (File(dst).existsSync()) File(dst).deleteSync();
+    } catch (_) {}
+    return false;
+  }
+  try {
+    File(src).deleteSync();
+  } catch (_) {}
+  return true;
+}
+
+/// 3.2.10: migracion suave de la bandeja vieja ([fromDir], p. ej.
+/// `Downloads/DiFogo_Inbox`) a [toDir] (`Musica/DESCUBRE`). Solo archivos
+/// de primer nivel; un nombre que ya existe en destino se salta; nunca
+/// escribe en la biblioteca protegida; nunca lanza. Los nombres que empiezan
+/// con [skipPrefix] (el JSON de la bandeja) no se mueven.
+InboxMigration migrateInboxFiles(
+  String fromDir,
+  String toDir, {
+  String skipPrefix = 'curator_inbox.json',
+}) {
+  final Map<String, String> moved = <String, String>{};
+  int skipped = 0;
+  int failed = 0;
+  try {
+    final Directory from = Directory(fromDir);
+    if (!from.existsSync()) return InboxMigration.none;
+    if (_slashKey(fromDir) == _slashKey(toDir)) return InboxMigration.none;
+    if (isLibraryPath(toDir)) return InboxMigration.none;
+    final String sep = Platform.pathSeparator;
+    final List<File> files = <File>[
+      for (final FileSystemEntity e in from.listSync(followLinks: false))
+        if (e is File) e,
+    ];
+    if (files.isEmpty) return InboxMigration.none;
+    Directory(toDir).createSync(recursive: true);
+    for (final File f in files) {
+      final String norm = f.path.replaceAll('\\', '/');
+      final String name = norm.substring(norm.lastIndexOf('/') + 1);
+      if (name.toLowerCase().startsWith(skipPrefix.toLowerCase())) continue;
+      final String dst = '$toDir$sep$name';
+      if (File(dst).existsSync()) {
+        skipped++;
+        continue;
+      }
+      if (_moveSafe(f.path, dst)) {
+        moved[f.path] = dst;
+      } else {
+        failed++;
+      }
+    }
+  } catch (_) {}
+  return InboxMigration(moved, skipped, failed);
 }
 
 /// Base de datos de la app por plataforma (`%LOCALAPPDATA%` en Windows).

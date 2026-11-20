@@ -1,9 +1,13 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/discovery_dedup_controller.dart' show listLibraryAudioAsync;
 import '../core/genre_stations.dart';
+import '../providers/curator_provider.dart';
+import '../providers/livedj_provider.dart';
 import '../providers/theme_provider.dart';
 import '../providers/vibe_hub_provider.dart';
 import 'curator_inbox_dialog.dart';
@@ -137,9 +141,8 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                     ),
                   ),
                 ),
-                // 3.1.84: "Nuevas" como chip compacto en la cabecera.
-                const CuratorInboxButton(),
-                const SizedBox(width: 4),
+                // 3.2.10: sin el chip "Nuevas" (chocaba con el titulo): la
+                // bandeja vive en la tarjeta fija /DESCUBRE de abajo.
                 // 3.1.62: columna de escritorio: conmutador aqui, porque el
                 // Cartridge se oculta mientras la cola esta vacia.
                 if (widget.onPlayed == null)
@@ -148,6 +151,8 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
             ),
           ),
           const Divider(height: 1, color: Colors.white10),
+          // 3.2.10: tarjeta fija /DESCUBRE al tope de las estaciones.
+          DescubreStationCard(onPlayed: widget.onPlayed),
           Expanded(
             child: s.loading && s.stations.isEmpty
                 ? const Center(
@@ -387,6 +392,117 @@ class _StationCard extends StatelessWidget {
                     key: Key('vibe-hub-chevron-${station.key}'),
                     color: Colors.white54,
                     size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 3.2.10: rotulo del contador de la tarjeta /DESCUBRE.
+String descubreCountLabel(int n) =>
+    n == 1 ? '1 canción por revisar' : '$n canciones por revisar';
+
+/// 3.2.10: tarjeta fija `/DESCUBRE` (canciones nuevas de la Radio en
+/// `Musica/DESCUBRE`): contador, Play (la carpeta como lista persistente
+/// completa `folder:<ruta>`) y acceso a la bandeja (Descargar definitivo /
+/// Eliminar).
+class DescubreStationCard extends ConsumerWidget {
+  const DescubreStationCard({super.key, this.onPlayed});
+
+  /// Movil: cierra la hoja despues de sonar.
+  final VoidCallback? onPlayed;
+
+  Future<void> _play(WidgetRef ref) async {
+    // Antes de esperar: la hoja movil puede cerrarse mientras lista.
+    final String dir = ref.read(curatorProvider.notifier).inboxDir;
+    final LiveDjNotifier live = ref.read(liveDjProvider.notifier);
+    final List<String> paths = await listLibraryAudioAsync(<String>[dir]);
+    if (paths.isEmpty) return;
+    paths.sort();
+    final int got = await live.playFolderList(dir, <File>[
+      for (final String p in paths) File(p),
+    ]);
+    if (got > 0) onPlayed?.call();
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final int n = ref.watch(curatorProvider.select((s) => s.pending.length));
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 3),
+      child: Material(
+        color: Colors.white10,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+          side: BorderSide(
+            color: n > 0 ? GatoMixTheme.fire : Colors.transparent,
+          ),
+        ),
+        child: InkWell(
+          key: const Key('vibe-hub-descubre-card'),
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => showCuratorInbox(context),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 52),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                children: <Widget>[
+                  StationPlayButton(
+                    key: const Key('vibe-hub-descubre-play'),
+                    playing: false,
+                    label: '/DESCUBRE',
+                    onTap: () => unawaited(_play(ref)),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: <Widget>[
+                        const Text(
+                          '/DESCUBRE',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                          ),
+                        ),
+                        Text(
+                          descubreCountLabel(n),
+                          key: const Key('vibe-hub-descubre-count'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 10,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('vibe-hub-descubre-inbox'),
+                    icon: const Icon(
+                      Icons.download_done_rounded,
+                      color: GatoMixTheme.fire,
+                      size: 18,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 28,
+                      height: 28,
+                    ),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Descargar definitivo o eliminar',
+                    onPressed: () => showCuratorInbox(context),
                   ),
                 ],
               ),
