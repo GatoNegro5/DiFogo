@@ -1042,12 +1042,16 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       all,
       (List<String> xs) => stationSmartShuffle(xs, Random()),
     );
+    // 3.2.7: la carpeta pasa a activa ANTES de cargar: el cambio de pista de
+    // loadStation no se anota en la estacion que sonaba.
+    final String? before = lists.activeKey;
+    lists.activeKey = key;
     final bool ok = await loadStation(
       currentPath: plan.current,
       positionMs: plan.positionMs,
       queue: <File>[for (final String p in plan.queue) File(p)],
     );
-    if (ok) lists.activeKey = key;
+    if (!ok) lists.activeKey = before;
     await lists.flush();
     return ok ? plan.queue.length : 0;
   }
@@ -1065,6 +1069,30 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     final bool had = lists.reset(key);
     await lists.flush();
     return had;
+  }
+
+  /// 3.2.7: boton "Reiniciar lista": carpeta -> borra su clave y la vuelve
+  /// a sonar entera desde cero (orden nuevo); estacion -> el Hub la
+  /// reinicia y la vuelve a sonar. En un cruce no toca nada (false).
+  Future<bool> restartActivePersistentList() async {
+    if (_isCrossfading) return false;
+    final PersistentLists lists = _lists;
+    await lists.store.load();
+    final String? key = lists.activeKey;
+    if (key == null || key.startsWith('genre:')) {
+      final hub = ref.read(vibeHubProvider.notifier);
+      final String? st = hub.savedActiveStation();
+      if (st == null) return false;
+      if (key != null && persistentGenreKey(st) != key) return false;
+      return hub.resetStationList(st, replay: true);
+    }
+    final List<String> tracks = <String>[...?lists.get(key)?.order];
+    if (tracks.isEmpty) return false;
+    lists.reset(key);
+    final int n = await playFolderList(key.substring('folder:'.length), <File>[
+      for (final String p in tracks) File(p),
+    ]);
+    return n > 0;
   }
 
   void shuffleQueue() {

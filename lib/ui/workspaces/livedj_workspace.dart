@@ -209,19 +209,13 @@ void _liveDjPlayNext(WidgetRef ref, File file) {
   if (tail.isNotEmpty) notifier.addAllTracks(tail);
 }
 
+/// 3.2.7: "Mezclar todo" crea o retoma la lista persistente de la carpeta
+/// (`folder:<ruta>`, 100 % sin repetir) y suena de una.
 Future<void> _liveDjMix(WidgetRef ref, List<File> files) async {
   if (files.isEmpty) return;
-  final notifier = ref.read(liveDjProvider.notifier);
-  notifier.addAllTracks(files);
-  final List<File> queue = ref.read(liveDjProvider).queue;
-  final int index = queue.indexWhere(
-    (File item) => sameAudioPath(item.path, files.first.path),
-  );
-  if (index >= 0) {
-    await notifier.playTrackFromQueue(index);
-  } else if (ref.read(liveDjProvider).currentTrackPath == null) {
-    await notifier.togglePlayPause();
-  }
+  await ref
+      .read(liveDjProvider.notifier)
+      .playFolderList(mixFolderPathOf(files), files);
 }
 
 class LiveDjFolderPanel extends ConsumerWidget {
@@ -270,12 +264,14 @@ class LiveDjFolderPanel extends ConsumerWidget {
                 onPressed: folderFiles.isEmpty
                     ? null
                     : () async {
-                        final rawFiles = folderFiles.whereType<File>().toList();
-                        final notifier = ref.read(liveDjProvider.notifier);
-                        notifier.addAllTracks(rawFiles);
-                        if (ref.read(liveDjProvider).currentTrackPath == null) {
-                          await notifier.togglePlayPause();
-                        }
+                        // 3.2.7: la carpeta como lista persistente
+                        // `folder:<ruta>` (retoma sin repetir) y suena.
+                        await ref
+                            .read(liveDjProvider.notifier)
+                            .playFolderList(
+                              dirState.currentPath,
+                              folderFiles.whereType<File>().toList(),
+                            );
                       },
                 icon: Icon(Icons.playlist_add_check, size: isMobile ? 14 : 16),
                 label: Text(
@@ -1410,6 +1406,16 @@ class LiveDjCartridgePanel extends ConsumerWidget {
                         : () => ref.read(liveDjProvider.notifier).clearQueue(),
                     tooltip: "Borrar Cola",
                   ),
+                  // 3.2.7: reinicia solo la lista activa (genre: o folder:).
+                  if (ref
+                          .read(liveDjProvider.notifier)
+                          .activePersistentListKey !=
+                      null)
+                    PersistentListResetButton(
+                      onRestart: () => ref
+                          .read(liveDjProvider.notifier)
+                          .restartActivePersistentList(),
+                    ),
                   IconButton(
                     icon: const Icon(
                       Icons.save,

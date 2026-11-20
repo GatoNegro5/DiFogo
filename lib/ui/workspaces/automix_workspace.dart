@@ -20,6 +20,8 @@ import '../mobile/music_picker_screen.dart';
 import '../widgets/approx_lyric_icon.dart';
 import '../widgets/hover_marquee_text.dart';
 import '../widgets/theater_lyrics_view.dart';
+import '../vibe_hub_view.dart'
+    show PersistentListResetButton, showPersistentListBusy;
 import '../../providers/pipeline_provider.dart';
 import '../../providers/theme_provider.dart';
 
@@ -160,30 +162,42 @@ class AutomixMobileLibrary extends ConsumerWidget {
       },
       onMixFolder: (List<File> files) async {
         if (files.isEmpty) return;
-        // 3.1.86 (ANR con 877 pistas): una pasada y un guardado para lo ya
-        // sonado, y pertenencia por Set (antes removeTrack y
-        // `paths.any(sameAudioPath)` por pista: N^2 en el hilo de UI).
-        ref.read(playedTracksProvider.notifier).removeTracks(<String>[
-          for (final File file in files) file.path,
-        ]);
-        ref.read(automixQueueProvider.notifier).addAll(files);
-        final List<String> paths = <String>[
-          for (final File file in ref.read(automixQueueProvider)) file.path,
-        ];
-        final Set<String> have = audioKeySet(paths);
-        for (final File file in files) {
-          if (have.add(audioPathKey(file.path))) paths.add(file.path);
-        }
-        final notifier = ref.read(automixProvider.notifier);
-        notifier.syncDynamicPlaylist(paths);
-        final int index = ref
-            .read(automixProvider)
-            .playlist
-            .indexWhere((String path) => sameAudioPath(path, files.first.path));
-        if (index >= 0) await notifier.jumpToTrack(index);
+        // 3.2.7: la carpeta es su propia lista persistente (`folder:<ruta>`,
+        // 100 % sin repetir y retoma donde quedo): ya no se mezcla dentro
+        // del genero activo. Suena de una (antes jumpToTrack).
+        final bool ok = await ref
+            .read(automixProvider.notifier)
+            .loadFolderList(mixFolderPathOf(files), <String>[
+              for (final File file in files) file.path,
+            ], play: true);
+        if (!ok && context.mounted) showPersistentListBusy(context);
       },
     );
   }
+}
+
+/// 3.2.7: carpeta de "Mezclar todo" para la clave `folder:<ruta>`. El
+/// selector solo entrega las pistas: es la carpeta comun de todas.
+String mixFolderPathOf(List<File> files) {
+  List<String>? common;
+  for (final File f in files) {
+    final List<String> parts = f.parent.path.replaceAll('\\', '/').split('/');
+    final List<String>? c = common;
+    if (c == null) {
+      common = parts;
+      continue;
+    }
+    int n = 0;
+    while (n < c.length &&
+        n < parts.length &&
+        c[n].toLowerCase() == parts[n].toLowerCase()) {
+      n++;
+    }
+    common = c.sublist(0, n);
+  }
+  final String out = (common ?? const <String>[]).join('/');
+  if (out.isNotEmpty) return out;
+  return files.isEmpty ? '' : files.first.parent.path;
 }
 
 // --- COMPONENTE 1: ÁRBOL DE DIRECTORIOS ---
@@ -448,15 +462,18 @@ class FolderContentPanel extends ConsumerWidget {
               ElevatedButton.icon(
                 onPressed: folderFiles.isEmpty
                     ? null
-                    : () {
-                        for (var f in folderFiles) {
-                          ref
-                              .read(playedTracksProvider.notifier)
-                              .removeTrack(f.path);
+                    : () async {
+                        // 3.2.7: "Cargar Todo" carga la carpeta como lista
+                        // persistente `folder:<ruta>` (retoma sin repetir).
+                        final bool ok = await ref
+                            .read(automixProvider.notifier)
+                            .loadFolderList(dirState.currentPath, <String>[
+                              for (final f in folderFiles) f.path,
+                            ]);
+                        if (!ok) {
+                          if (context.mounted) showPersistentListBusy(context);
+                          return;
                         }
-                        ref
-                            .read(automixQueueProvider.notifier)
-                            .addAll(folderFiles);
                         onLoaded?.call();
                       },
                 icon: Icon(Icons.playlist_add, size: isMobile ? 14 : 16),
@@ -981,6 +998,18 @@ class AutomixPanel extends ConsumerWidget {
                               ),
                             ),
                           ],
+                          // 3.2.7: reinicia solo la lista activa (genre: o
+                          // folder:) con confirmacion.
+                          if (ref
+                                  .read(automixProvider.notifier)
+                                  .activePersistentListKey !=
+                              null)
+                            PersistentListResetButton(
+                              size: isMobile ? 16 : 18,
+                              onRestart: () => ref
+                                  .read(automixProvider.notifier)
+                                  .restartActivePersistentList(),
+                            ),
                           IconButton(
                             icon: Icon(
                               Icons.folder_open,

@@ -410,7 +410,7 @@ void main() {
     );
     expect(load.contains('lists.planOrResume('), isTrue);
     expect(load.contains('kRollingWindowSize'), isFalse);
-    expect(am.contains('Future<void> loadFolderList('), isTrue);
+    expect(am.contains('Future<bool> loadFolderList('), isTrue);
     expect(am.contains('String? get activePersistentListKey'), isTrue);
     expect(am.contains('Future<bool> resetActivePersistentList()'), isTrue);
     final String ctx = _body(

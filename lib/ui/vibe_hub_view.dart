@@ -211,6 +211,37 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
               padding: EdgeInsets.fromLTRB(8, 4, 8, 0),
               child: GenreEmptyNotice(key: Key('vibe-hub-empty-msg')),
             ),
+          // 3.2.7: acceso discreto a "Reiniciar lista" de la estacion elegida
+          // cuando tiene progreso guardado.
+          if (pick != null && n.hasStationProgress(pick.key))
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(8, 2, 8, 0),
+                child: TextButton.icon(
+                  key: const Key('vibe-hub-reset-list'),
+                  onPressed: s.busy
+                      ? null
+                      : () => runPersistentListReset(
+                          context,
+                          () => n.resetStationList(pick.key),
+                        ),
+                  icon: const Icon(Icons.restart_alt, size: 14),
+                  label: const Text(
+                    kPersistentListResetLabel,
+                    maxLines: 1,
+                    style: TextStyle(fontSize: 11),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.white54,
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    minimumSize: const Size(0, 28),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ),
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
             child: SizedBox(
@@ -724,6 +755,109 @@ class RadioDiscoveryButton extends ConsumerWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 3.2.7: "Reiniciar lista" (Automix, Live DJ y Hub): un solo dialogo.
+const String kPersistentListResetLabel = 'Reiniciar lista';
+const String kPersistentListResetQuestion =
+    '¿Reiniciar esta lista y barajar desde cero?';
+
+/// Confirmacion de "Reiniciar lista" (estilo de los dialogos de la app).
+Future<bool> confirmPersistentListReset(BuildContext context) async {
+  final bool? ok = await showDialog<bool>(
+    context: context,
+    builder: (BuildContext c) => AlertDialog(
+      key: const Key('persistent-list-reset-dialog'),
+      backgroundColor: GatoMixTheme.bgPanel,
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: _hubNeon),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      title: const Text(
+        kPersistentListResetLabel,
+        style: TextStyle(
+          color: _hubNeon,
+          fontWeight: FontWeight.bold,
+          fontSize: 14,
+        ),
+      ),
+      content: const Text(
+        kPersistentListResetQuestion,
+        style: TextStyle(color: Colors.white70, fontSize: 13),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.pop(c, false),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(
+          key: const Key('persistent-list-reset-ok'),
+          style: FilledButton.styleFrom(
+            backgroundColor: _hubNeon,
+            foregroundColor: Colors.black,
+          ),
+          onPressed: () => Navigator.pop(c, true),
+          child: const Text('Reiniciar'),
+        ),
+      ],
+    ),
+  );
+  return ok == true;
+}
+
+/// Aviso corto: la lista no cambio (mezcla o preRoll en curso).
+void showPersistentListBusy(BuildContext context) {
+  final ScaffoldMessengerState? m = ScaffoldMessenger.maybeOf(context);
+  m?.hideCurrentSnackBar();
+  m?.showSnackBar(
+    const SnackBar(
+      duration: Duration(seconds: 2),
+      content: Text(
+        'No se pudo cambiar la lista ahora (mezcla en curso). '
+        'Intenta en unos segundos.',
+        style: TextStyle(fontSize: 13),
+      ),
+    ),
+  );
+}
+
+/// Confirma y reinicia; avisa si no se pudo.
+Future<bool> runPersistentListReset(
+  BuildContext context,
+  Future<bool> Function() restart,
+) async {
+  if (!await confirmPersistentListReset(context)) return false;
+  final bool ok = await restart();
+  if (!ok && context.mounted) showPersistentListBusy(context);
+  return ok;
+}
+
+/// Boton "Reiniciar lista" de las barras de cola (Automix y Live DJ).
+class PersistentListResetButton extends StatelessWidget {
+  const PersistentListResetButton({
+    super.key,
+    required this.onRestart,
+    this.size = 18,
+  });
+
+  final Future<bool> Function() onRestart;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      key: const Key('persistent-list-reset'),
+      icon: Icon(Icons.restart_alt, color: Colors.orangeAccent, size: size),
+      tooltip: kPersistentListResetLabel,
+      onPressed: () => runPersistentListReset(context, onRestart),
+      constraints: const BoxConstraints.tightFor(width: 28, height: 28),
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      style: IconButton.styleFrom(
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
       ),
     );
   }

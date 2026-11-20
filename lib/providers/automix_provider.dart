@@ -1025,9 +1025,42 @@ class AutomixNotifier extends Notifier<AutomixState> {
       );
 
   /// 3.2.6: carpeta como lista persistente completa (`folder:<ruta>`); misma
-  /// regla que los generos. "Mezclar" se conecta en 3.2.7.
-  Future<void> loadFolderList(String folderPath, List<String> tracks) =>
-      _loadPersistentQueue(persistentFolderKey(folderPath), tracks);
+  /// regla que los generos. 3.2.7: "Mezclar todo" y "Cargar Todo" la usan;
+  /// [play] la hace sonar. Si Automix ya sonaba sigue sonando con la lista
+  /// nueva. En un cruce o con el preRoll comprometido no toca nada (false).
+  Future<bool> loadFolderList(
+    String folderPath,
+    List<String> tracks, {
+    bool play = false,
+  }) => _switchPersistentQueue(
+    persistentFolderKey(folderPath),
+    tracks,
+    play: play,
+  );
+
+  /// 3.2.7: cambia a la lista [key] con Automix sonando o en pausa. Sonando
+  /// aparca los decks (la saliente queda anotada en su segundo) y la nueva
+  /// suena en su pista y segundo. Cruce o preRoll comprometido: false sin
+  /// tocar nada (se respeta el candado del preRoll).
+  Future<bool> _switchPersistentQueue(
+    String key,
+    List<String> paths, {
+    String? signature,
+    bool play = false,
+  }) async {
+    if (paths.isEmpty || _isCrossfading || _drift.preRollActive) return false;
+    final bool wasPlaying = state.isPlaying;
+    if (wasPlaying) await parkIdleDecks(force: true);
+    await _loadPersistentQueue(key, paths, signature: signature);
+    final bool ok = _activeListKey == key;
+    if (ok &&
+        (play || wasPlaying) &&
+        state.currentTrackPath != null &&
+        !state.isPlaying) {
+      await togglePlayPause();
+    }
+    return ok;
+  }
 
   Future<void> _loadPersistentQueue(
     String key,
@@ -1203,6 +1236,32 @@ class AutomixNotifier extends Notifier<AutomixState> {
     final bool had = lists.reset(key);
     await lists.flush();
     return had;
+  }
+
+  /// 3.2.7: boton "Reiniciar lista": borra la lista activa y la vuelve a
+  /// armar desde cero con sus mismas pistas (orden nuevo, sin sonadas). Si
+  /// Automix sonaba, sigue con la primera del orden nuevo. Cruce o preRoll
+  /// comprometido: false sin tocar nada.
+  Future<bool> restartActivePersistentList() async {
+    final String? key = _activeListKey;
+    if (key == null || _isCrossfading || _drift.preRollActive) return false;
+    final PersistentLists lists = await _persistentLists();
+    final List<String> tracks = <String>[
+      ...?lists.get(key)?.order,
+      if (!lists.has(key)) ...state.playlist,
+    ];
+    if (tracks.isEmpty) return false;
+    final bool wasPlaying = state.isPlaying;
+    if (wasPlaying) await parkIdleDecks(force: true);
+    // Sin lista activa la saliente no se vuelve a anotar sobre el reinicio.
+    _activeListKey = null;
+    lists.reset(key);
+    return _switchPersistentQueue(
+      key,
+      tracks,
+      signature: key.startsWith('genre:') ? _genreSignature : null,
+      play: wasPlaying,
+    );
   }
 
   Future<void> applyManualLyrics(String audioPath, String syncedLyrics) async {

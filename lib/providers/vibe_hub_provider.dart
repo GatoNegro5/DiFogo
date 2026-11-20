@@ -452,6 +452,69 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     return had;
   }
 
+  /// 3.2.7: la estacion tiene progreso guardado (pista, cola o sonadas).
+  /// Solo lectura: muestra "Reiniciar lista" en el Hub.
+  bool hasStationProgress(String station) {
+    final GenreSession? s = _stationsDoc.stations[station];
+    if (s != null &&
+        (s.currentTrackPath != null ||
+            s.remainingQueuePaths.isNotEmpty ||
+            s.playedPaths.isNotEmpty)) {
+      return true;
+    }
+    return _lists.has(persistentGenreKey(station));
+  }
+
+  /// 3.2.7: "Reiniciar lista" de [station]: borra solo su lista
+  /// (`genre:<estacion>`) y su progreso; conserva los vistos. Si suena en
+  /// Live DJ (o [replay] es true) vuelve a sonar desde cero con un orden
+  /// nuevo; si no, el siguiente Play arma el orden nuevo.
+  Future<bool> resetStationList(String station, {bool? replay}) async {
+    if (state.busy) return false;
+    final PersistentLists lists = _lists;
+    await lists.store.load();
+    final GenreSessionDoc d = _stationsDoc;
+    final String key = persistentGenreKey(station);
+    final GenreSession? s = d.stations[station];
+    bool live = false;
+    if (s != null && d.active == station && _stationTracked(station)) {
+      final String? c = _live().current;
+      if (c != null) {
+        final String k = stationPathKey(c);
+        live =
+            (s.currentTrackPath != null &&
+                stationPathKey(s.currentTrackPath!) == k) ||
+            s.remainingQueuePaths.any((String p) => stationPathKey(p) == k);
+      }
+    }
+    final bool had = lists.reset(key) || s != null;
+    for (final String k in d.stations.keys.toList()) {
+      if (persistentGenreKey(k) != key) continue;
+      d.stations[k] = GenreSession(
+        subGenresChecked: d.stations[k]!.subGenresChecked,
+      );
+    }
+    final String path = genreSessionsPath();
+    _write = _write.catchError((_) {}).then((_) async {
+      await d.write(path);
+      await lists.flush();
+    });
+    await _write;
+    state = state.copyWith(
+      message: '${stationTitleOf(station)}: lista reiniciada',
+    );
+    if (!(replay ?? live)) return had;
+    final List<String> subs = s != null && s.subGenresChecked.isNotEmpty
+        ? s.subGenresChecked
+        : <String>[if (station.startsWith('g:')) station.substring(2)];
+    // Sin estacion activa playStation no congela lo que suena encima del
+    // reinicio (freezeActive).
+    if (d.active == station) d.active = null;
+    final int n = await playStation(station, subs);
+    if (n == 0 && d.active == null) d.active = station;
+    return true;
+  }
+
   @visibleForTesting
   Future<void> get stationsSettled => _write;
 
