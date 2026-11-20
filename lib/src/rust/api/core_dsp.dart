@@ -6,9 +6,9 @@
 import '../frb_generated.dart';
 import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
 
-// These functions are ignored because they are not marked as `pub`: `acf_at`, `analysis_current`, `analyze_and_tag`, `analyze_file`, `analyze_stream`, `ape_footer_len`, `ape_suffix_len`, `apply_double_guard`, `apply_low_priority`, `audio_byte_range`, `audio_mastered`, `auto_detect_body`, `average_from_audio`, `average_kbps`, `bitrate_at_most`, `blocking_decode_errors`, `cancel_now`, `cap_kbps`, `comb_score`, `complex_odf_hop`, `complex_odf`, `consider_peak`, `count_silent_edge_errors`, `create`, `cut_env`, `dbg_err`, `decode_channels`, `decode_errors_tolerable`, `decode_frames_ex`, `decode_frames`, `decode_tbpm_body`, `decoded_duration_ms`, `detect_bpm`, `detect_validated`, `discard_partial`, `eco_spawn`, `edge_silence_ms`, `edge_true_peak`, `edges_from`, `ellis_beats`, `encode_master_span`, `encode_master_stream`, `encode_mastered_mp3`, `encode_plain_mp3`, `encode_span`, `encoder_delay_padding`, `enter`, `enter`, `entry_tbpm`, `estimate_tempo_envs`, `estimate_tempo_in`, `estimate_tempo_track`, `ext_any`, `ext_text`, `finish`, `finish`, `finish`, `finish`, `finish`, `fix_bpm_range`, `flag_on`, `flush`, `fold_bpm_band`, `fold_display_bpm`, `format_tbpm`, `forward`, `gain_for`, `gmx_key_ok`, `grid_pass`, `guard_double_time`, `headless_master_folder`, `id3v2_prefix_len`, `integrated_lufs`, `interp_peak`, `inverse`, `is_mastered`, `is_mp3`, `k_one`, `k_stages`, `k_weight`, `kar_duty_pause_ms`, `kar_session_builder`, `kar_stream_core`, `kar_stream_with`, `karaoke_backend`, `karaoke_separate_vocals`, `kbps_exact`, `kbps_of_audio`, `lag_matching_prior`, `lame_bitrate`, `lame_player_skip`, `lame_probe_prefix`, `lame_scan`, `legacy_brand`, `limit_worker_threads`, `lufs_encode_decision`, `lufs_from_blocks`, `lufs_of`, `master_cancel_flag`, `master_rewrite_core`, `master_worker_cap`, `measure_path_grid_scoped`, `measure_path_grid`, `measure_stream`, `measure_tempo_grid`, `median_index`, `mpeg_bitrate_kbps`, `ms_to_samples`, `near_bpm`, `new_no_upsample`, `new`, `new`, `new`, `new`, `new`, `new`, `new`, `new`, `num_from`, `odf_stft_hop`, `on_worker_thread`, `onset_envelope`, `open_format`, `open`, `opt_i32`, `parabolic_lag`, `parse_tbpm_text`, `past`, `pcm_lufs`, `plan_span`, `priority_label`, `priority_slot`, `process`, `push_window`, `push`, `push`, `push`, `push`, `push`, `rayleigh_weight`, `read_audio`, `read_lame_delay_padding`, `rec_stream`, `reconcile_tbpm`, `refresh_analysis_tags`, `render_limited_span`, `render_stream`, `resolve_bpm`, `restore_priority`, `rewrite_from_tags`, `round_up_mpeg_kbps`, `run_on_master_worker`, `run`, `set_ext`, `skip`, `song_timeout`, `stamp_grid`, `store_priority_label`, `stored_bpm`, `stream_encode`, `stream_measure`, `syncsafe_u32`, `tbpm_in_id3`, `tempo_viterbi`, `tick`, `to_mono`, `try_lossless_repair`, `tune_limited_pcm`, `unbiased_acf`, `utf16_units`, `vbr_header_bytes`, `verify_measured`, `vocal_sample`, `vocal_wav_header`, `write_measured_duration`, `xing_encoder_tag`, `xing_or_vbri_bytes`, `xing_tag_delay_padding`
+// These functions are ignored because they are not marked as `pub`: `acf_at`, `analysis_current`, `analyze_and_tag`, `analyze_file`, `analyze_stream`, `ape_footer_len`, `ape_suffix_len`, `apply_double_guard`, `apply_low_priority`, `audio_byte_range`, `audio_mastered`, `auto_detect_body`, `average_from_audio`, `average_kbps`, `bitrate_at_most`, `blocking_decode_errors`, `cancel_now`, `cap_kbps`, `comb_score`, `complex_odf_hop`, `complex_odf`, `consider_peak`, `count_silent_edge_errors`, `create`, `cut_env`, `dbg_err`, `decode_channels`, `decode_errors_tolerable`, `decode_frames_ex`, `decode_frames`, `decode_tbpm_body`, `decoded_duration_ms`, `detect_bpm`, `detect_validated`, `discard_partial`, `dna_count_onsets`, `dna_from_mono`, `dna_unit`, `eco_spawn`, `edge_silence_ms`, `edge_true_peak`, `edges_from`, `ellis_beats`, `encode_master_span`, `encode_master_stream`, `encode_mastered_mp3`, `encode_plain_mp3`, `encode_span`, `encoder_delay_padding`, `enter`, `enter`, `entry_tbpm`, `estimate_tempo_envs`, `estimate_tempo_in`, `estimate_tempo_track`, `ext_any`, `ext_text`, `finish`, `finish`, `finish`, `finish`, `finish`, `fix_bpm_range`, `flag_on`, `flush`, `fold_bpm_band`, `fold_display_bpm`, `format_tbpm`, `forward`, `gain_for`, `gmx_key_ok`, `grid_pass`, `guard_double_time`, `headless_master_folder`, `id3v2_prefix_len`, `integrated_lufs`, `interp_peak`, `inverse`, `is_mastered`, `is_mp3`, `k_one`, `k_stages`, `k_weight`, `kar_duty_pause_ms`, `kar_session_builder`, `kar_stream_core`, `kar_stream_with`, `karaoke_backend`, `karaoke_separate_vocals`, `kbps_exact`, `kbps_of_audio`, `lag_matching_prior`, `lame_bitrate`, `lame_player_skip`, `lame_probe_prefix`, `lame_scan`, `legacy_brand`, `limit_worker_threads`, `lufs_encode_decision`, `lufs_from_blocks`, `lufs_of`, `master_cancel_flag`, `master_rewrite_core`, `master_worker_cap`, `measure_path_grid_scoped`, `measure_path_grid`, `measure_stream`, `measure_tempo_grid`, `median_index`, `mpeg_bitrate_kbps`, `ms_to_samples`, `near_bpm`, `new_no_upsample`, `new`, `new`, `new`, `new`, `new`, `new`, `new`, `new`, `num_from`, `odf_stft_hop`, `on_worker_thread`, `onset_envelope`, `open_format`, `open`, `opt_i32`, `parabolic_lag`, `parse_tbpm_text`, `past`, `pcm_lufs`, `plan_span`, `priority_label`, `priority_slot`, `process`, `push_window`, `push`, `push`, `push`, `push`, `push`, `rayleigh_weight`, `read_audio`, `read_lame_delay_padding`, `rec_stream`, `reconcile_tbpm`, `refresh_analysis_tags`, `render_limited_span`, `render_stream`, `resolve_bpm`, `restore_priority`, `rewrite_from_tags`, `round_up_mpeg_kbps`, `run_on_master_worker`, `run`, `set_ext`, `skip`, `song_timeout`, `stamp_grid`, `store_priority_label`, `stored_bpm`, `stream_encode`, `stream_measure`, `syncsafe_u32`, `tbpm_in_id3`, `tempo_viterbi`, `tick`, `to_mono`, `try_lossless_repair`, `tune_limited_pcm`, `unbiased_acf`, `utf16_units`, `vbr_header_bytes`, `verify_measured`, `vocal_sample`, `vocal_wav_header`, `write_measured_duration`, `xing_encoder_tag`, `xing_or_vbri_bytes`, `xing_tag_delay_padding`
 // These types are ignored because they are neither used by any `pub` functions nor (for structs and enums) marked `#[frb(unignore)]`: `Analysis`, `AudioTake`, `Biquad`, `CancelWatch`, `Decoded`, `EcoThreads`, `EncodeTimes`, `GaplessTag`, `GridFeed`, `KAcc`, `KChan`, `KStft`, `LookLim`, `Mp3Batch`, `Mp3Sink`, `OdfStream`, `PriorityGuard`, `RecHandle`, `Resampler`, `SpanPlan`, `StoredBpm`, `StreamAnalysis`, `StreamMeasure`, `VocalWav`
-// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `create`, `drop`, `drop`, `drop`, `join`
+// These function are ignored because they are on traits that is not defined in current crate (put an empty `#[frb]` on it to unignore): `clone`, `clone`, `create`, `drop`, `drop`, `drop`, `eq`, `eq`, `fmt`, `fmt`, `join`
 // These functions are ignored (category: IgnoreBecauseOwnerTyShouldIgnore): `put`, `put`
 
 /// Decodifica un tramo a PCM mono s16le a `target_rate` Hz (EQ adaptativa).
@@ -228,6 +228,16 @@ Future<bool> karaokeSeparateWith({
   outputPath: outputPath,
   vocalsOutPath: vocalsOutPath,
 );
+
+/// Lee genero, anio, artista y titulo (ID3). Nunca falla: un archivo sin
+/// etiqueta, inexistente o ilegible devuelve campos vacios y anio 0.
+Future<TrackMeta> readTrackMeta({required String inputPath}) =>
+    RustLib.instance.api.crateApiCoreDspReadTrackMeta(inputPath: inputPath);
+
+/// Decodifica ~30 s desde el 30 % de la pista (desde 0 si dura menos de
+/// 60 s) y calcula su ADN. Solo lectura. Nunca entra en panico.
+Future<TrackDna> trackDna({required String inputPath}) =>
+    RustLib.instance.api.crateApiCoreDspTrackDna(inputPath: inputPath);
 
 abstract class RenderSink {
   Future<void> put({required double l, required double r});
@@ -452,4 +462,84 @@ class MasterTags {
           leadMs == other.leadMs &&
           tailMs == other.tailMs &&
           bpm == other.bpm;
+}
+
+/// ADN acustico de un tramo. Todas las metricas van de 0 a 1.
+/// `ok` es falso si no se pudo decodificar o el tramo es demasiado corto.
+class TrackDna {
+  final bool ok;
+
+  /// RMS normalizado: -40 dBFS -> 0, -6 dBFS -> 1.
+  final double energy;
+
+  /// Energia espectral bajo 150 Hz / energia total (sin DC).
+  final double bassRatio;
+
+  /// Centroide espectral en escala log: 100 Hz -> 0, 8 kHz -> 1.
+  final double brightness;
+
+  /// Onsets por segundo / 8, recortado a 1.
+  final double beatDensity;
+
+  const TrackDna({
+    required this.ok,
+    required this.energy,
+    required this.bassRatio,
+    required this.brightness,
+    required this.beatDensity,
+  });
+
+  static Future<TrackDna> default_() =>
+      RustLib.instance.api.crateApiCoreDspTrackDnaDefault();
+
+  @override
+  int get hashCode =>
+      ok.hashCode ^
+      energy.hashCode ^
+      bassRatio.hashCode ^
+      brightness.hashCode ^
+      beatDensity.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrackDna &&
+          runtimeType == other.runtimeType &&
+          ok == other.ok &&
+          energy == other.energy &&
+          bassRatio == other.bassRatio &&
+          brightness == other.brightness &&
+          beatDensity == other.beatDensity;
+}
+
+/// Etiquetas ID3 basicas de una pista. Vacio/0 si faltan o no hay etiqueta.
+class TrackMeta {
+  final String genre;
+  final int year;
+  final String artist;
+  final String title;
+
+  const TrackMeta({
+    required this.genre,
+    required this.year,
+    required this.artist,
+    required this.title,
+  });
+
+  static Future<TrackMeta> default_() =>
+      RustLib.instance.api.crateApiCoreDspTrackMetaDefault();
+
+  @override
+  int get hashCode =>
+      genre.hashCode ^ year.hashCode ^ artist.hashCode ^ title.hashCode;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is TrackMeta &&
+          runtimeType == other.runtimeType &&
+          genre == other.genre &&
+          year == other.year &&
+          artist == other.artist &&
+          title == other.title;
 }

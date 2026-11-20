@@ -38,7 +38,7 @@ flutter_rust_bridge::frb_generated_boilerplate!(
     default_rust_auto_opaque = RustAutoOpaqueMoi,
 );
 pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_VERSION: &str = "2.12.0";
-pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = 1966120025;
+pub(crate) const FLUTTER_RUST_BRIDGE_CODEGEN_CONTENT_HASH: i32 = -2084344161;
 
 // Section: executor
 
@@ -1093,6 +1093,40 @@ fn wire__crate__api__core_dsp__read_master_tags_impl(
         },
     )
 }
+fn wire__crate__api__core_dsp__read_track_meta_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "read_track_meta",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_input_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Result::<_, ()>::Ok(crate::api::core_dsp::read_track_meta(api_input_path))?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
 fn wire__crate__api__core_dsp__rewrite_tlen_impl(
     port_: flutter_rust_bridge::for_generated::MessagePort,
     ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
@@ -1225,6 +1259,105 @@ fn wire__crate__api__core_dsp__stop_master_recording_impl(
             move |context| {
                 transform_result_sse::<_, String>((move || {
                     let output_ok = crate::api::core_dsp::stop_master_recording()?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__core_dsp__track_dna_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "track_dna",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            let api_input_path = <String>::sse_decode(&mut deserializer);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Result::<_, ()>::Ok(crate::api::core_dsp::track_dna(api_input_path))?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__core_dsp__track_dna_default_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "track_dna_default",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok = Result::<_, ()>::Ok(crate::api::core_dsp::TrackDna::default())?;
+                    Ok(output_ok)
+                })())
+            }
+        },
+    )
+}
+fn wire__crate__api__core_dsp__track_meta_default_impl(
+    port_: flutter_rust_bridge::for_generated::MessagePort,
+    ptr_: flutter_rust_bridge::for_generated::PlatformGeneralizedUint8ListPtr,
+    rust_vec_len_: i32,
+    data_len_: i32,
+) {
+    FLUTTER_RUST_BRIDGE_HANDLER.wrap_normal::<flutter_rust_bridge::for_generated::SseCodec, _, _>(
+        flutter_rust_bridge::for_generated::TaskInfo {
+            debug_name: "track_meta_default",
+            port: Some(port_),
+            mode: flutter_rust_bridge::for_generated::FfiCallMode::Normal,
+        },
+        move || {
+            let message = unsafe {
+                flutter_rust_bridge::for_generated::Dart2RustMessageSse::from_wire(
+                    ptr_,
+                    rust_vec_len_,
+                    data_len_,
+                )
+            };
+            let mut deserializer =
+                flutter_rust_bridge::for_generated::SseDeserializer::new(message);
+            deserializer.end();
+            move |context| {
+                transform_result_sse::<_, ()>((move || {
+                    let output_ok =
+                        Result::<_, ()>::Ok(crate::api::core_dsp::TrackMeta::default())?;
                     Ok(output_ok)
                 })())
             }
@@ -1463,6 +1596,40 @@ impl SseDecode for Option<u64> {
     }
 }
 
+impl SseDecode for crate::api::core_dsp::TrackDna {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_ok = <bool>::sse_decode(deserializer);
+        let mut var_energy = <f64>::sse_decode(deserializer);
+        let mut var_bassRatio = <f64>::sse_decode(deserializer);
+        let mut var_brightness = <f64>::sse_decode(deserializer);
+        let mut var_beatDensity = <f64>::sse_decode(deserializer);
+        return crate::api::core_dsp::TrackDna {
+            ok: var_ok,
+            energy: var_energy,
+            bass_ratio: var_bassRatio,
+            brightness: var_brightness,
+            beat_density: var_beatDensity,
+        };
+    }
+}
+
+impl SseDecode for crate::api::core_dsp::TrackMeta {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
+        let mut var_genre = <String>::sse_decode(deserializer);
+        let mut var_year = <i32>::sse_decode(deserializer);
+        let mut var_artist = <String>::sse_decode(deserializer);
+        let mut var_title = <String>::sse_decode(deserializer);
+        return crate::api::core_dsp::TrackMeta {
+            genre: var_genre,
+            year: var_year,
+            artist: var_artist,
+            title: var_title,
+        };
+    }
+}
+
 impl SseDecode for u32 {
     // Codec=Sse (Serialization based), see doc to use other codecs
     fn sse_decode(deserializer: &mut flutter_rust_bridge::for_generated::SseDeserializer) -> Self {
@@ -1571,21 +1738,27 @@ fn pde_ffi_dispatcher_primary_impl(
         27 => wire__crate__api__core_dsp__read_audio_genre_impl(port, ptr, rust_vec_len, data_len),
         28 => wire__crate__api__core_dsp__read_gmx_marks_impl(port, ptr, rust_vec_len, data_len),
         29 => wire__crate__api__core_dsp__read_master_tags_impl(port, ptr, rust_vec_len, data_len),
-        30 => wire__crate__api__core_dsp__rewrite_tlen_impl(port, ptr, rust_vec_len, data_len),
-        31 => wire__crate__api__core_dsp__set_gmx_mark_impl(port, ptr, rust_vec_len, data_len),
-        32 => wire__crate__api__core_dsp__start_master_recording_impl(
+        30 => wire__crate__api__core_dsp__read_track_meta_impl(port, ptr, rust_vec_len, data_len),
+        31 => wire__crate__api__core_dsp__rewrite_tlen_impl(port, ptr, rust_vec_len, data_len),
+        32 => wire__crate__api__core_dsp__set_gmx_mark_impl(port, ptr, rust_vec_len, data_len),
+        33 => wire__crate__api__core_dsp__start_master_recording_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        33 => wire__crate__api__core_dsp__stop_master_recording_impl(
+        34 => wire__crate__api__core_dsp__stop_master_recording_impl(
             port,
             ptr,
             rust_vec_len,
             data_len,
         ),
-        34 => wire__crate__api__whisper_lrc__transcribe_vocals_wav_impl(
+        35 => wire__crate__api__core_dsp__track_dna_impl(port, ptr, rust_vec_len, data_len),
+        36 => wire__crate__api__core_dsp__track_dna_default_impl(port, ptr, rust_vec_len, data_len),
+        37 => {
+            wire__crate__api__core_dsp__track_meta_default_impl(port, ptr, rust_vec_len, data_len)
+        }
+        38 => wire__crate__api__whisper_lrc__transcribe_vocals_wav_impl(
             port,
             ptr,
             rust_vec_len,
@@ -1720,6 +1893,53 @@ impl flutter_rust_bridge::IntoIntoDart<crate::api::core_dsp::MasterTags>
     for crate::api::core_dsp::MasterTags
 {
     fn into_into_dart(self) -> crate::api::core_dsp::MasterTags {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::core_dsp::TrackDna {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.ok.into_into_dart().into_dart(),
+            self.energy.into_into_dart().into_dart(),
+            self.bass_ratio.into_into_dart().into_dart(),
+            self.brightness.into_into_dart().into_dart(),
+            self.beat_density.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::core_dsp::TrackDna
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::core_dsp::TrackDna>
+    for crate::api::core_dsp::TrackDna
+{
+    fn into_into_dart(self) -> crate::api::core_dsp::TrackDna {
+        self
+    }
+}
+// Codec=Dco (DartCObject based), see doc to use other codecs
+impl flutter_rust_bridge::IntoDart for crate::api::core_dsp::TrackMeta {
+    fn into_dart(self) -> flutter_rust_bridge::for_generated::DartAbi {
+        [
+            self.genre.into_into_dart().into_dart(),
+            self.year.into_into_dart().into_dart(),
+            self.artist.into_into_dart().into_dart(),
+            self.title.into_into_dart().into_dart(),
+        ]
+        .into_dart()
+    }
+}
+impl flutter_rust_bridge::for_generated::IntoDartExceptPrimitive
+    for crate::api::core_dsp::TrackMeta
+{
+}
+impl flutter_rust_bridge::IntoIntoDart<crate::api::core_dsp::TrackMeta>
+    for crate::api::core_dsp::TrackMeta
+{
+    fn into_into_dart(self) -> crate::api::core_dsp::TrackMeta {
         self
     }
 }
@@ -1880,6 +2100,27 @@ impl SseEncode for Option<u64> {
         if let Some(value) = self {
             <u64>::sse_encode(value, serializer);
         }
+    }
+}
+
+impl SseEncode for crate::api::core_dsp::TrackDna {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <bool>::sse_encode(self.ok, serializer);
+        <f64>::sse_encode(self.energy, serializer);
+        <f64>::sse_encode(self.bass_ratio, serializer);
+        <f64>::sse_encode(self.brightness, serializer);
+        <f64>::sse_encode(self.beat_density, serializer);
+    }
+}
+
+impl SseEncode for crate::api::core_dsp::TrackMeta {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    fn sse_encode(self, serializer: &mut flutter_rust_bridge::for_generated::SseSerializer) {
+        <String>::sse_encode(self.genre, serializer);
+        <i32>::sse_encode(self.year, serializer);
+        <String>::sse_encode(self.artist, serializer);
+        <String>::sse_encode(self.title, serializer);
     }
 }
 

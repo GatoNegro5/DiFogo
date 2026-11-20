@@ -68,7 +68,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => 1966120025;
+  int get rustContentHash => -2084344161;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -179,6 +179,8 @@ abstract class RustLibApi extends BaseApi {
 
   Future<MasterTags> crateApiCoreDspReadMasterTags({required String inputPath});
 
+  Future<TrackMeta> crateApiCoreDspReadTrackMeta({required String inputPath});
+
   Future<String> crateApiCoreDspRewriteTlen({required String inputPath});
 
   Future<bool> crateApiCoreDspSetGmxMark({
@@ -193,6 +195,12 @@ abstract class RustLibApi extends BaseApi {
   });
 
   Future<void> crateApiCoreDspStopMasterRecording();
+
+  Future<TrackDna> crateApiCoreDspTrackDna({required String inputPath});
+
+  Future<TrackDna> crateApiCoreDspTrackDnaDefault();
+
+  Future<TrackMeta> crateApiCoreDspTrackMetaDefault();
 
   Future<WhisperTranscript> crateApiWhisperLrcTranscribeVocalsWav({
     required String wavPath,
@@ -1124,7 +1132,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<String> crateApiCoreDspRewriteTlen({required String inputPath}) {
+  Future<TrackMeta> crateApiCoreDspReadTrackMeta({required String inputPath}) {
     return handler.executeNormal(
       NormalTask(
         callFfi: (port_) {
@@ -1134,6 +1142,37 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             generalizedFrbRustBinding,
             serializer,
             funcId: 30,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_track_meta,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiCoreDspReadTrackMetaConstMeta,
+        argValues: [inputPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCoreDspReadTrackMetaConstMeta =>
+      const TaskConstMeta(
+        debugName: "read_track_meta",
+        argNames: ["inputPath"],
+      );
+
+  @override
+  Future<String> crateApiCoreDspRewriteTlen({required String inputPath}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(inputPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 31,
             port: port_,
           );
         },
@@ -1167,7 +1206,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 31,
+            funcId: 32,
             port: port_,
           );
         },
@@ -1201,7 +1240,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 32,
+            funcId: 33,
             port: port_,
           );
         },
@@ -1231,7 +1270,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 33,
+            funcId: 34,
             port: port_,
           );
         },
@@ -1250,6 +1289,88 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       const TaskConstMeta(debugName: "stop_master_recording", argNames: []);
 
   @override
+  Future<TrackDna> crateApiCoreDspTrackDna({required String inputPath}) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_String(inputPath, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 35,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_track_dna,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiCoreDspTrackDnaConstMeta,
+        argValues: [inputPath],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCoreDspTrackDnaConstMeta =>
+      const TaskConstMeta(debugName: "track_dna", argNames: ["inputPath"]);
+
+  @override
+  Future<TrackDna> crateApiCoreDspTrackDnaDefault() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 36,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_track_dna,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiCoreDspTrackDnaDefaultConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCoreDspTrackDnaDefaultConstMeta =>
+      const TaskConstMeta(debugName: "track_dna_default", argNames: []);
+
+  @override
+  Future<TrackMeta> crateApiCoreDspTrackMetaDefault() {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 37,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_track_meta,
+          decodeErrorData: null,
+        ),
+        constMeta: kCrateApiCoreDspTrackMetaDefaultConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCoreDspTrackMetaDefaultConstMeta =>
+      const TaskConstMeta(debugName: "track_meta_default", argNames: []);
+
+  @override
   Future<WhisperTranscript> crateApiWhisperLrcTranscribeVocalsWav({
     required String wavPath,
     required String modelPath,
@@ -1265,7 +1386,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 34,
+            funcId: 38,
             port: port_,
           );
         },
@@ -1428,6 +1549,35 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   BigInt? dco_decode_opt_box_autoadd_u_64(dynamic raw) {
     // Codec=Dco (DartCObject based), see doc to use other codecs
     return raw == null ? null : dco_decode_box_autoadd_u_64(raw);
+  }
+
+  @protected
+  TrackDna dco_decode_track_dna(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 5)
+      throw Exception('unexpected arr length: expect 5 but see ${arr.length}');
+    return TrackDna(
+      ok: dco_decode_bool(arr[0]),
+      energy: dco_decode_f_64(arr[1]),
+      bassRatio: dco_decode_f_64(arr[2]),
+      brightness: dco_decode_f_64(arr[3]),
+      beatDensity: dco_decode_f_64(arr[4]),
+    );
+  }
+
+  @protected
+  TrackMeta dco_decode_track_meta(dynamic raw) {
+    // Codec=Dco (DartCObject based), see doc to use other codecs
+    final arr = raw as List<dynamic>;
+    if (arr.length != 4)
+      throw Exception('unexpected arr length: expect 4 but see ${arr.length}');
+    return TrackMeta(
+      genre: dco_decode_String(arr[0]),
+      year: dco_decode_i_32(arr[1]),
+      artist: dco_decode_String(arr[2]),
+      title: dco_decode_String(arr[3]),
+    );
   }
 
   @protected
@@ -1646,6 +1796,38 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
   }
 
   @protected
+  TrackDna sse_decode_track_dna(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_ok = sse_decode_bool(deserializer);
+    var var_energy = sse_decode_f_64(deserializer);
+    var var_bassRatio = sse_decode_f_64(deserializer);
+    var var_brightness = sse_decode_f_64(deserializer);
+    var var_beatDensity = sse_decode_f_64(deserializer);
+    return TrackDna(
+      ok: var_ok,
+      energy: var_energy,
+      bassRatio: var_bassRatio,
+      brightness: var_brightness,
+      beatDensity: var_beatDensity,
+    );
+  }
+
+  @protected
+  TrackMeta sse_decode_track_meta(SseDeserializer deserializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    var var_genre = sse_decode_String(deserializer);
+    var var_year = sse_decode_i_32(deserializer);
+    var var_artist = sse_decode_String(deserializer);
+    var var_title = sse_decode_String(deserializer);
+    return TrackMeta(
+      genre: var_genre,
+      year: var_year,
+      artist: var_artist,
+      title: var_title,
+    );
+  }
+
+  @protected
   int sse_decode_u_32(SseDeserializer deserializer) {
     // Codec=Sse (Serialization based), see doc to use other codecs
     return deserializer.buffer.getUint32();
@@ -1814,6 +1996,25 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
     if (self != null) {
       sse_encode_box_autoadd_u_64(self, serializer);
     }
+  }
+
+  @protected
+  void sse_encode_track_dna(TrackDna self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_bool(self.ok, serializer);
+    sse_encode_f_64(self.energy, serializer);
+    sse_encode_f_64(self.bassRatio, serializer);
+    sse_encode_f_64(self.brightness, serializer);
+    sse_encode_f_64(self.beatDensity, serializer);
+  }
+
+  @protected
+  void sse_encode_track_meta(TrackMeta self, SseSerializer serializer) {
+    // Codec=Sse (Serialization based), see doc to use other codecs
+    sse_encode_String(self.genre, serializer);
+    sse_encode_i_32(self.year, serializer);
+    sse_encode_String(self.artist, serializer);
+    sse_encode_String(self.title, serializer);
   }
 
   @protected

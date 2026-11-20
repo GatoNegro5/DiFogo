@@ -73,6 +73,7 @@ class BpmBackfillWorker {
     required this.onBatch,
     this.batchSize = 5,
     this.gap = const Duration(milliseconds: 250),
+    this.fillDna = fillTrackDnaIfStale,
   });
 
   final Future<double> Function(String path) measure;
@@ -81,8 +82,16 @@ class BpmBackfillWorker {
   final int batchSize;
   final Duration gap;
 
+  /// 3.2.4: ADN acustico + tags en `dna[path]` tras el BPM de cada pista
+  /// (null = apagado). Entra al `HeavyWorkGate` solo si falta o cambio.
+  final Future<bool> Function(String path)? fillDna;
+
   final List<String> _pending = <String>[];
   final Set<String> _queued = <String>{};
+  // 3.2.4: pistas solo para ADN (ya tienen BPM) y las ya intentadas.
+  final List<String> _dnaPending = <String>[];
+  final Set<String> _dnaQueued = <String>{};
+  final Set<String> _dnaDone = <String>{};
   // Medida o fallida: no se vuelve a intentar en esta sesion.
   final Set<String> _done = <String>{};
   int _gen = 0;
@@ -101,11 +110,39 @@ class BpmBackfillWorker {
     if (_runningGen != _gen && _pending.isNotEmpty) unawaited(_run(_gen));
   }
 
+  /// 3.2.4: pistas que ya tienen BPM pero quiza no ADN. Van despues de las
+  /// de BPM, con la misma pausa en los cruces y el mismo candado.
+  void enqueueDna(Iterable<String> paths) {
+    if (fillDna == null) return;
+    for (final String p in paths) {
+      if (p.isEmpty || isKaraokeAudioPath(p)) continue;
+      final String k = audioPathKey(p);
+      if (_dnaDone.contains(k) || !_dnaQueued.add(k)) continue;
+      _dnaPending.add(p);
+    }
+    if (_runningGen != _gen && _dnaPending.isNotEmpty) unawaited(_run(_gen));
+  }
+
   void cancel() {
     _gen++;
     _pending.clear();
     _queued.clear();
+    _dnaPending.clear();
+    _dnaQueued.clear();
     _unapplied = 0;
+  }
+
+  Future<void> _dnaStep(String path, int gen) async {
+    final Future<bool> Function(String path)? fill = fillDna;
+    if (fill == null || gen != _gen) return;
+    if (!_dnaDone.add(audioPathKey(path))) return;
+    while (gen == _gen && isPaused()) {
+      await Future<void>.delayed(gap);
+    }
+    if (gen != _gen) return;
+    try {
+      await fill(path);
+    } catch (_) {}
   }
 
   /// Medidas que aun no entraron al orden (para el cambio de cancion).
@@ -118,11 +155,21 @@ class BpmBackfillWorker {
   Future<void> _run(int gen) async {
     _runningGen = gen;
     try {
-      while (gen == _gen && _pending.isNotEmpty) {
+      while (gen == _gen && (_pending.isNotEmpty || _dnaPending.isNotEmpty)) {
         while (gen == _gen && isPaused()) {
           await Future<void>.delayed(gap);
         }
-        if (gen != _gen || _pending.isEmpty) break;
+        if (gen != _gen) break;
+        if (_pending.isEmpty) {
+          if (_dnaPending.isEmpty) break;
+          final String only = _dnaPending.removeAt(0);
+          _dnaQueued.remove(audioPathKey(only));
+          await _dnaStep(only, gen);
+          if (_pending.isNotEmpty || _dnaPending.isNotEmpty) {
+            await Future<void>.delayed(gap);
+          }
+          continue;
+        }
         final String path = _pending.removeAt(0);
         final String key = audioPathKey(path);
         _queued.remove(key);
@@ -149,7 +196,11 @@ class BpmBackfillWorker {
           _unapplied = 0;
           onBatch(n);
         }
-        if (_pending.isNotEmpty) await Future<void>.delayed(gap);
+        await _dnaStep(path, gen);
+        if (gen != _gen) break;
+        if (_pending.isNotEmpty || _dnaPending.isNotEmpty) {
+          await Future<void>.delayed(gap);
+        }
       }
     } finally {
       if (_runningGen == gen) _runningGen = null;
@@ -216,5 +267,63 @@ void stampBackfill(String path, double bpm) {
       dir,
       bpmIndexPreservingKeys(readDjMetadata(dir), <String, double>{path: bpm}),
     );
+  }
+}
+
+/// 3.2.4: cierto si `dna[path]` falta, no tiene metricas o su `mtimeMs` ya
+/// no es el del archivo.
+bool trackDnaNeedsFill(TrackDnaEntry? cur, int mtimeMs) =>
+    cur == null || cur.energy == null || cur.mtimeMs != mtimeMs;
+
+/// 3.2.4: llena `dna[path]` con `read_track_meta` + `track_dna` (Rust, solo
+/// lectura del audio) si falta o cambio el mtime. Lo barato (stat y cache en
+/// memoria) va fuera del candado; Rust corre en el turno `dna-backfill` del
+/// `HeavyWorkGate` (`track_dna` entra con `PriorityGuard`). Escribe con
+/// [saveTrackDna]: mezcla (el `lang` de Whisper se conserva) y, en la
+/// biblioteca protegida, solo en el espejo. Nunca lanza.
+Future<bool> fillTrackDnaIfStale(
+  String path, {
+  Future<rust_dsp.TrackMeta> Function(String path)? readMeta,
+  Future<rust_dsp.TrackDna> Function(String path)? measure,
+}) async {
+  if (path.isEmpty || isKaraokeAudioPath(path)) return false;
+  try {
+    final FileStat st = await File(path).stat();
+    if (st.type != FileSystemEntityType.file) return false;
+    final int mtime = st.modified.millisecondsSinceEpoch;
+    await warmTrackDnaDir(File(path).parent.path);
+    if (!trackDnaNeedsFill(peekTrackDna(path), mtime)) return false;
+    final Future<rust_dsp.TrackMeta> Function(String) rm =
+        readMeta ?? (String p) => rust_dsp.readTrackMeta(inputPath: p);
+    final Future<rust_dsp.TrackDna> Function(String) ms =
+        measure ?? (String p) => rust_dsp.trackDna(inputPath: p);
+    final (rust_dsp.TrackMeta, rust_dsp.TrackDna) got = await HeavyWorkGate.run(
+      'dna-backfill',
+      () async {
+        final rust_dsp.TrackMeta meta = await rm(path);
+        final rust_dsp.TrackDna dna = await ms(
+          path,
+        ).timeout(const Duration(seconds: 45));
+        return (meta, dna);
+      },
+    );
+    final rust_dsp.TrackMeta meta = got.$1;
+    final rust_dsp.TrackDna dna = got.$2;
+    final String genre = meta.genre.trim();
+    return await saveTrackDna(
+      path,
+      TrackDnaEntry(
+        energy: dna.ok ? dna.energy : null,
+        bassRatio: dna.ok ? dna.bassRatio : null,
+        brightness: dna.ok ? dna.brightness : null,
+        beatDensity: dna.ok ? dna.beatDensity : null,
+        genre: genre.isEmpty ? null : genre,
+        year: meta.year > 0 ? meta.year : null,
+        // Sin metricas no se sella: otra sesion lo vuelve a intentar.
+        mtimeMs: dna.ok ? mtime : null,
+      ),
+    );
+  } catch (_) {
+    return false;
   }
 }

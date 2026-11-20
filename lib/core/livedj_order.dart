@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'audio_path.dart';
+import 'gatomix_store.dart' show peekTrackDna, TrackDnaEntry;
 import 'genre_stations.dart' show stationArtistKey, trackBlockKey;
 import 'queue_bpm.dart';
 import 'track_name_clean.dart';
@@ -67,6 +68,75 @@ const double kHarmonicSameArtistPenalty = 30;
 /// 3.2.1: sub-genero/idioma de una pista para `subOf` (ver [trackBlockKey]).
 String? harmonicBlockOf(String path) => trackBlockKey(path);
 
+/// 3.2.4: ADN acustico de una pista para `dnaOf` (metricas 0-1 e idioma).
+class HarmonicDna {
+  const HarmonicDna({
+    this.energy,
+    this.brightness,
+    this.beatDensity,
+    this.lang,
+  });
+  final double? energy;
+  final double? brightness;
+  final double? beatDensity;
+  final String? lang;
+}
+
+/// 3.2.4: tope suave del ADN (+-20): BPM, ola y micro-bloques siguen mandando.
+const double kHarmonicDnaCap = 20;
+
+/// 3.2.4: `dnaOf` desde la cache en memoria `dna[path]` (sin disco).
+HarmonicDna? harmonicDnaOf(String path) {
+  final TrackDnaEntry? d = peekTrackDna(path);
+  if (d == null) return null;
+  if (d.energy == null &&
+      d.brightness == null &&
+      d.beatDensity == null &&
+      d.lang == null) {
+    return null;
+  }
+  return HarmonicDna(
+    energy: d.energy,
+    brightness: d.brightness,
+    beatDensity: d.beatDensity,
+    lang: d.lang,
+  );
+}
+
+/// 3.2.4: cercania de energia (7), brillo (4) y densidad (4), mismo idioma
+/// (+5, distinto -3) y castigo a saltos de energia > 0,35 (hasta -10).
+/// Recortado a +-[kHarmonicDnaCap]. 0 si falta el ADN de alguna.
+double harmonicDnaScore(HarmonicDna? a, HarmonicDna? b) {
+  if (a == null || b == null) return 0;
+  double s = 0;
+  s += _dnaNear(a.energy, b.energy, 7);
+  s += _dnaNear(a.brightness, b.brightness, 4);
+  s += _dnaNear(a.beatDensity, b.beatDensity, 4);
+  final String? la = a.lang;
+  final String? lb = b.lang;
+  if (la != null && la.isNotEmpty && lb != null && lb.isNotEmpty) {
+    s += la == lb ? 5 : -3;
+  }
+  final double? ea = a.energy;
+  final double? eb = b.energy;
+  if (ea != null && eb != null && ea.isFinite && eb.isFinite) {
+    final double jump = (ea - eb).abs();
+    if (jump > 0.35) s -= ((jump - 0.35) * 25).clamp(0.0, 10.0);
+  }
+  return s.clamp(-kHarmonicDnaCap, kHarmonicDnaCap).toDouble();
+}
+
+double _dnaNear(double? x, double? y, double w) {
+  if (x == null || y == null || !x.isFinite || !y.isFinite) return 0;
+  return w * (1 - (x - y).abs() / 0.2).clamp(-1.0, 1.0);
+}
+
+String _dnaBucket(HarmonicDna? d) {
+  final double? e = d?.energy;
+  if (e == null || !e.isFinite) return '';
+  return (e * 3).floor().clamp(0, 2).toString();
+}
+
 /// Bono de bloque + penalizacion de artista repetido entre [current] y [p].
 /// [run] = pistas seguidas del bloque de [current] (incluida).
 double harmonicContinuityScore(
@@ -126,6 +196,8 @@ String shufflePairKey(String a, String b, {bool? foldCase}) =>
 /// Sin `_K`, sin duplicados, y nunca [playing].
 /// 3.2.1: con [subOf] arma micro-bloques de sub-genero/idioma (ver
 /// [kHarmonicBlockBonus]); sin [subOf] solo suma la penalizacion de artista.
+/// 3.2.4: con [dnaOf] suma [harmonicDnaScore] (+-20); sin [dnaOf] el orden
+/// es identico al de 3.2.3.
 class HarmonicOrder {
   final List<String> tracks;
   final bool waveUp;
@@ -148,6 +220,7 @@ HarmonicOrder buildHarmonicShuffle(
   bool startWaveUp = true,
   int startInWave = 0,
   String? Function(String path)? subOf,
+  HarmonicDna? Function(String path)? dnaOf,
 }) {
   final Random random = rng ?? Random();
   final List<String> uniq = <String>[];
@@ -233,6 +306,7 @@ HarmonicOrder buildHarmonicShuffle(
       inWave: inWave,
       subOf: subOf,
       run: run,
+      dnaOf: dnaOf,
     );
   }
 
@@ -270,6 +344,7 @@ HarmonicOrder buildHarmonicShuffle(
       foldCase,
       subOf: subOf,
       run: run,
+      dnaOf: dnaOf,
     );
     known.remove(pick);
     order.add(pick);
@@ -312,8 +387,10 @@ String _pickTop3(
   bool? foldCase, {
   String? Function(String path)? subOf,
   int run = 1,
+  HarmonicDna? Function(String path)? dnaOf,
 }) {
   final String? ka = keyOf?.call(current);
+  final HarmonicDna? da = dnaOf?.call(current);
   final List<(String, double)> scored = <(String, double)>[];
   for (final String p in cands) {
     final double bpm = bpmOf(p);
@@ -334,6 +411,7 @@ String _pickTop3(
     final int? age = recentAge[audioPathKey(p, foldCase: foldCase)];
     if (age != null && age >= 1 && age <= 8) score -= (9 - age) * 22;
     score += harmonicContinuityScore(current, p, subOf: subOf, run: run);
+    if (dnaOf != null) score += harmonicDnaScore(da, dnaOf(p));
     scored.add((p, score));
   }
   scored.sort((a, b) => b.$2.compareTo(a.$2));
@@ -361,6 +439,8 @@ class _Tr {
   // 3.2.1: bloque (sub-genero/idioma) y artista, calculados una vez.
   final String? blk;
   final String artist;
+  // 3.2.4: ADN (dnaOf) calculado una vez.
+  final HarmonicDna? dna;
   const _Tr(
     this.path,
     this.bpm,
@@ -369,6 +449,7 @@ class _Tr {
     this.ord, [
     this.blk,
     this.artist = '',
+    this.dna,
   ]);
 }
 
@@ -483,6 +564,7 @@ HarmonicOrder _harmonicRest({
   required int inWave,
   String? Function(String path)? subOf,
   int run = 1,
+  HarmonicDna? Function(String path)? dnaOf,
 }) {
   final List<_Tr> pool = <_Tr>[
     for (var i = 0; i < known.length; i++)
@@ -494,6 +576,7 @@ HarmonicOrder _harmonicRest({
         i,
         subOf?.call(known[i]),
         stationArtistKey(known[i]),
+        dnaOf?.call(known[i]),
       ),
   ];
   final String curId = audioPathKey(currentPath, foldCase: foldCase);
@@ -505,15 +588,19 @@ HarmonicOrder _harmonicRest({
     -1,
     subOf?.call(currentPath),
     stationArtistKey(currentPath),
+    dnaOf?.call(currentPath),
   );
   final Map<String, List<int>> byKey = <String, List<int>>{};
   for (var i = 0; i < pool.length; i++) {
     final String k = pool[i].key ?? '';
     // 3.2.1: con subOf el indice tambien separa por bloque, asi la ventana
     // trae candidatas del mismo sub-genero aunque haya otras mas cercanas.
-    final String g = subOf == null
+    String g = subOf == null
         ? (k.isEmpty ? '' : k)
         : '$k\u0002${pool[i].blk ?? ''}';
+    // 3.2.4: con dnaOf tambien por tramo de energia (3), asi la ventana
+    // trae candidatas de energia parecida aunque haya otras mas cercanas.
+    if (dnaOf != null) g = '$g\u0003${_dnaBucket(pool[i].dna)}';
     byKey.putIfAbsent(g, () => <int>[]).add(i);
   }
   for (final List<int> list in byKey.values) {
@@ -565,6 +652,7 @@ HarmonicOrder _harmonicRest({
     if (cur.artist.isNotEmpty && cur.artist == t.artist) {
       score -= kHarmonicSameArtistPenalty;
     }
+    if (dnaOf != null) score += harmonicDnaScore(cur.dna, t.dna);
     return score;
   }
 
@@ -656,6 +744,7 @@ HarmonicOrder _harmonicRest({
       foldCase,
       subOf: subOf,
       run: run,
+      dnaOf: dnaOf,
     );
   }
 

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math';
 
+import 'gatomix_store.dart' show peekTrackDna, warmTrackDnaFor, TrackDnaEntry;
 import 'session_store.dart';
 
 /// 3.1.61 Estaciones DiFogo (3.1.64: catalogo universal de 7 estaciones con
@@ -909,10 +910,31 @@ class TrackGenre {
 }
 
 /// Tags que ya estan en cache (nunca se decodifica para clasificar).
+/// 3.2.4: [lang] (`es`/`en` de Whisper) desempata Rock/Baladas "Todas".
 class TrackTagHint {
-  const TrackTagHint({this.genre, this.year});
+  const TrackTagHint({this.genre, this.year, this.lang});
   final String? genre;
   final int? year;
+  final String? lang;
+
+  bool get isEmpty =>
+      (genre == null || genre!.trim().isEmpty) &&
+      (year == null || year! <= 0) &&
+      lang != 'es' &&
+      lang != 'en';
+}
+
+/// 3.2.4: [TrackTagHint] desde la cache en memoria `dna[path]` (genero y
+/// anio ID3 del backfill, idioma de Whisper). Nunca lee el disco.
+TrackTagHint? trackTagHintOf(String path) {
+  final TrackDnaEntry? d = peekTrackDna(path);
+  if (d == null) return null;
+  final TrackTagHint h = TrackTagHint(
+    genre: d.genre,
+    year: d.year,
+    lang: d.lang,
+  );
+  return h.isEmpty ? null : h;
 }
 
 class _ArtistRule {
@@ -2009,7 +2031,13 @@ class TrackGenreClassifier {
     if (tg != null && tg.trim().isNotEmpty) {
       final MapEntry<String, String>? m = stationSubOf(tg);
       if (m != null) {
-        final TrackGenre g = TrackGenre(m.key, m.value, 1);
+        final TrackGenre g = TrackGenre(
+          m.key,
+          _saysLanguage(<String>[tg])
+              ? m.value
+              : _subForLang(m.key, m.value, tags?.lang),
+          1,
+        );
         return _is80s(tags?.year) ? _to80s(g) : g;
       }
     }
@@ -2032,7 +2060,14 @@ class TrackGenreClassifier {
       if (m != null) {
         // 3.1.70: el idioma de las carpetas de arriba (Espanol/Ingles en
         // cualquier nivel) elige la variante de Baladas y Rock Clasico.
-        return TrackGenre(m.key, _subForLanguage(m.key, m.value, dirs), 3);
+        // 3.2.4: si las carpetas no dicen el idioma, el de Whisper desempata.
+        return TrackGenre(
+          m.key,
+          _saysLanguage(dirs)
+              ? _subForLanguage(m.key, m.value, dirs)
+              : _subForLang(m.key, m.value, tags?.lang),
+          3,
+        );
       }
     }
     // Nivel 4: BPM en cache o bucket "Todas" de la estacion activa.
@@ -2043,6 +2078,41 @@ class TrackGenreClassifier {
       return const TrackGenre('fiesta', 'Hits Bailables', 4);
     }
     return const TrackGenre(null, null, 4);
+  }
+
+  /// 3.2.4: sin idioma en carpetas ni en el genero, el de Whisper (`es`/
+  /// `en`) elige la variante de Baladas (Todas o el Espanol por defecto) y
+  /// de Rock (Todas o Rock Clasico). Heavy Metal y Grunge no cambian.
+  static String _subForLang(String station, String sub, String? lang) {
+    if (lang != 'es' && lang != 'en') return sub;
+    final bool en = lang == 'en';
+    if (station == 'baladas' &&
+        (sub == 'Todas' || sub == 'En Inglés' || sub == 'En Español')) {
+      return en ? 'En Inglés' : 'En Español';
+    }
+    if (station == 'rock' &&
+        (sub == 'Todas' ||
+            sub == 'Rock Clásico Español' ||
+            sub == 'Rock Clásico en Inglés')) {
+      return en ? 'Rock Clásico en Inglés' : 'Rock Clásico Español';
+    }
+    return sub;
+  }
+
+  /// 3.2.4: cierto si algun nombre ya dice el idioma (mismas palabras que
+  /// [_subForLanguage]).
+  static bool _saysLanguage(Iterable<String> names) {
+    for (final String d in names) {
+      final String f = stationFold(d);
+      if (f.contains('ingl') ||
+          f.contains('english') ||
+          f.contains('espan') ||
+          f.contains('spanish') ||
+          f.contains('latin')) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static String _subForLanguage(String station, String sub, List<String> dirs) {
@@ -2285,17 +2355,24 @@ class TrackGenreBuckets {
 /// Clasifica [paths] (canciones de carpetas genericas o sueltas en la
 /// raiz) usando el indice: solo las nuevas o cambiadas pasan por la
 /// cascada. Cede el hilo cada 200 pistas para no trabar la UI.
+/// 3.2.4: [tagsOf] (por defecto [trackTagHintOf], cache `dna` en memoria
+/// cargada antes con una lectura async por carpeta) da genero/anio/idioma.
+/// Una entrada del indice de nivel 2-4 se vuelve a clasificar (solo
+/// nombres) si la pista ya trae tags o idioma; sin tags, igual que antes.
 Future<TrackGenreBuckets> classifyTracks(
   List<String> paths, {
   required String root,
   required TrackGenreIndex index,
   Future<int> Function(String path)? mtimeOf,
   double Function(String path)? bpmOf,
+  TrackTagHint? Function(String path)? tagsOf,
 }) async {
   final Future<int> Function(String) mt =
       mtimeOf ??
       (String p) async =>
           (await File(p).stat()).modified.millisecondsSinceEpoch;
+  final TrackTagHint? Function(String) hintOf = tagsOf ?? trackTagHintOf;
+  if (tagsOf == null) await warmTrackDnaFor(paths);
   final TrackGenreBuckets out = TrackGenreBuckets();
   int n = 0;
   for (final String p in paths) {
@@ -2303,11 +2380,28 @@ Future<TrackGenreBuckets> classifyTracks(
     try {
       m = await mt(p);
     } catch (_) {}
+    final TrackTagHint? hint = hintOf(p);
+    final bool hinted = hint != null && !hint.isEmpty;
     TrackGenre? g = index.lookup(p, m);
+    if (g != null && hinted && g.level >= 2) {
+      final TrackGenre fresh = TrackGenreClassifier.classify(
+        p,
+        root: root,
+        tags: hint,
+        bpm: bpmOf == null ? 0 : bpmOf(p),
+      );
+      if (fresh.stationId != g.stationId ||
+          fresh.subGenreId != g.subGenreId ||
+          fresh.level != g.level) {
+        index.put(p, m, fresh);
+      }
+      g = fresh;
+    }
     if (g == null) {
       g = TrackGenreClassifier.classify(
         p,
         root: root,
+        tags: hinted ? hint : null,
         bpm: bpmOf == null ? 0 : bpmOf(p),
       );
       index.put(p, m, g);

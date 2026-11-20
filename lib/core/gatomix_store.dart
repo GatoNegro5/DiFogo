@@ -101,6 +101,10 @@ class GatomixStore {
   /// Cierto si el documento de [dir] ya se leyó (o se escribió) en este proceso.
   static bool holdsDocument(String dir) => _docs.containsKey(dir);
 
+  /// 3.2.4: seccion [key] del documento de [dir] solo si ya esta en
+  /// memoria (null si no). Nunca toca el disco.
+  static dynamic peekSection(String dir, String key) => _docs[dir]?[key];
+
   /// 3.1.72: dentro de la biblioteca protegida el documento vive en el
   /// espejo local; fuera, junto a la carpeta como siempre. 3.1.75: el
   /// espejo nuevo se escribe como `<hash>.difogo.json` en DiFogo. 3.1.81:
@@ -855,14 +859,19 @@ TrackDnaEntry? readTrackDna(String path) {
     kTrackDnaSection,
   );
   final String? slot = _dnaSlot(map, path);
-  return slot == null ? null : TrackDnaEntry.fromJson(map[slot]);
+  final TrackDnaEntry? e = slot == null
+      ? null
+      : TrackDnaEntry.fromJson(map[slot]);
+  _rememberDna(path, e);
+  return e;
 }
 
 /// Mezcla [dna] en `dna[path]` sin borrar lo que ya habia. Una sola edicion
 /// atomica por llamada; en la biblioteca protegida escribe en el espejo.
 Future<bool> saveTrackDna(String path, TrackDnaEntry dna) async {
   if (path.isEmpty || dna.toJson().isEmpty) return false;
-  return GatomixStore.editAsync(File(path).parent.path, (
+  Map<String, dynamic>? merged;
+  final bool ok = await GatomixStore.editAsync(File(path).parent.path, (
     Map<String, dynamic> doc,
   ) {
     final dynamic raw = doc[kTrackDnaSection];
@@ -874,12 +883,77 @@ Future<bool> saveTrackDna(String path, TrackDnaEntry dna) async {
     final TrackDnaEntry prev =
         TrackDnaEntry.fromJson(prevRaw) ?? const TrackDnaEntry();
     final Map<String, dynamic> next = prev.mergedWith(dna).toJson();
+    merged = next;
     if (slot == path && jsonEqual(prevRaw, next)) return false;
     if (slot != null && slot != path) map.remove(slot);
     map[path] = next;
     doc[kTrackDnaSection] = map;
     return true;
   });
+  if (ok && merged != null) _rememberDna(path, TrackDnaEntry.fromJson(merged));
+  return ok;
+}
+
+// 3.2.4: cache en memoria de `dna` por pista (clave `audioPathKey`). La
+// llenan saveTrackDna, readTrackDna y warmTrackDnaDir (una lectura async
+// por carpeta); peekTrackDna nunca toca el disco (seguro en el hilo de UI).
+final Map<String, TrackDnaEntry> _dnaMemory = <String, TrackDnaEntry>{};
+final Set<String> _dnaDirsWarm = <String>{};
+const int _dnaMemoryCap = 60000;
+
+void _rememberDna(String path, TrackDnaEntry? e, {bool keep = false}) {
+  if (e == null || path.isEmpty) return;
+  if (_dnaMemory.length >= _dnaMemoryCap) {
+    _dnaMemory.clear();
+    _dnaDirsWarm.clear();
+  }
+  final String k = audioPathKey(path);
+  if (keep && _dnaMemory.containsKey(k)) return;
+  _dnaMemory[k] = e;
+}
+
+/// ADN de [path] solo desde memoria (null si no se cargo todavia).
+TrackDnaEntry? peekTrackDna(String path) =>
+    path.isEmpty ? null : _dnaMemory[audioPathKey(path)];
+
+/// Carga a memoria la seccion `dna` de [dir] una vez por proceso: del
+/// documento ya leido o con una lectura async del archivo (espejo en la
+/// biblioteca protegida). Solo lectura; no pisa lo que ya hay en memoria.
+Future<void> warmTrackDnaDir(String dir) async {
+  if (dir.isEmpty || !_dnaDirsWarm.add(dir)) return;
+  try {
+    Object? raw = GatomixStore.peekSection(dir, kTrackDnaSection);
+    if (raw == null && !GatomixStore.holdsDocument(dir)) {
+      final File f = GatomixStore.readFileOf(dir);
+      if (!await f.exists()) return;
+      final Object? d = jsonDecode(await f.readAsString());
+      raw = d is Map ? d[kTrackDnaSection] : null;
+    }
+    if (raw is! Map) return;
+    for (final MapEntry<dynamic, dynamic> e in raw.entries) {
+      final Object? k = e.key;
+      if (k is String) {
+        _rememberDna(k, TrackDnaEntry.fromJson(e.value), keep: true);
+      }
+    }
+  } catch (_) {}
+}
+
+/// [warmTrackDnaDir] para las carpetas de [paths] (una por carpeta).
+Future<void> warmTrackDnaFor(Iterable<String> paths) async {
+  final Set<String> dirs = <String>{
+    for (final String p in paths)
+      if (p.isNotEmpty) File(p).parent.path,
+  };
+  for (final String d in dirs) {
+    await warmTrackDnaDir(d);
+  }
+}
+
+/// Pruebas: vacia la cache en memoria de `dna`.
+void debugForgetTrackDnaMemory() {
+  _dnaMemory.clear();
+  _dnaDirsWarm.clear();
 }
 
 /// Codigo de idioma de Whisper valido (2-3 letras minusculas) o null.
