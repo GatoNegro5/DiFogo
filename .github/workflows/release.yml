@@ -180,15 +180,24 @@ jobs:
         if: matrix.target == 'windows'
         shell: cmd
         run: |
-          subst W: "%GITHUB_WORKSPACE%"
+          rem 3.2.16: compilar desde la raiz W:\ dejaba PROJECT_DIR=W:\ en
+          rem generated_config.cmake; la barra final escapaba el ';' de la lista
+          rem de entorno de CMake y flutter_assemble recibia 'W:;FLUTTER_TARGET=...'.
+          rem Se monta la carpeta padre del workspace en W: y se entra a
+          rem W:\WSN (WSN = ultimo segmento de GITHUB_WORKSPACE, sin fijar el nombre).
+          for %%I in ("%GITHUB_WORKSPACE%\..") do set "WSP=%%~fI"
+          for %%I in ("%GITHUB_WORKSPACE%") do set "WSN=%%~nxI"
+          echo subst W: = %WSP% , carpeta %WSN%
+          subst W: "%WSP%"
           if errorlevel 1 exit /b 1
-          cd /d W:\
+          cd /d "W:\%WSN%"
+          if errorlevel 1 exit /b 1
           rem 3.2.15: ort-sys 2.0.0-rc.10 (copy-dylibs) toma OUT_DIR.ancestors().nth(3)
           rem pensando en el layout viejo de cargo; con el build-dir nuevo de cargo 1.99
           rem (release\build\ort-sys\HASH\out) eso cae en release\build y luego copia
           rem las dll a release\build\examples y release\build\deps, que no existen.
           rem Se crean antes del build (target-dir de cargokit + target msvc).
-          set "ORTB=W:\build\windows\x64\plugins\rust_lib_gatomix_player\cargokit_build\x86_64-pc-windows-msvc\release\build"
+          set "ORTB=W:\%WSN%\build\windows\x64\plugins\rust_lib_gatomix_player\cargokit_build\x86_64-pc-windows-msvc\release\build"
           if not exist "%ORTB%\examples" mkdir "%ORTB%\examples"
           if not exist "%ORTB%\deps" mkdir "%ORTB%\deps"
           set "V=%GITHUB_REF_NAME:~1%"
