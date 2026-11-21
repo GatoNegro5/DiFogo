@@ -54,9 +54,10 @@ void main() {
     }
     expect(_read('lib/main.dart').contains("title: 'GatoMix',"), isTrue);
     expect(_read('lib/djiphone/main.dart').contains("title: 'GatoMix',"), isTrue);
-    // Recursos e imports internos que se conservan.
+    // Recursos e imports internos que se conservan. 3.2.23: desde 3.2.21 el
+    // sidebar usa el wordmark GatoMix restaurado del historial.
     expect(
-      _read('lib/main.dart').contains('assets/branding/difogo_logo3.png'),
+      _read('lib/main.dart').contains('assets/branding/gatomix_wordmark.png'),
       isTrue,
     );
     expect(_read('pubspec.yaml').contains('name: difogo'), isTrue);
