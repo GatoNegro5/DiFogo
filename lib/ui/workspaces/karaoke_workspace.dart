@@ -204,9 +204,11 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
   int _lastUiPosMs = 0;
   int _activeLyricIndex = 0;
   List<Duration> _lyricKeys = const [];
-  DateTime? _lyricOrigin;
-  Duration _lyricEnd = Duration.zero;
-  Duration _frozenPos = Duration.zero;
+
+  /// 3.2.26: ultima posicion real de la TV (TV_POS) y aviso de senal.
+  StreamSubscription<TvPosition>? _tvPosSub;
+  TvPosition? _tvPos;
+  bool _tvSignalLost = false;
 
   @override
   void initState() {
@@ -223,6 +225,7 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
     KaraokeCore().votesNotifier.addListener(_pushStageState);
     ref.read(tvSyncProvider).onTvMessage = _onTvMessage;
     ref.read(tvSyncProvider).onTvJoined = _pushStageState;
+    _tvPosSub = ref.read(tvSyncProvider).positions.listen(_onTvPosition);
   }
 
   /// Abre el puerto del nodo TV en Windows Defender. La regla de LAN Sync solo
@@ -303,7 +306,7 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
   void _onPlaybackTick(Duration position) {
     if (!mounted || _currentLyrics.isEmpty) return;
     final posMs = position.inMilliseconds;
-    if ((posMs - _lastUiPosMs).abs() < 200) return;
+    if ((posMs - _lastUiPosMs).abs() < 90) return;
     _lastUiPosMs = posMs;
 
     final keys = _lyricKeys;
@@ -341,28 +344,55 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
   void _stopLyricClock() {
     _lyricClock?.cancel();
     _lyricClock = null;
-    _lyricOrigin = null;
   }
 
-  void _startLyricClock(Duration trackEnd) {
-    if (!_showLaptopStage) {
+  /// 3.2.26: la letra de la laptop sigue la posicion REAL de la TV (TV_POS
+  /// cada 500 ms) e interpola cada 100 ms mientras suena. Antes un reloj
+  /// propio avanzaba aunque la TV no sonara; ahora sin TV_POS (o sin senal
+  /// en [kTvPosTimeout]) la letra se congela con aviso 'Sin señal de TV'.
+  void _onTvPosition(TvPosition position) {
+    if (!mounted) return;
+    _tvPos = position;
+    if (_tvSignalLost) setState(() => _tvSignalLost = false);
+    _driveLyrics();
+  }
+
+  void _driveLyrics() {
+    final TvPosition? p = _tvPos;
+    if (p == null || !_showLaptopStage || _lyricKeys.isEmpty) {
       _stopLyricClock();
       return;
     }
-    _stopLyricClock();
-    _lyricEnd = trackEnd;
-    _lyricOrigin = DateTime.now().subtract(_frozenPos);
-    _lyricClock = Timer.periodic(const Duration(milliseconds: 200), (_) {
-      if (KaraokeCore().pausedNotifier.value) return;
-      final origin = _lyricOrigin;
-      if (origin == null) return;
-      final pos = DateTime.now().difference(origin);
-      if (pos >= _lyricEnd) {
-        _stopLyricClock();
-        return;
-      }
-      _onPlaybackTick(pos);
-    });
+    _onPlaybackTick(Duration(milliseconds: p.positionMs));
+    if (!p.playing) {
+      _stopLyricClock();
+      return;
+    }
+    _lyricClock ??= Timer.periodic(
+      const Duration(milliseconds: 100),
+      (_) => _interpolateLyrics(),
+    );
+  }
+
+  void _interpolateLyrics() {
+    final TvPosition? p = _tvPos;
+    final int? ms = p?.estimateMs(DateTime.now());
+    if (ms == null) {
+      _stopLyricClock();
+      if (mounted && p != null) setState(() => _tvSignalLost = true);
+      return;
+    }
+    _onPlaybackTick(Duration(milliseconds: ms));
+  }
+
+  /// 3.2.26: PIN que la TV debe escribir (---- si el nodo no levanto).
+  String get _tvPin {
+    try {
+      final String pin = ref.read(tvSyncProvider).sessionPin;
+      return pin.isEmpty ? '----' : pin;
+    } catch (_) {
+      return '----';
+    }
   }
 
   String get _qrUrl => 'http://$_hostIp:55055/karaoke';
@@ -395,11 +425,9 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
 
   void _setPaused(bool paused) {
     KaraokeCore().pausedNotifier.value = paused;
+    // 3.2.26: la letra se reanuda con el TV_POS real de la TV.
     if (paused) {
-      if (_lyricOrigin != null) {
-        _frozenPos = DateTime.now().difference(_lyricOrigin!);
-      }
-      _lyricClock?.cancel();
+      _stopLyricClock();
       try {
         ref.read(tvSyncProvider).broadcastEdgePause();
       } catch (_) {}
@@ -407,9 +435,6 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
       try {
         ref.read(tvSyncProvider).broadcastEdgeResume();
       } catch (_) {}
-      if (_showLaptopStage && _lyricKeys.isNotEmpty) {
-        _startLyricClock(_lyricEnd);
-      }
     }
     _pushStageState();
   }
@@ -499,16 +524,10 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
         unawaited(_endSession());
       case 'TV_PAUSE':
         KaraokeCore().pausedNotifier.value = true;
-        if (_lyricOrigin != null) {
-          _frozenPos = DateTime.now().difference(_lyricOrigin!);
-        }
-        _lyricClock?.cancel();
+        _stopLyricClock();
         _pushStageState();
       case 'TV_RESUME':
         KaraokeCore().pausedNotifier.value = false;
-        if (_showLaptopStage && _lyricKeys.isNotEmpty) {
-          _startLyricClock(_lyricEnd);
-        }
         _pushStageState();
       case 'TV_SKIP':
         unawaited(_skipTrack());
@@ -546,7 +565,7 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
     _advancing = true;
     _stopLyricClock();
     _preloadTimer?.cancel();
-    _frozenPos = Duration.zero;
+    _tvPos = null;
     final board = KaraokeCore().freezeScoreboard();
     final next = KaraokeCore().peekNext();
     try {
@@ -590,7 +609,7 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
     _scoreboardTimer?.cancel();
     _preloadTimer?.cancel();
     _stopLyricClock();
-    _frozenPos = Duration.zero;
+    _tvPos = null;
     _advancing = false;
     KaraokeCore().endSession();
     try {
@@ -609,6 +628,7 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
     _scoreboardTimer?.cancel();
     _lrcSub?.cancel();
     _lyricClock?.cancel();
+    _tvPosSub?.cancel();
     _preloadTimer?.cancel();
     KaraokeCore().currentSingerNotifier.removeListener(_onSingerChanged);
     KaraokeCore().queueNotifier.removeListener(_onQueueChanged);
@@ -664,14 +684,10 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
         ),
       );
 
-      _frozenPos = Duration.zero;
+      _tvPos = null;
       KaraokeCore().pausedNotifier.value = false;
-      final lastLyric = _lyricKeys.isEmpty ? Duration.zero : _lyricKeys.last;
-      if (_showLaptopStage) {
-        _startLyricClock(lastLyric + const Duration(seconds: 6));
-      } else {
-        _stopLyricClock();
-      }
+      // 3.2.26: la letra espera el TV_POS de la pista nueva.
+      _stopLyricClock();
       _preloadNext();
       _pushStageState();
     } else {
@@ -682,7 +698,7 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
       } catch (_) {}
       _stopLyricClock();
       _preloadTimer?.cancel();
-      _frozenPos = Duration.zero;
+      _tvPos = null;
       setState(() {
         _currentLyrics = {};
         _lyricKeys = const [];
@@ -723,11 +739,6 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
         _activeLyricIndex = 0;
         _lastUiPosMs = 0;
       });
-
-      final trackName = mp3Path.replaceAll('\\', '/').split('/').last;
-      try {
-        ref.read(tvSyncProvider).broadcastLrcTrack(trackName, rawLrcContent);
-      } catch (_) {}
     } else {
       setState(() {
         _currentLyrics = {
@@ -905,13 +916,7 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
                                 setState(
                                   () => _showLaptopStage = !_showLaptopStage,
                                 );
-                                if (_showLaptopStage &&
-                                    _lyricKeys.isNotEmpty &&
-                                    !KaraokeCore().pausedNotifier.value) {
-                                  _startLyricClock(_lyricEnd);
-                                } else {
-                                  _stopLyricClock();
-                                }
+                                _driveLyrics();
                               },
                               icon: Icon(
                                 _showLaptopStage
@@ -946,6 +951,17 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
                             fontSize: 16,
                             fontFamily: 'Consolas',
                             fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'PIN TV  $_tvPin',
+                          style: const TextStyle(
+                            color: Color(0xFF39FF14),
+                            fontSize: 15,
+                            fontFamily: 'Consolas',
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 3,
                           ),
                         ),
                       ],
@@ -1235,6 +1251,15 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
             },
           ),
           const SizedBox(height: 16),
+          if (_currentLyrics.isNotEmpty && (_tvPos == null || _tvSignalLost))
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Text(
+                'Sin señal de TV: la letra se mueve con la posición real de la TV.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Color(0xFFFFAA00), fontSize: 13),
+              ),
+            ),
           Expanded(
             child: _currentLyrics.isEmpty
                 ? ValueListenableBuilder<Map<String, dynamic>>(
@@ -1564,7 +1589,30 @@ class _TvInstallWizardDialogState extends State<TvInstallWizardDialog> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  const Icon(Icons.pin, color: _cyan, size: 20),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'PIN para la TV:',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    widget.server.sessionPin.isEmpty
+                        ? '----'
+                        : widget.server.sessionPin,
+                    style: const TextStyle(
+                      color: _neon,
+                      fontSize: 24,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 6,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
@@ -1676,7 +1724,7 @@ class _TvInstallWizardDialogState extends State<TvInstallWizardDialog> {
                               ),
                               _step(
                                 '3',
-                                'Instala y abre GatoMix TV. Si la TV lo pide, '
+                                'Instala y abre GatoMix TV y escribe el PIN. Si la TV lo pide, '
                                     'permite instalar apps desde Downloader.',
                               ),
                             ],

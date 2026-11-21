@@ -2,12 +2,87 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:dio/dio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
+
+/// 3.2.26: PIN de la laptop (4 digitos). Vive en memoria durante la sesion
+/// y junto a server_ip en SharedPreferences; un cierre 4001 lo invalida y
+/// se vuelve a pedir.
+const String _kPinKey = 'server_pin';
+const int _kPinRejected = 4001;
+String _sessionPin = '';
+
+/// 3.2.26: dialogo de PIN usable con control remoto (teclado numerico,
+/// OK confirma). Devuelve 4 digitos.
+Future<String?> askTvPin(BuildContext context, {String? error}) {
+  final TextEditingController controller = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    barrierDismissible: false,
+    builder: (BuildContext ctx) {
+      void submit() {
+        final String pin = controller.text.trim();
+        if (RegExp(r'^\d{4}$').hasMatch(pin)) Navigator.pop(ctx, pin);
+      }
+
+      return AlertDialog(
+        backgroundColor: const Color(0xFF111111),
+        title: const Text('PIN de la laptop'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (error != null) ...[
+              Text(
+                error,
+                style: const TextStyle(
+                  color: Colors.redAccent,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            const Text(
+              'Escribe los 4 dígitos de "PIN TV" que muestra GatoMix en la laptop.',
+              style: TextStyle(color: Colors.white70),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              maxLength: 4,
+              textAlign: TextAlign.center,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => submit(),
+              style: const TextStyle(
+                fontSize: 36,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 12,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF39FF14),
+              foregroundColor: Colors.black,
+            ),
+            onPressed: submit,
+            child: const Text('OK'),
+          ),
+        ],
+      );
+    },
+  );
+}
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -260,6 +335,9 @@ class _TeleprompterScreenState extends State<TeleprompterScreen> {
   final Dio _dio = Dio();
   StreamSubscription? _positionSub;
   StreamSubscription? _completedSub;
+  StreamSubscription<bool>? _playingSub;
+  Timer? _posTimer;
+  bool _askingPin = false;
 
   String _status = "Conectando...";
   bool _isConnected = false;
@@ -290,22 +368,90 @@ class _TeleprompterScreenState extends State<TeleprompterScreen> {
   @override
   void initState() {
     super.initState();
-    _connectWebSocket();
+    unawaited(_connectWithPin());
     _setupAudioListener();
+    _playingSub = _player.stream.playing.listen(_onPlayingChanged);
     _completedSub = _player.stream.completed.listen((done) {
-      if (done) _send({'type': 'TV_TRACK_ENDED'});
+      if (done) {
+        _stopPosTimer(sendFinal: true);
+        _send({'type': 'TV_TRACK_ENDED'});
+      }
     });
   }
 
   void _send(Map<String, dynamic> payload) {
-    _channel?.sink.add(jsonEncode(payload));
+    try {
+      _channel?.sink.add(jsonEncode(payload));
+    } catch (_) {}
+  }
+
+  /// 3.2.26: posicion real para la letra de la laptop (cada 500 ms
+  /// mientras suena; un ultimo TV_POS con playing false al pausar/parar).
+  void _sendPos({bool? playing}) {
+    final st = _player.state;
+    _send({
+      'type': 'TV_POS',
+      'positionMs': st.position.inMilliseconds,
+      'durationMs': st.duration.inMilliseconds,
+      'playing': playing ?? st.playing,
+    });
+  }
+
+  void _onPlayingChanged(bool playing) {
+    if (playing) {
+      _posTimer?.cancel();
+      _sendPos(playing: true);
+      _posTimer = Timer.periodic(
+        const Duration(milliseconds: 500),
+        (_) => _sendPos(),
+      );
+    } else {
+      _stopPosTimer(sendFinal: true);
+    }
+  }
+
+  void _stopPosTimer({required bool sendFinal}) {
+    final bool wasRunning = _posTimer != null;
+    _posTimer?.cancel();
+    _posTimer = null;
+    if (sendFinal && wasRunning) _sendPos(playing: false);
+  }
+
+  /// 3.2.26: pide el PIN si no hay uno en memoria/guardado (o si la laptop
+  /// lo rechazo) y recien ahi abre el WebSocket con `?pin=`.
+  Future<void> _connectWithPin({String? error}) async {
+    if (_sessionClosed || _askingPin) return;
+    if (_sessionPin.isEmpty && error == null) {
+      final prefs = await SharedPreferences.getInstance();
+      _sessionPin = prefs.getString(_kPinKey) ?? '';
+    }
+    if (_sessionPin.isEmpty || error != null) {
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+      _askingPin = true;
+      final String? pin = await askTvPin(context, error: error);
+      _askingPin = false;
+      if (!mounted) return;
+      if (pin == null) {
+        unawaited(_leaveSession());
+        return;
+      }
+      _sessionPin = pin;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_kPinKey, pin);
+    }
+    if (!mounted) return;
+    _connectWebSocket();
   }
 
   void _connectWebSocket() {
     if (_sessionClosed) return;
-    final uri = Uri.parse('ws://${widget.serverIp}:55056');
+    final uri = Uri.parse(
+      'ws://${widget.serverIp}:55056/?pin=${Uri.encodeQueryComponent(_sessionPin)}',
+    );
     try {
-      _channel = WebSocketChannel.connect(uri);
+      final channel = WebSocketChannel.connect(uri);
+      _channel = channel;
       setState(() {
         _isConnected = true;
         _status = "Esperando pista desde la PC...";
@@ -337,7 +483,7 @@ class _TeleprompterScreenState extends State<TeleprompterScreen> {
             debugPrint("Parse Error: $e");
           }
         },
-        onDone: _handleDisconnect,
+        onDone: () => _handleDisconnect(channel.closeCode),
         onError: (e) => _handleDisconnect(),
       );
     } catch (e) {
@@ -345,8 +491,20 @@ class _TeleprompterScreenState extends State<TeleprompterScreen> {
     }
   }
 
-  void _handleDisconnect() {
+  void _handleDisconnect([int? closeCode]) {
     if (!mounted || _sessionClosed) return;
+    _stopPosTimer(sendFinal: false);
+    if (closeCode == _kPinRejected) {
+      // 3.2.26: la laptop rechazo el PIN (4001): se borra y se vuelve a pedir.
+      _sessionPin = '';
+      setState(() {
+        _isConnected = false;
+        _status = 'PIN incorrecto. Escribe el PIN que muestra la laptop.';
+      });
+      unawaited(_player.stop());
+      unawaited(_connectWithPin(error: 'PIN incorrecto'));
+      return;
+    }
     setState(() {
       _isConnected = false;
       _status = "Conexión perdida. Reintentando en 5s...";
@@ -705,6 +863,8 @@ class _TeleprompterScreenState extends State<TeleprompterScreen> {
   void dispose() {
     _positionSub?.cancel();
     _completedSub?.cancel();
+    _playingSub?.cancel();
+    _posTimer?.cancel();
     _player.dispose();
     _channel?.sink.close();
     _scrollController.dispose();

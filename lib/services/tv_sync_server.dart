@@ -1,18 +1,103 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/safe_media_path.dart';
 import 'tv_apk_cache.dart';
 
+/// 3.2.26: codigo de cierre WebSocket para PIN ausente o incorrecto.
+const int kTvAuthCloseCode = 4001;
+
+/// 3.2.26: sin TV_POS en este lapso la letra de la laptop se congela.
+const Duration kTvPosTimeout = Duration(seconds: 2);
+
+/// 3.2.26: comparacion de PIN en tiempo constante (no corta en el primer
+/// digito distinto). PIN vacio nunca coincide.
+bool tvPinMatches(String given, String expected) {
+  if (expected.isEmpty) return false;
+  final List<int> a = utf8.encode(given);
+  final List<int> b = utf8.encode(expected);
+  int diff = a.length ^ b.length;
+  for (int i = 0; i < b.length; i++) {
+    diff |= (i < a.length ? a[i] : 0) ^ b[i];
+  }
+  return diff == 0;
+}
+
+/// 3.2.26: posicion real que reporta la TV (`TV_POS`).
+class TvPosition {
+  final int positionMs;
+  final int durationMs;
+  final bool playing;
+  final DateTime receivedAt;
+
+  const TvPosition({
+    required this.positionMs,
+    required this.durationMs,
+    required this.playing,
+    required this.receivedAt,
+  });
+
+  /// `{type: TV_POS, positionMs, durationMs, playing}`; null si no cuadra.
+  static TvPosition? tryParse(Map<String, dynamic> m, {DateTime? now}) {
+    final Object? pos = m['positionMs'];
+    final Object? dur = m['durationMs'];
+    final Object? playing = m['playing'];
+    if (pos is! num || playing is! bool) return null;
+    final int p = pos.toInt();
+    final int d = dur is num ? dur.toInt() : 0;
+    return TvPosition(
+      positionMs: p < 0 ? 0 : p,
+      durationMs: d < 0 ? 0 : d,
+      playing: playing,
+      receivedAt: now ?? DateTime.now(),
+    );
+  }
+
+  /// Posicion estimada en [now]: interpola solo si `playing`; null si el
+  /// ultimo TV_POS es mas viejo que [timeout] (senal perdida).
+  int? estimateMs(DateTime now, {Duration timeout = kTvPosTimeout}) {
+    final int age = now.difference(receivedAt).inMilliseconds;
+    if (age > timeout.inMilliseconds) return null;
+    if (!playing || age <= 0) return positionMs;
+    final int ms = positionMs + age;
+    return durationMs > 0 && ms > durationMs ? durationMs : ms;
+  }
+}
+
 class TvSyncServer {
   /// 3.2.25: [port] y [apkCacheRoot] inyectables (pruebas en puerto 0 y
   /// cache en %TEMP%); la app usa siempre 55056 y la cache real.
-  TvSyncServer({this.port = 55056, this.apkCacheRoot});
+  /// 3.2.26: [authTimeout] = espera del TV_AUTH si la URL no trae `?pin=`.
+  TvSyncServer({
+    this.port = 55056,
+    this.apkCacheRoot,
+    this.authTimeout = const Duration(seconds: 5),
+  });
 
   HttpServer? _server;
+
+  /// 3.2.26: SOLO sockets autenticados (broadcasts y comandos).
   final List<WebSocket> _clients = [];
+
+  /// 3.2.26: sockets abiertos que aun no mandan un PIN valido.
+  final Set<WebSocket> _pending = <WebSocket>{};
+  final Duration authTimeout;
+  String _sessionPin = '';
+  final StreamController<TvPosition> _positions =
+      StreamController<TvPosition>.broadcast();
+  TvPosition? _lastPosition;
+
+  /// 3.2.26: PIN de 4 digitos de esta sesion del nodo (se ve en la UI de
+  /// la laptop; nunca sale en /api/whoami).
+  String get sessionPin => _sessionPin;
+
+  /// 3.2.26: posiciones reales de la TV autenticada.
+  Stream<TvPosition> get positions => _positions.stream;
+  TvPosition? get lastPosition => _lastPosition;
   final int port;
   final String? apkCacheRoot;
   Future<void>? _starting;
@@ -40,7 +125,10 @@ class TvSyncServer {
     return _server != null;
   }
 
+  static String _newPin() => (1000 + Random.secure().nextInt(9000)).toString();
+
   Future<void> _start() async {
+    if (_sessionPin.isEmpty) _sessionPin = _newPin();
     try {
       // 0.0.0.0 expone el puerto a toda tu red LAN (WiFi)
       _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
@@ -48,37 +136,103 @@ class TvSyncServer {
 
       _server!.listen((HttpRequest request) {
         if (WebSocketTransformer.isUpgradeRequest(request)) {
-          WebSocketTransformer.upgrade(request).then((WebSocket ws) {
-            _clients.add(ws);
-            debugPrint(
-              "🟢 [TV SYNC] TV Conectada. Clientes activos: ${_clients.length}",
-            );
-            onTvJoined?.call();
-
-            ws.listen(
-              (data) {
-                try {
-                  final decoded = jsonDecode('$data');
-                  if (decoded is Map<String, dynamic>) {
-                    onTvMessage?.call(decoded);
-                  }
-                } catch (_) {}
-              },
-              onDone: () {
-                _clients.remove(ws);
-                debugPrint("🔴 [TV SYNC] TV Desconectada.");
-              },
-              onError: (e) {
-                _clients.remove(ws);
-              },
-            );
-          });
+          final String? urlPin = request.uri.queryParameters['pin'];
+          WebSocketTransformer.upgrade(
+            request,
+          ).then((WebSocket ws) => _acceptSocket(ws, urlPin));
         } else {
           _serveKaraokeFile(request);
         }
       });
     } catch (e) {
       debugPrint("🔴 [TV SYNC FATAL] Fallo al iniciar puerto $port: $e");
+    }
+  }
+
+  /// 3.2.26: un socket entra a [_clients] solo con el PIN correcto, por
+  /// `?pin=` en la URL o por `{type: TV_AUTH, pin}` como primer mensaje
+  /// (con [authTimeout]). Si falta o no coincide: cierre 4001 y ningun
+  /// comando (TV_SKIP, TV_PAUSE, TV_POS...) llega a la app.
+  void _acceptSocket(WebSocket ws, String? urlPin) {
+    bool authed = false;
+    bool rejected = false;
+    Timer? authTimer;
+
+    void admit() {
+      authed = true;
+      authTimer?.cancel();
+      _pending.remove(ws);
+      _clients.add(ws);
+      debugPrint(
+        "🟢 [TV SYNC] TV Conectada. Clientes activos: ${_clients.length}",
+      );
+      onTvJoined?.call();
+    }
+
+    void reject() {
+      if (rejected) return;
+      rejected = true;
+      authTimer?.cancel();
+      _pending.remove(ws);
+      _clients.remove(ws);
+      debugPrint('🔴 [TV SYNC] PIN ausente o incorrecto: cierre 4001.');
+      unawaited(ws.close(kTvAuthCloseCode, 'PIN incorrecto'));
+    }
+
+    ws.listen(
+      (data) {
+        if (rejected) return;
+        Map<String, dynamic>? decoded;
+        try {
+          final Object? d = jsonDecode('$data');
+          if (d is Map<String, dynamic>) decoded = d;
+        } catch (_) {}
+        if (!authed) {
+          if (decoded != null &&
+              decoded['type'] == 'TV_AUTH' &&
+              tvPinMatches('${decoded['pin'] ?? ''}', _sessionPin)) {
+            admit();
+          } else {
+            reject();
+          }
+          return;
+        }
+        if (decoded == null) return;
+        if (decoded['type'] == 'TV_POS') {
+          final TvPosition? pos = TvPosition.tryParse(decoded);
+          if (pos != null) {
+            _lastPosition = pos;
+            _positions.add(pos);
+          }
+          return;
+        }
+        onTvMessage?.call(decoded);
+      },
+      onDone: () {
+        authTimer?.cancel();
+        _pending.remove(ws);
+        if (_clients.remove(ws)) debugPrint("🔴 [TV SYNC] TV Desconectada.");
+      },
+      onError: (e) {
+        authTimer?.cancel();
+        _pending.remove(ws);
+        _clients.remove(ws);
+      },
+    );
+
+    // El listen va antes de decidir: close() sobre un socket sin oyente
+    // falla en dart:io.
+    _pending.add(ws);
+    if (urlPin != null) {
+      if (tvPinMatches(urlPin, _sessionPin)) {
+        admit();
+      } else {
+        reject();
+      }
+    } else {
+      authTimer = Timer(authTimeout, () {
+        if (!authed) reject();
+      });
     }
   }
 
@@ -92,24 +246,6 @@ class TvSyncServer {
         ws.add(msg);
       }
     }
-  }
-
-  // Dispara el archivo LRC completo cuando cargas una canción
-  void broadcastLrcTrack(String trackName, String lrcContent) {
-    broadcastPayload({
-      'type': 'LRC_LOAD',
-      'track': trackName,
-      'payload': lrcContent,
-    });
-  }
-
-  // Dispara el reloj (Ping de sincronización)
-  void broadcastSyncPing(int positionMs, bool isPlaying) {
-    broadcastPayload({
-      'type': 'SYNC_PING',
-      'positionMs': positionMs,
-      'isPlaying': isPlaying,
-    });
   }
 
   void broadcastEdgeExecute({
@@ -319,6 +455,11 @@ class TvSyncServer {
       ws.close();
     }
     _clients.clear();
+    for (final WebSocket ws in _pending) {
+      ws.close(kTvAuthCloseCode, 'Nodo detenido');
+    }
+    _pending.clear();
+    _sessionPin = '';
     _server?.close(force: true);
     _server = null;
     _starting = null;
