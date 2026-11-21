@@ -225,7 +225,7 @@ void main() {
         .writeAsStringSync('headless\n');
 
     expect(GatomixStore.migrate(dir.path), isTrue);
-    final File store = File('${dir.path}${s}.difogo.json');
+    final File store = File('${dir.path}${s}.gatomix.json');
     expect(store.existsSync(), isTrue);
     final Map<String, dynamic> doc =
         jsonDecode(store.readAsStringSync()) as Map<String, dynamic>;
@@ -344,7 +344,7 @@ void main() {
     final String path = '${dir.path}${s}Tema 118bpm 8A.mp3';
     File(path).writeAsBytesSync(<int>[1, 2, 3]);
     saveTrackMusic(path, bpm: 118, camelot: '8A');
-    final File store = File('${dir.path}${s}.difogo.json');
+    final File store = File('${dir.path}${s}.gatomix.json');
     expect(store.existsSync(), isTrue);
     final Map<String, dynamic> doc =
         jsonDecode(store.readAsStringSync()) as Map<String, dynamic>;

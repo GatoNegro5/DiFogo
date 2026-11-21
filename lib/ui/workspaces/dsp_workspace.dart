@@ -2530,7 +2530,7 @@ class DspNlpWorkspace extends ConsumerWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'No hay originales en .difogo_original ni .gatomix_original.',
+            'No hay originales en .gatomix_original ni .difogo_original.',
           ),
         ),
       );
@@ -2775,7 +2775,7 @@ bool dspLibraryLocked(BuildContext context, String path) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text(
-          'Biblioteca de solo lectura: DiFogo no modifica ReGenial. '
+          'Biblioteca de solo lectura: GatoMix no modifica ReGenial. '
           'Copia la carpeta al LAB para procesarla.',
         ),
       ),

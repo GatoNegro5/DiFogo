@@ -10,23 +10,27 @@ const legacyBrand =
 
 /// 3.1.75 (rebrand fase 1): carpetas de datos de la marca nueva y de la
 /// anterior. Los datos viejos se migran o se leen, nunca se borran.
-const String kBrandDataName = 'DiFogo';
-const String kOldBrandDataName = 'GatoMix';
-const String kLabName = 'DiFogo_LAB';
-const String kOldLabName = 'GatoMix_LAB';
-const String kQuarantineName = 'Cuarentena_DiFogo';
-const String kOldQuarantineName = 'Cuarentena_GatoMix';
-const String kInboxName = 'DiFogo_Inbox';
-const String kOldInboxName = 'GatoMix_Inbox';
+/// 3.2.18: regreso a GatoMix. Los nombres principales vuelven a GatoMix y
+/// los de DiFogo (3.1.75 a 3.2.17) pasan a ser los heredados: se migran
+/// solo si la carpeta GatoMix no existe y se siguen leyendo.
+const String kBrandDataName = 'GatoMix';
+const String kOldBrandDataName = 'DiFogo';
+const String kLabName = 'GatoMix_LAB';
+const String kOldLabName = 'DiFogo_LAB';
+const String kQuarantineName = 'Cuarentena_GatoMix';
+const String kOldQuarantineName = 'Cuarentena_DiFogo';
+const String kInboxName = 'GatoMix_Inbox';
+const String kOldInboxName = 'DiFogo_Inbox';
 
 /// 3.2.10: carpeta de las canciones nuevas de la Radio dentro de Musica
 /// (`Musica/DESCUBRE`), fuera de ReGenial y fuera del blindaje.
 const String kDescubreName = 'DESCUBRE';
 
-/// 3.1.75: respaldos de Masterizar. Los nuevos van a `.difogo_original`; los
-/// viejos `.gatomix_original` se siguen leyendo y excluyendo.
-const String kOriginalDirName = '.difogo_original';
-const String kOldOriginalDirName = '.gatomix_original';
+/// 3.1.75: respaldos de Masterizar. 3.2.18: los nuevos vuelven a
+/// `.gatomix_original`; los `.difogo_original` se siguen leyendo (fallback)
+/// y excluyendo.
+const String kOriginalDirName = '.gatomix_original';
+const String kOldOriginalDirName = '.difogo_original';
 
 /// Resultado de mover una carpeta de marca vieja a la nueva.
 enum BrandMove {
@@ -160,7 +164,7 @@ bool _moveSafe(String src, String dst) {
 }
 
 /// 3.2.10: migracion suave de la bandeja vieja ([fromDir], p. ej.
-/// `Downloads/DiFogo_Inbox`) a [toDir] (`Musica/DESCUBRE`). Solo archivos
+/// `Downloads/GatoMix_Inbox` o `DiFogo_Inbox`) a [toDir] (`Musica/DESCUBRE`). Solo archivos
 /// de primer nivel; un nombre que ya existe en destino se salta; nunca
 /// escribe en la biblioteca protegida; nunca lanza. Los nombres que empiezan
 /// con [skipPrefix] (el JSON de la bandeja) no se mueven.
@@ -212,10 +216,10 @@ String brandDataBase() {
   return Directory.systemTemp.path;
 }
 
-/// `%LOCALAPPDATA%\DiFogo` (y el equivalente en macOS/Linux). 3.1.75: si
-/// existe la carpeta `GatoMix` y la nueva no, la renombra; si no se puede,
-/// sigue con la nueva (el espejo lee la vieja en cascada). La carpeta de la
-/// marca anterior a 1.0.0 se renombra a DiFogo solo si no hay ninguna.
+/// `%LOCALAPPDATA%\GatoMix` (y el equivalente en macOS/Linux). 3.2.18: si
+/// existe la carpeta `DiFogo` y `GatoMix` no, la renombra; si `GatoMix` ya
+/// existe no se toca ninguna (DiFogo queda de lectura, nunca se borra). La
+/// carpeta de la marca anterior a 1.0.0 se renombra solo si no hay ninguna.
 Directory ensureBrandDataDir(String base) {
   final String root = brandSafeBase(base);
   final next = Directory('$root${Platform.pathSeparator}$kBrandDataName');
@@ -245,9 +249,10 @@ String brandSafeBase(String base) {
 }
 
 /// 3.1.75: migracion de arranque (una vez, sincrona y barata: un rename).
-/// Windows: `%LOCALAPPDATA%\GatoMix` -> `DiFogo`; macOS/Linux/iOS:
-/// `~/.gatomix` -> `~/.difogo`; Android: temp `GatoMix` -> `DiFogo`.
-/// Nunca lanza; si falla, las lecturas usan la carpeta vieja en cascada.
+/// 3.2.18, inversa: Windows `%LOCALAPPDATA%\DiFogo` -> `GatoMix`;
+/// macOS/Linux/iOS `~/.difogo` -> `~/.gatomix`; Android temp `DiFogo` ->
+/// `GatoMix`. Solo si el destino no existe. Nunca lanza ni borra; si falla,
+/// las lecturas usan la carpeta vieja en cascada.
 List<BrandMove> migrateBrandCache() {
   final List<BrandMove> out = <BrandMove>[];
   try {
@@ -264,7 +269,7 @@ List<BrandMove> migrateBrandCache() {
       return out;
     }
     final String? home = Platform.environment['HOME'];
-    if (home != null) out.add(migrateBrandFolder(home, '.gatomix', '.difogo'));
+    if (home != null) out.add(migrateBrandFolder(home, '.difogo', '.gatomix'));
   } catch (_) {}
   return out;
 }
@@ -282,8 +287,8 @@ BrandMove ensureBrandDataDirMove(String base) {
   return m;
 }
 
-/// True si [path] está dentro de la carpeta de laboratorio (nueva, de
-/// GatoMix o de la marca anterior).
+/// True si [path] está dentro de la carpeta de laboratorio (GatoMix, la
+/// heredada de DiFogo o la de la marca anterior).
 bool pathIsLab(String path) {
   final String legacy = '${legacyBrand}_LAB';
   for (final String part in path.replaceAll('\\', '/').split('/')) {
@@ -292,8 +297,8 @@ bool pathIsLab(String path) {
   return false;
 }
 
-/// Carpeta de laboratorio junto a [base]. 3.1.75: `GatoMix_LAB` pasa a
-/// `DiFogo_LAB`; si [base] es la biblioteca protegida no se renombra nada y
+/// Carpeta de laboratorio junto a [base]. 3.2.18: `DiFogo_LAB` vuelve a
+/// `GatoMix_LAB`; si [base] es la biblioteca protegida no se renombra nada y
 /// se sigue usando la carpeta vieja que exista.
 String labFolder(String base) {
   final sep = Platform.pathSeparator;
@@ -307,8 +312,8 @@ String labFolder(String base) {
   return next.path;
 }
 
-/// Cuarentena junto al archivo dañado. 3.1.75: `Cuarentena_GatoMix` pasa a
-/// `Cuarentena_DiFogo` fuera de la biblioteca; dentro se reusa la vieja.
+/// Cuarentena junto al archivo dañado. 3.2.18: `Cuarentena_DiFogo` vuelve a
+/// `Cuarentena_GatoMix` fuera de la biblioteca; dentro se reusa la vieja.
 Directory quarantineDir(String parent) {
   final sep = Platform.pathSeparator;
   Directory next = Directory('$parent$sep$kQuarantineName');
@@ -328,7 +333,7 @@ Directory quarantineDir(String parent) {
 }
 
 /// 3.1.75: cierto si [path] esta dentro de un respaldo de Masterizar
-/// (`.difogo_original` o el viejo `.gatomix_original`).
+/// (`.gatomix_original` o el heredado `.difogo_original`).
 bool pathInOriginalDir(String path) {
   final String p = path.replaceAll('\\', '/').toLowerCase();
   for (final String n in <String>[kOriginalDirName, kOldOriginalDirName]) {

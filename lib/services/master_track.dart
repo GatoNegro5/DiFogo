@@ -329,8 +329,8 @@ class MasterTrack {
     );
   }
 
-  /// Respalda una vez en `.difogo_original/` (3.1.75; un respaldo previo en
-  /// `.gatomix_original/` cuenta) y reescribe solo el TLEN.
+  /// Respalda una vez en `.gatomix_original/` (3.2.18; un respaldo previo en
+  /// `.difogo_original/` cuenta) y reescribe solo el TLEN.
   static Future<TlenReport> rewriteDurationTag(String path) async {
     if (libraryWriteBlocked(path, what: 'TLEN')) {
       return const TlenReport(
@@ -492,8 +492,8 @@ class MasterTrack {
     await f.writeAsString(text);
   }
 
-  /// 3.1.75: respaldos en `.difogo_original` y en el heredado
-  /// `.gatomix_original` (si una pista esta en los dos, gana el nuevo).
+  /// 3.2.18: respaldos en `.gatomix_original` y en el heredado
+  /// `.difogo_original` (si una pista esta en los dos, gana el nuevo).
   static Future<List<File>> backupsIn(String folder) async {
     final List<File> out = <File>[];
     final Set<String> seen = <String>{};
@@ -517,7 +517,7 @@ class MasterTrack {
     final File? backup = originalBackupOf(mp3Path);
     if (backup == null) {
       throw Exception(
-        'No hay original en .difogo_original/ ni .gatomix_original/',
+        'No hay original en .gatomix_original/ ni .difogo_original/',
       );
     }
     final marks = await rust_dsp.readGmxMarks(inputPath: mp3Path);

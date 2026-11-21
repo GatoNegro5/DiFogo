@@ -68,7 +68,7 @@ final djIphoneRouterProvider = NotifierProvider<DjIphoneRouter, int>(
 Future<void> main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
-    // 3.1.76: paridad con lib/main.dart (iOS: ~/.gatomix -> ~/.difogo).
+    // 3.2.18: paridad con lib/main.dart (iOS: ~/.difogo -> ~/.gatomix).
     migrateBrandCache();
     await IphoneLibrary.ensure();
     await initGlobalAudioService();
@@ -91,7 +91,7 @@ Future<void> main() async {
             child: Padding(
               padding: const EdgeInsets.all(20),
               child: Text(
-                'DiFogo no pudo abrir la carpeta de música.\n\n$e',
+                'GatoMix no pudo abrir la carpeta de música.\n\n$e',
                 style: const TextStyle(
                   color: Colors.redAccent,
                   fontFamily: 'Consolas',
@@ -114,7 +114,7 @@ class DjIphoneApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final appTheme = ref.watch(themeProvider);
     return MaterialApp(
-      title: 'DiFogo',
+      title: 'GatoMix',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: lyricRetryMessengerKey,
       theme: appTheme,
@@ -248,7 +248,7 @@ class _DjIphoneBootState extends State<_DjIphoneBoot> {
             const CircularProgressIndicator(color: GatoMixTheme.deckA),
             const SizedBox(height: 20),
             const Text(
-              'DiFogo',
+              'GatoMix',
               style: TextStyle(
                 color: GatoMixTheme.textMuted,
                 fontFamily: 'Consolas',
@@ -417,7 +417,7 @@ String _title(int route) {
     case 5:
       return 'AutomixDj';
     default:
-      return 'DiFogo';
+      return 'GatoMix';
   }
 }
 

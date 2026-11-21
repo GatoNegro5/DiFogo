@@ -86,7 +86,8 @@ Future<void> main([List<String> args = const []]) async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
 
-    // 3.1.75: datos de GatoMix -> DiFogo (un rename sincrono; nunca lanza).
+    // 3.2.18: datos de DiFogo -> GatoMix solo si GatoMix no existe (un
+    // rename sincrono; nunca lanza ni borra).
     migrateBrandCache();
 
     // 🛠️ INYECCIÓN OS: Levantar el servicio nativo de Audio (Lockscreen/Background)
@@ -178,7 +179,7 @@ class GatoMixApp extends ConsumerWidget {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'DiFogo',
+      title: 'GatoMix',
       scaffoldMessengerKey: lyricRetryMessengerKey,
       theme: appTheme,
       builder: (context, child) {
@@ -563,7 +564,7 @@ String _moduleTitle(int route, bool mobile) {
     case 6:
       return "Karaoke";
     default:
-      return "DiFogo";
+      return "GatoMix";
   }
 }
 

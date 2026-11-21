@@ -411,7 +411,7 @@ void main() {
     expect(GatomixRadio.fileIn(root).path, startsWith(cache));
     expect(lrc.path, startsWith(cache));
     expect(libraryMirrorKey(dir), libraryMirrorKey(dir));
-    // 3.1.75: %LOCALAPPDATA%\DiFogo\folder_cache\<hash_de_carpeta>.difogo.json
+    // 3.2.18: %LOCALAPPDATA%\GatoMix\folder_cache\<hash_de_carpeta>.gatomix.json
     final String key = libraryMirrorKey(dir);
     expect(key, matches(RegExp(r'^[0-9a-f]{16}$')));
     expect(GatomixStore.fileOf(dir).path, '$cache$_sep$key$kMirrorStoreSuffix');
@@ -421,7 +421,7 @@ void main() {
     debugLibraryCacheRoot = over;
     expect(
       real.replaceAll('\\', '/'),
-      endsWith(Platform.isWindows ? 'DiFogo/folder_cache' : 'folder_cache'),
+      endsWith(Platform.isWindows ? 'GatoMix/folder_cache' : 'folder_cache'),
     );
     if (Platform.isWindows) {
       expect(

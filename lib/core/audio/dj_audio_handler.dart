@@ -7,7 +7,7 @@ Future<void> initGlobalAudioService() async {
     builder: () => DjAudioHandler(),
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.gatonegro5.gatomix.channel.audio',
-      androidNotificationChannelName: 'DiFogo',
+      androidNotificationChannelName: 'GatoMix',
       // 🛠️ FIX ARQUITECTÓNICO: Se elimina androidNotificationOngoing.
       // Al mantener StopForegroundOnPause en false, la notificación
       // asume el estado persistente automáticamente sin romper la aserción de compilación.
@@ -106,7 +106,7 @@ class DjAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
         mediaItem.add(
           MediaItem(
             id: title,
-            album: 'DiFogo',
+            album: 'GatoMix',
             title: title,
             duration: _osDuration,
           ),
@@ -177,7 +177,7 @@ class DjAudioHandler extends BaseAudioHandler with QueueHandler, SeekHandler {
 
   void updateOsMetadata({required String title, required Duration duration}) {
     mediaItem.add(
-      MediaItem(id: title, album: 'DiFogo', title: title, duration: duration),
+      MediaItem(id: title, album: 'GatoMix', title: title, duration: duration),
     );
   }
 
