@@ -330,11 +330,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     return formula == MixFormula.phraseGrid || formula == MixFormula.dnaEnergy;
   }
 
-  int _phraseFallbackCue(String? path, int durMs) {
-    final int leadMs = TrackTags.peek(path)?.leadMs ?? 0;
-    if (durMs > 30000) return leadMs > 10000 ? leadMs : 10000;
-    return leadMs < durMs ~/ 3 ? leadMs : 0;
-  }
+  // 3.2.22: piso de 15 s (>= 90 s) o min(10 s, 10 %); silencio mayor manda.
+  int _phraseFallbackCue(String? path, int durMs) =>
+      dnaFallbackCueMs(durMs, TrackTags.peek(path)?.leadMs ?? 0);
 
   String? _phrasePeerPath() {
     if (!_wantsPhraseProfile()) return null;
@@ -451,6 +449,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   Future<int> _calculateSmartCueIn(String path, Player player) async {
     // La duración la mide Rust. El deck no decide el cue.
     final int durMs = _exactDurCache[path] ?? 0;
+    // 3.2.22: sin duracion medida no hay cue (0): no se inventa un punto.
+    // El cruce y el arranque en frio miden antes con _trueDuration.
     if (durMs <= 0) {
       return 0;
     }
@@ -459,10 +459,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       return stealthCueInMs(durMs, const []);
     }
     // El silencio inicial medido por el masterizado nunca queda dentro del cue.
-    final int leadMs = TrackTags.peek(path)?.leadMs ?? 0;
-    final int fallback = durMs > 30000
-        ? (leadMs > 10000 ? leadMs : 10000)
-        : (leadMs < durMs ~/ 3 ? leadMs : 0);
+    final int fallback = dnaFallbackCueMs(
+      durMs,
+      TrackTags.peek(path)?.leadMs ?? 0,
+    );
     if (ref.read(mixFormulaProvider) == MixFormula.dnaEnergy) {
       final String? outPath = state.currentTrackPath;
       final bool other = outPath != null && !sameAudioPath(outPath, path);
@@ -496,7 +496,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     ).cueInMs;
   }
 
-  // 🎛️ INYECCIÓN ADN DJ: Ahora el Cartridge aplica la regla 65%-80%
+  // 3.2.22: salida base 60 % para todos los generos; techo 80 % con el
+  // fundido incluido via dnaCapMixOut (clamp unico de todas las rutas).
   // Se consulta en CADA tick de posición: se memoriza por pista/fórmula para
   // no repetir regex + búsquedas de texto decenas de veces por segundo (CPU).
   String? _mixOutCacheKey;
@@ -520,35 +521,25 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   }
 
   int _calculateRadioMixOutRaw(int durationMs, String? path) {
+    if (durationMs <= 0) return 0;
     if (_isMixTrack(durationMs)) {
       // Un Mix ya no se escucha hasta el final: la mezcla sale 30 s antes del
-      // fin (sin el silencio final medido por el masterizado).
+      // fin (sin el silencio final medido por el masterizado). 3.2.22: y
+      // nunca despues del 80 % menos su fundido de 4 s.
       final int mixTail = TrackTags.peek(path)?.tailMs ?? 0;
       final int mixEff = (mixTail > 0 && mixTail < durationMs ~/ 3)
           ? durationMs - mixTail
           : durationMs;
-      return mixEff - 30000;
+      return dnaCapMixOut(
+        durationMs: mixEff,
+        mixOutMs: mixEff - 30000,
+        fadeMs: 4000,
+      );
     }
-    if (durationMs <= 0) return 0;
 
-    final trackPathLower = path?.toLowerCase() ?? '';
-    final isRemix = trackPathLower.contains('remix');
-    final isEdm =
-        trackPathLower.contains('electronica') ||
-        trackPathLower.contains('house');
-    final isTropical =
-        trackPathLower.contains('salsa') ||
-        trackPathLower.contains('cumbia') ||
-        trackPathLower.contains('merengue');
-
-    int safeMixOutMs = 0;
-    if (isRemix || isEdm) {
-      safeMixOutMs = (durationMs * 0.65).toInt();
-    } else if (isTropical) {
-      safeMixOutMs = (durationMs * 0.80).toInt();
-    } else {
-      safeMixOutMs = (durationMs * 0.75).toInt();
-    }
+    // 3.2.22: base unica 60 % para todos (antes tropical 80, resto 75 y
+    // remix/EDM 65 por ciento).
+    int safeMixOutMs = (durationMs * kDnaMixBase).toInt();
 
     // El silencio final medido por el masterizado no cuenta como canción: el
     // cruce sale antes de que empiece (la pista ya no se recorta en disco).
@@ -562,14 +553,18 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
     if (ref.read(mixFormulaProvider) == MixFormula.stealthGap) {
       // 3.1.73: el cruce de 10-12 s termina antes del final de A.
-      return extendedMixOutCap(
+      return dnaCapMixOut(
         durationMs: effDurMs,
-        mixOutMs: stealthMixOutMs(
+        mixOutMs: extendedMixOutCap(
           durationMs: effDurMs,
-          lyricMs: const [],
-          bpm: _extractBpm(path),
+          mixOutMs: stealthMixOutMs(
+            durationMs: effDurMs,
+            lyricMs: const [],
+            bpm: _extractBpm(path),
+          ),
+          windowMs: kStealthMaxMs,
         ),
-        windowMs: kStealthMaxMs,
+        fadeMs: kStealthMaxMs,
       );
     }
     if (ref.read(mixFormulaProvider) == MixFormula.phraseGrid) {
@@ -593,10 +588,16 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         incoming: incoming,
       ).mixOutMs;
       // 3.1.73: la ventana de 12-16 s cabe entera antes del final de A.
-      return extendedMixOutCap(
+      // 3.2.22: planPhrase8 acepta un outro hasta el 100 % (Rock -> Phrase 8
+      // llegaba al ~98 %); el clamp unico lo deja en 80 % - 16 s.
+      return dnaCapMixOut(
         durationMs: effDurMs,
-        mixOutMs: phraseOut,
-        windowMs: kPhrase8MaxMs,
+        mixOutMs: extendedMixOutCap(
+          durationMs: effDurMs,
+          mixOutMs: phraseOut,
+          windowMs: kPhrase8MaxMs,
+        ),
+        fadeMs: kPhrase8MaxMs,
       );
     }
     final String? peer = _phrasePeerPath();
@@ -612,14 +613,19 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       fallbackCueMs: _phraseFallbackCue(peer, peerDur),
       outRate: 1,
     );
+    final int out = dnaCapMixOut(
+      durationMs: effDurMs,
+      mixOutMs: dna.mixOutMs,
+      fadeMs: dna.fadeMs,
+    );
     if (effDurMs > 0) {
-      final double pct = dna.mixOutMs * 100.0 / effDurMs;
+      final double pct = out * 100.0 / effDurMs;
       debugPrint(
-        'DNA mixOut=${dna.mixOutMs} (${pct.toStringAsFixed(1)}%) '
-        'fuente=${dna.mixSource} fadeFin=${dna.mixOutMs + dna.fadeMs}',
+        'DNA mixOut=$out (${pct.toStringAsFixed(1)}%) '
+        'fuente=${dna.mixSource} fadeFin=${out + dna.fadeMs}',
       );
     }
-    return dna.mixOutMs;
+    return out;
   }
 
   DnaDecision _dnaPair({
@@ -2083,11 +2089,13 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
     _durationSub = player.stream.duration.listen((mpvDur) async {
       // La barra y el punto de mezcla esperan la duración decodificada.
-      // La estimación de libmpv no se publica.
+      // 3.2.22: si la medicion falla se usa la de libmpv; sin duracion no
+      // habia disparo y la pista sonaba entera hasta onCompleted (100 %).
       final String? durPath = state.currentTrackPath;
       if (durPath == null) return;
-      final Duration dur = await _trueDuration(durPath, mpvDur);
+      final Duration measured = await _trueDuration(durPath, mpvDur);
       if (state.currentTrackPath != durPath) return;
+      final Duration dur = measured.inMilliseconds > 0 ? measured : mpvDur;
       if (dur.inMilliseconds <= 0 || state.currentTrackPath == null) return;
       state = state.copyWith(duration: dur);
       globalAudioHandler.syncOs(
@@ -2228,6 +2236,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
             await _activePlayer.seek(Duration(milliseconds: seekMs));
           }
           _sessionPositionMs = 0;
+        } else {
+          // 3.2.22: primera pista de estacion/shuffle sin posicion elegida:
+          // arranca en su cue (un solo seek, antes de sonar).
+          await _coldStartCue(path);
         }
         await AdaptiveEq.awaitProfile(path);
         await _activePlayer.play();
@@ -2248,6 +2260,42 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     if (!playingNow) _mix.resumeAll();
     if (!playingNow) unawaited(_guardOutput());
     if (!state.isPlaying) _saveSnapshot();
+  }
+
+  /// 3.2.22: arranque en frio (deck vacio, sin posicion de sesion): mide la
+  /// duracion, calcula el cue con la misma regla del cruce y hace un solo
+  /// seek antes de play. Tras cada await se revisan pista y deck (3.2.17).
+  Future<void> _coldStartCue(String path) async {
+    final Player deck = _activePlayer;
+    try {
+      if (deck.state.duration.inMilliseconds <= 0) {
+        try {
+          await deck.stream.duration
+              .firstWhere((d) => d.inMilliseconds > 0)
+              .timeout(const Duration(seconds: 2));
+        } catch (_) {}
+      }
+      if (state.currentTrackPath != path || !identical(deck, _activePlayer)) {
+        return;
+      }
+      final Duration mpv = deck.state.duration;
+      final Duration dur = await _trueDuration(path, mpv);
+      final int cue = await _calculateSmartCueIn(path, deck);
+      if (state.currentTrackPath != path || !identical(deck, _activePlayer)) {
+        return;
+      }
+      final int seekMs = dnaColdStartSeekMs(
+        startPositionMs: _sessionPositionMs,
+        cueInMs: cue,
+        durationMs: dur.inMilliseconds > 0
+            ? dur.inMilliseconds
+            : mpv.inMilliseconds,
+      );
+      if (seekMs > 0) {
+        await deck.seek(Duration(milliseconds: seekMs));
+        _djTrace('COLD CUE $seekMs ms $path');
+      }
+    } catch (_) {}
   }
 
   Future<void> seek(Duration position) async {
@@ -3432,7 +3480,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     try {
       trackDur = incomingPlayer.state.duration;
     } catch (_) {}
+    final Duration mpvIncoming = trackDur;
     trackDur = await _trueDuration(nextTrack, trackDur);
+    // 3.2.22: medicion fallida: la duracion de libmpv sostiene el techo 80 %.
+    if (trackDur.inMilliseconds <= 0) trackDur = mpvIncoming;
 
     final int cueInMs = await _calculateSmartCueIn(nextTrack, incomingPlayer);
     final int triggerMs = _calculateRadioMixOut(

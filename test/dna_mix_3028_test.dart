@@ -12,7 +12,8 @@ import 'package:difogo/ui/workspaces/livedj_deck_relevo.dart';
 const int _rate = 22050;
 
 void main() {
-  test('sin perfil DNA conserva el porcentaje, el cue de 10 s y 18 s', () {
+  // 3.2.22: sin perfil el cue sube a 15 s y la salida cabe en 80 % - 18 s.
+  test('sin perfil DNA: cue de 15 s, 18 s y fin del fundido <= 80 %', () {
     final DnaDecision d = decideDna(
       outDurationMs: 200000,
       inDurationMs: 200000,
@@ -26,8 +27,8 @@ void main() {
       eqSupported: true,
     );
     expect(d.kind, DnaKind.legacy);
-    expect(d.mixOutMs, 150000);
-    expect(d.cueInMs, 10000);
+    expect(d.mixOutMs, 142000);
+    expect(d.cueInMs, 15000);
     expect(d.fadeMs, 18000);
     expect(d.lockTempo, isTrue);
     expect(d.bassSwap, isTrue);
@@ -49,8 +50,11 @@ void main() {
     expect(d.kind, DnaKind.longBlend);
     expect(d.bassSwap, isTrue);
     expect(d.lockTempo, isTrue);
-    expect(d.fadeMs, 18000);
-    expect(d.cueInMs, 15000);
+    // 3.2.22: pista de 60 s: el fundido se acorta para terminar en el 80 %
+    // y el cue usa el piso proporcional (10 %, 6 s).
+    expect(d.fadeMs, 12000);
+    expect(d.mixOutMs + d.fadeMs, lessThanOrEqualTo(48000));
+    expect(d.cueInMs, lessThanOrEqualTo(6000));
     expect(d.echoDelayMs, 0);
   });
 
@@ -85,7 +89,9 @@ void main() {
     expect(d.fadeMs, 16000);
     expect(d.mixOutMs, inInclusiveRange(57600, 76800));
     expect(d.mixOutMs + d.fadeMs, lessThanOrEqualTo(96000));
-    expect(d.cueInMs, isNot(16000));
+    // 3.2.22: entrada en la franja 15-25 s (antes el primer golpe).
+    expect(d.cueInMs, inInclusiveRange(15000, 25000));
+    expect(d.mixOutMs + d.fadeMs, lessThanOrEqualTo(76800));
   });
 
   test('(c) BPM lejos: eco al beat y la entrante no se fuerza', () {
@@ -162,7 +168,8 @@ void main() {
       echoSupported: false,
       eqSupported: true,
     );
-    expect(tooSoon.mixOutMs, 135000);
+    // 3.2.22: 80 % - 18 s de fundido.
+    expect(tooSoon.mixOutMs, 126000);
 
     final PhraseTrack late = _body(outro: 178000);
     final DnaDecision tooLate = decideDna(
@@ -236,7 +243,7 @@ DnaDecision _pair(
     outDurationMs: outgoing.durationMs,
     inDurationMs: incoming.durationMs,
     genreMixOutMs: (outgoing.durationMs * 0.75).toInt(),
-    fallbackCueMs: 10000,
+    fallbackCueMs: dnaFallbackCueMs(incoming.durationMs, 0),
     outBpm: outBpm,
     inBpm: inBpm,
     outKey: key,
