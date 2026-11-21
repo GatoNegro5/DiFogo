@@ -164,6 +164,13 @@ jobs:
             ${{ matrix.build_cmd }} --build-name="${GITHUB_REF_NAME#v}"
           fi
 
+      # 3.2.14: entorno MSVC (cl.exe, INCLUDE/LIB y ninja de VS en PATH)
+      # para que el CMake de whisper-rs-sys pueda usar el generador Ninja.
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: matrix.target == 'windows'
+        with:
+          arch: x64
+
       # 3.2.13: MSBuild FileTracker (FTK1011): la ruta del .tlog del
       # TryCompile de CMake de whisper-rs-sys bajo build\windows\x64\plugins\
       # superaba MAX_PATH (266 > 260). Se compila desde la unidad corta W:
@@ -177,7 +184,12 @@ jobs:
           if errorlevel 1 exit /b 1
           cd /d W:\
           set "V=%GITHUB_REF_NAME:~1%"
-          call flutter build windows --release --build-name=%V%
+          rem 3.2.14: el crate cmake lee CMAKE_GENERATOR; whisper-rs-sys compila
+          rem con Ninja (sin MSBuild ni FileTracker). Flutter pasa -G propio.
+          set "CMAKE_GENERATOR=Ninja"
+          where ninja || echo ninja-no-encontrado
+          rem 3.2.14: -v para ver el error real de cargo en el log del CI.
+          call flutter build windows --release --build-name=%V% -v
           set "RC=%ERRORLEVEL%"
           cd /d "%GITHUB_WORKSPACE%"
           subst W: /D
