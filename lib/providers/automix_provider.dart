@@ -39,7 +39,6 @@ import '../core/lyric_files.dart' hide sameAudioPath;
 import '../core/session_restore.dart';
 import '../core/lyric_match.dart';
 import '../core/lyric_approx.dart';
-import '../ui/widgets/approx_lyric_icon.dart' show approxLyricRevision;
 import 'db_provider.dart';
 import 'session_provider.dart';
 import 'vibe_hub_provider.dart';
@@ -216,9 +215,6 @@ class AutomixNotifier extends Notifier<AutomixState> {
   bool _deckAWasOn = false;
   bool _deckBWasOn = false;
   int _lastLyricIndex = -2;
-  String? _shownLyricsPath;
-  List<LyricLine>? _lyricUndo;
-  String? _lyricUndoPath;
   final Set<String> _shuffleKnown = <String>{};
   // 3.1.86: firma de generos de la cola guardada (null = cola a mano).
   String? _genreSignature;
@@ -2664,7 +2660,6 @@ class AutomixNotifier extends Notifier<AutomixState> {
       final List<LyricLine> parsed = await _parseLyricsFile(current!);
       _lyricPrime[current] = parsed;
       if (state.currentTrackPath != current) return;
-      _shownLyricsPath = current;
       state = state.copyWith(lyrics: parsed, activeLyricIndex: -1);
       _lastLyricIndex = -2;
     } else if (sameAudioPath(next, audioPath)) {
@@ -2707,14 +2702,12 @@ class AutomixNotifier extends Notifier<AutomixState> {
     if (state.currentTrackPath != audioPath) return;
     _refreshApproxFlag(audioPath);
     if (parsed.isNotEmpty) {
-      _shownLyricsPath = audioPath;
       state = state.copyWith(lyrics: parsed, activeLyricIndex: -1);
     } else {
       final lrcPath = audioPath.replaceAll(
         RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
         '.lrc',
       );
-      _shownLyricsPath = audioPath;
       state = state.copyWith(lyrics: [], activeLyricIndex: -1);
       if (!lrcReadFile(audioPath, lrcPath).existsSync()) {
         _fetchLyricsAsync(audioPath, lrcPath);
@@ -3069,147 +3062,6 @@ class AutomixNotifier extends Notifier<AutomixState> {
     }
     state = state.copyWith(playlist: newPlaylist, currentIndex: newIndex);
     _saveSnapshot();
-  }
-
-  Future<void> autoSyncFirstLyric() async {
-    if (state.currentTrackPath == null || state.lyrics.isEmpty) return;
-    if (_shownLyricsPath != state.currentTrackPath) return;
-    _rememberLyricUndo();
-
-    final posMs = state.position.inMilliseconds;
-    final targetLine = state.lyrics.first;
-
-    final deltaMs = posMs - targetLine.timestamp.inMilliseconds;
-
-    final List<LyricLine> newLyrics = [];
-
-    for (var line in state.lyrics) {
-      int newMs = line.timestamp.inMilliseconds + deltaMs;
-      if (newMs < 0) newMs = 0;
-
-      newLyrics.add(
-        LyricLine(
-          timestamp: Duration(milliseconds: newMs),
-          text: line.text,
-        ),
-      );
-    }
-
-    await _saveLyricsToFile(state.currentTrackPath!, newLyrics);
-    state = state.copyWith(lyrics: newLyrics);
-    debugPrint("✅ [SYNC GLOBAL] Matriz reconstruida por Delta: ${deltaMs}ms");
-  }
-
-  Future<void> autoSyncFromCurrentLyric({required int lineIndex}) async {
-    if (state.currentTrackPath == null || state.lyrics.isEmpty) return;
-    if (_shownLyricsPath != state.currentTrackPath) return;
-    _rememberLyricUndo();
-
-    int idx = lineIndex;
-    if (idx < 0) idx = 0;
-    if (idx >= state.lyrics.length) idx = state.lyrics.length - 1;
-
-    final int deltaMs =
-        state.position.inMilliseconds -
-        state.lyrics[idx].timestamp.inMilliseconds;
-
-    final List<LyricLine> newLyrics = [
-      for (int i = 0; i < state.lyrics.length; i++)
-        i < idx
-            ? state.lyrics[i]
-            : LyricLine(
-                timestamp: Duration(
-                  milliseconds: max(
-                    0,
-                    state.lyrics[i].timestamp.inMilliseconds + deltaMs,
-                  ),
-                ),
-                text: state.lyrics[i].text,
-              ),
-    ];
-
-    await _saveLyricsToFile(state.currentTrackPath!, newLyrics);
-    state = state.copyWith(lyrics: newLyrics, activeLyricIndex: idx);
-    debugPrint("✅ [SYNC MED] linea ${idx + 1} al playhead, delta ${deltaMs}ms");
-  }
-
-  Future<void> autoSyncSingleLyric({required int lineIndex}) async {
-    if (state.currentTrackPath == null || state.lyrics.isEmpty) return;
-    if (_shownLyricsPath != state.currentTrackPath) return;
-    _rememberLyricUndo();
-
-    int idx = lineIndex;
-    if (idx < 0) idx = 0;
-    if (idx >= state.lyrics.length) idx = state.lyrics.length - 1;
-
-    final int newMs = max(0, state.position.inMilliseconds);
-    final List<LyricLine> newLyrics = [
-      for (int i = 0; i < state.lyrics.length; i++)
-        i == idx
-            ? LyricLine(
-                timestamp: Duration(milliseconds: newMs),
-                text: state.lyrics[i].text,
-              )
-            : state.lyrics[i],
-    ];
-
-    await _saveLyricsToFile(state.currentTrackPath!, newLyrics);
-    state = state.copyWith(lyrics: newLyrics, activeLyricIndex: idx);
-    debugPrint("✅ [SYNC SOLO] linea ${idx + 1} a ${newMs}ms");
-  }
-
-  void _rememberLyricUndo() {
-    _lyricUndoPath = state.currentTrackPath;
-    _lyricUndo = List<LyricLine>.from(state.lyrics);
-  }
-
-  Future<void> undoLastLyricSync() async {
-    final saved = _lyricUndo;
-    final path = _lyricUndoPath;
-    if (saved == null || path == null) return;
-    if (path != state.currentTrackPath) return;
-    _lyricUndo = null;
-    _lyricUndoPath = null;
-    await _saveLyricsToFile(path, saved);
-    _shownLyricsPath = path;
-    state = state.copyWith(lyrics: saved);
-  }
-
-  Future<void> _saveLyricsToFile(
-    String audioPath,
-    List<dynamic> currentLyrics,
-  ) async {
-    final lrcPath = audioPath.replaceAll(
-      RegExp(r'\.mp3$|\.webm$', caseSensitive: false),
-      '.lrc',
-    );
-    final file = lrcWriteFile(audioPath, lrcPath);
-    final buffer = StringBuffer();
-
-    for (dynamic line in currentLyrics) {
-      final totalMs = line.timestamp.inMilliseconds as int;
-      final min = (totalMs ~/ 60000).toString().padLeft(2, '0');
-      final sec = ((totalMs % 60000) ~/ 1000).toString().padLeft(2, '0');
-      final ms = ((totalMs % 1000) ~/ 10).toString().padLeft(2, '0');
-      buffer.writeln('[$min:$sec.$ms]${line.text}');
-    }
-
-    await file.writeAsString(buffer.toString());
-    _lyricPrime.remove(audioPath);
-    if (ref.read(automixLyricApproxProvider)) {
-      // El ajuste del usuario convierte la letra aproximada en MANUAL.
-      ref.read(automixLyricApproxProvider.notifier).state = false;
-      approxLyricRevision.value++;
-      try {
-        // 3.1.72: sin tag GMX_LYR dentro de la biblioteca protegida.
-        if (libraryWriteBlocked(audioPath, what: 'GMX_LYR')) return;
-        await rust_dsp.setGmxMark(
-          inputPath: audioPath,
-          key: 'GMX_LYR',
-          value: 'MANUAL',
-        );
-      } catch (_) {}
-    }
   }
 
   Future<void> shiftLyrics(int offsetMs) async {
