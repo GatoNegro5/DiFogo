@@ -56,12 +56,12 @@ jobs:
           - os: windows-latest
             target: windows
             build_cmd: flutter build windows --release
-            asset_name: DiFogo-Installer.exe
+            asset_name: GatoMix-Installer.exe
             rust_targets: x86_64-pc-windows-msvc
           - os: macos-latest
             target: macos
             build_cmd: flutter build macos --release
-            asset_name: DiFogo-MacOS.zip
+            asset_name: GatoMix-MacOS.zip
             rust_targets: x86_64-apple-darwin, aarch64-apple-darwin
 
     runs-on: ${{ matrix.os }}
@@ -227,7 +227,7 @@ jobs:
 
       - name: Zip MacOS Build
         if: matrix.target == 'macos'
-        run: ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/*.app DiFogo-MacOS.zip
+        run: ditto -c -k --sequesterRsrc --keepParent build/macos/Build/Products/Release/*.app GatoMix-MacOS.zip
 
       - name: Upload Artifacts to Job
         uses: actions/upload-artifact@v4
@@ -235,8 +235,8 @@ jobs:
           name: ${{ matrix.asset_name }}
           path: |
             ${{ matrix.target == 'apk' && 'build/app/outputs/flutter-apk/app-release.apk' || '' }}
-            ${{ matrix.target == 'windows' && 'DiFogo-Installer.exe' || '' }}
-            ${{ matrix.target == 'macos' && 'DiFogo-MacOS.zip' || '' }}
+            ${{ matrix.target == 'windows' && 'GatoMix-Installer.exe' || '' }}
+            ${{ matrix.target == 'macos' && 'GatoMix-MacOS.zip' || '' }}
 
   release:
     name: Create GitHub Release
@@ -257,8 +257,8 @@ jobs:
           name: DiFogo ${{ github.ref_name }}
           files: |
             artifacts/app-release.apk
-            artifacts/DiFogo-Installer.exe
-            artifacts/DiFogo-MacOS.zip
+            artifacts/GatoMix-Installer.exe
+            artifacts/GatoMix-MacOS.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

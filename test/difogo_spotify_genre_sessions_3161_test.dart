@@ -225,7 +225,8 @@ void main() {
         final int at = src.indexOf("Key('sidebar-logo')");
         expect(at, greaterThan(0), reason: f);
         final String around = src.substring(at - 260, at + 160);
-        expect(around.contains("'assets/branding/difogo_logo3.png'"), isTrue);
+        // 3.2.21: el logo del sidebar vuelve al wordmark GatoMix.
+        expect(around.contains("'assets/branding/gatomix_wordmark.png'"), isTrue);
         expect(around.contains('height: 130'), isTrue, reason: f);
         final RegExpMatch m = RegExp(
           r'height: (\d+)',

@@ -239,7 +239,7 @@ class _DjIphoneBootState extends State<_DjIphoneBoot> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Image.asset(
-              'assets/branding/difogo_logo3.png',
+              'assets/branding/gatomix_logo.png',
               width: 96,
               height: 96,
               fit: BoxFit.contain,
@@ -520,14 +520,14 @@ class _DjIphoneNav extends ConsumerWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 3.1.65: solo el escudo (120 px en cabecera de 130) y la version;
-        // sin wordmark debajo (redundante).
+        // 3.2.21: wordmark GatoMix (arte previo a 3.1.59) en la cabecera de
+        // 130 px y luego la version.
         SizedBox(
           height: 130,
           width: double.infinity,
           child: Center(
             child: Image.asset(
-              'assets/branding/difogo_logo3.png',
+              'assets/branding/gatomix_wordmark.png',
               key: const Key('sidebar-logo'),
               height: 120,
               fit: BoxFit.contain,

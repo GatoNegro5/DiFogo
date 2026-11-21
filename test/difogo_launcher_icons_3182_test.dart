@@ -5,13 +5,11 @@ import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 
-// 3.1.82: iconos nativos de Windows, Android, iOS y macOS con la cara del
-// gato a sangre (sin margenes vacios), recortada de
-// assets/branding/difogo_logo.png: cuadro de 800 px en (112,160)-(912,960)
-// con audifonos completos; los huecos del arte se tapan con su azul #0E152A.
-// 3.1.83: los huecos y el fondo adaptativo pasan a negro #000000 y el .ico
-// de Windows toma el estilo de macOS (cara a sangre, esquinas redondeadas).
-// Solo lectura de archivos del repo.
+// 3.1.82/3.1.83: iconos nativos con la cara DiFogo.
+// 3.2.21: Android, iOS y macOS vuelven al icono GatoMix previo, restaurado
+// tal cual desde 8dda273 (padre de 12213f8): cada PNG debe ser uno de los 29
+// del icono viejo (v1.0.0 GatoMix / 3.0.22) y ninguno de 3.1.82. El .ico de
+// Windows vuelve al GatoMix de 06fec95. Solo lectura de archivos del repo.
 
 const String _res = 'android/app/src/main/res/mipmap-';
 const String _ios = 'ios/Runner/Assets.xcassets/AppIcon.appiconset/';
@@ -93,90 +91,37 @@ int _fnv(Uint8List b) {
   return h;
 }
 
-class _Px {
-  _Px(this.w, this.h, this.data);
-  final int w;
-  final int h;
-  final ByteData data;
-  int alpha(int x, int y) => data.getUint8((y * w + x) * 4 + 3);
-}
-
-Future<_Px> _decode(Uint8List bytes) async {
+Future<List<int>> _size(Uint8List bytes) async {
   final ui.Codec codec = await ui.instantiateImageCodec(bytes);
   final ui.Image img = (await codec.getNextFrame()).image;
-  final ByteData? px = await img.toByteData(format: ui.ImageByteFormat.rawRgba);
-  return _Px(img.width, img.height, px!);
+  return <int>[img.width, img.height];
 }
 
-Future<_Px> _load(String path) {
+// PNG GatoMix restaurado: hash del set viejo y no del set DiFogo 3.1.82.
+Future<List<int>> _load(String path) {
   final Uint8List bytes = File(path).readAsBytesSync();
-  expect(_oldHashes.contains(_fnv(bytes)), isFalse, reason: '$path viejo');
+  expect(_oldHashes.contains(_fnv(bytes)), isTrue, reason: '$path GatoMix');
   expect(_navy3182.contains(_fnv(bytes)), isFalse, reason: '$path 3.1.82');
-  return _decode(bytes);
-}
-
-// Cobertura opaca y caja del arte (alfa > 32) en fraccion del lienzo.
-void _fills(_Px p, String name, {double minCover = 0.95}) {
-  int x0 = p.w, y0 = p.h, x1 = -1, y1 = -1, n = 0;
-  for (int y = 0; y < p.h; y++) {
-    for (int x = 0; x < p.w; x++) {
-      if (p.alpha(x, y) > 32) {
-        n++;
-        if (x < x0) x0 = x;
-        if (x > x1) x1 = x;
-        if (y < y0) y0 = y;
-        if (y > y1) y1 = y;
-      }
-    }
-  }
-  expect((x1 - x0 + 1) / p.w, greaterThanOrEqualTo(0.95), reason: name);
-  expect((y1 - y0 + 1) / p.h, greaterThanOrEqualTo(0.95), reason: name);
-  expect(n / (p.w * p.h), greaterThanOrEqualTo(minCover), reason: name);
-}
-
-void _opaque(_Px p, String name) {
-  for (int y = 0; y < p.h; y++) {
-    for (int x = 0; x < p.w; x++) {
-      if (p.alpha(x, y) != 255) fail('$name con alfa en $x,$y');
-    }
-  }
-}
-
-// Entradas del .ico: tamano -> PNG o DIB de esa entrada.
-Map<int, Uint8List> _icoEntries(Uint8List b) {
-  final ByteData d = ByteData.sublistView(b);
-  final Map<int, Uint8List> out = <int, Uint8List>{};
-  for (int k = 0; k < d.getUint16(4, Endian.little); k++) {
-    final int e = 6 + 16 * k;
-    final int len = d.getUint32(e + 8, Endian.little);
-    final int off = d.getUint32(e + 12, Endian.little);
-    out[b[e] == 0 ? 256 : b[e]] = Uint8List.sublistView(b, off, off + len);
-  }
-  return out;
+  return _size(bytes);
 }
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('3183 Windows: app_icon.ico redondeado como macOS', (
-    WidgetTester tester,
-  ) async {
-    await tester.runAsync(() async {
-      final Map<int, Uint8List> e = _icoEntries(
-        File('windows/runner/resources/app_icon.ico').readAsBytesSync(),
-      );
-      expect(e.keys.toSet(), <int>{16, 32, 48, 64, 128, 256});
-      final _Px p = await _decode(e[256]!);
-      expect(p.w, 256);
-      _fills(p, 'ico 256');
-      expect(p.alpha(0, 0), 0, reason: 'ico 256 esquina');
-      expect(p.alpha(255, 255), 0, reason: 'ico 256 esquina');
-      expect(p.alpha(128, 0), 255, reason: 'ico 256 borde superior');
-      expect(p.alpha(0, 128), 255, reason: 'ico 256 borde izquierdo');
-    });
+  test('3.2.21 Windows: app_icon.ico GatoMix multi-resolucion', () {
+    final Uint8List b = File(
+      'windows/runner/resources/app_icon.ico',
+    ).readAsBytesSync();
+    final ByteData d = ByteData.sublistView(b);
+    final Set<int> sizes = <int>{};
+    for (int k = 0; k < d.getUint16(4, Endian.little); k++) {
+      final int e = 6 + 16 * k;
+      sizes.add(b[e] == 0 ? 256 : b[e]);
+    }
+    expect(sizes, <int>{16, 24, 32, 48, 64, 128, 256});
   });
 
-  testWidgets('3182 Android: heredado y adaptativo a sangre', (
+  testWidgets('3.2.21 Android: icono GatoMix heredado y adaptativo', (
     WidgetTester tester,
   ) async {
     await tester.runAsync(() async {
@@ -188,22 +133,17 @@ void main() {
         'xxxhdpi': <int>[192, 432],
       };
       for (final MapEntry<String, List<int>> d in dens.entries) {
-        final _Px leg = await _load('$_res${d.key}/ic_launcher.png');
-        expect(leg.w, d.value[0], reason: d.key);
-        expect(leg.h, d.value[0], reason: d.key);
-        _opaque(leg, 'ic_launcher ${d.key}');
-        final _Px fg = await _load('$_res${d.key}/ic_launcher_foreground.png');
-        expect(fg.w, d.value[1], reason: d.key);
-        expect(fg.h, d.value[1], reason: d.key);
-        // Sin margen transparente: el arte llena los 108dp y la mascara del
-        // launcher recorta; lo visible (72dp) es el mismo cuadro de la cara.
-        _opaque(fg, 'ic_launcher_foreground ${d.key}');
+        final List<int> leg = await _load('$_res${d.key}/ic_launcher.png');
+        expect(leg, <int>[d.value[0], d.value[0]], reason: d.key);
+        final List<int> fg = await _load(
+          '$_res${d.key}/ic_launcher_foreground.png',
+        );
+        expect(fg, <int>[d.value[1], d.value[1]], reason: d.key);
       }
       final String colors = File(
         'android/app/src/main/res/values/colors.xml',
       ).readAsStringSync();
-      expect(colors.contains('#000000'), isTrue);
-      expect(colors.contains('#0E152A'), isFalse);
+      expect(colors.contains('#1C1C1E'), isTrue);
       final String adaptive = File(
         'android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml',
       ).readAsStringSync();
@@ -211,7 +151,7 @@ void main() {
     });
   });
 
-  testWidgets('3182 iOS: tamanos de Contents.json, opaco a sangre', (
+  testWidgets('3.2.21 iOS: tamanos de Contents.json con icono GatoMix', (
     WidgetTester tester,
   ) async {
     await tester.runAsync(() async {
@@ -225,26 +165,20 @@ void main() {
         if (!seen.add(file)) continue;
         final double pt = double.parse((m['size'] as String).split('x').first);
         final int scale = int.parse((m['scale'] as String).substring(0, 1));
-        final _Px p = await _load('$_ios$file');
-        expect(p.w, (pt * scale).round(), reason: file);
-        expect(p.h, (pt * scale).round(), reason: file);
-        _opaque(p, file);
+        final List<int> p = await _load('$_ios$file');
+        expect(p, <int>[(pt * scale).round(), (pt * scale).round()]);
       }
       expect(seen.contains('Icon-App-1024x1024@1x.png'), isTrue);
     });
   });
 
-  testWidgets('3182 macOS: cara llenando el cuadro redondeado', (
+  testWidgets('3.2.21 macOS: icono GatoMix en los 7 tamanos', (
     WidgetTester tester,
   ) async {
     await tester.runAsync(() async {
       for (final int s in <int>[16, 32, 64, 128, 256, 512, 1024]) {
-        final _Px p = await _load('${_mac}app_icon_$s.png');
-        expect(p.w, s);
-        expect(p.h, s);
-        _fills(p, 'mac $s');
-        expect(p.alpha(s ~/ 2, 0), 255, reason: '$s borde superior');
-        expect(p.alpha(0, s ~/ 2), 255, reason: '$s borde izquierdo');
+        final List<int> p = await _load('${_mac}app_icon_$s.png');
+        expect(p, <int>[s, s]);
       }
     });
   });

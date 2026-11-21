@@ -3,8 +3,8 @@
 # DiFogo - macOS Automated Deployer & Bypass (Dynamic Wildcard)
 # ==========================================
 
-# 3.1.80: mismo nombre que publica .github/workflows/release.yml (DiFogo-MacOS.zip con DiFogo.app en la raiz)
-GITHUB_ZIP_URL="https://github.com/GatoNegro5/DiFogo/releases/latest/download/DiFogo-MacOS.zip"
+# 3.2.21: mismo nombre que publica .github/workflows/release.yml (GatoMix-MacOS.zip con GatoMix.app en la raiz)
+GITHUB_ZIP_URL="https://github.com/GatoNegro5/DiFogo/releases/latest/download/GatoMix-MacOS.zip"
 TMP_DIR="/tmp/difogo_install"
 
 echo ">> Descargando desde GitHub..."

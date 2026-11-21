@@ -3,11 +3,12 @@ import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-// 3.1.59: logos oficiales DiFogo. Solo lectura de fuentes y assets.
+// 3.1.59: logos oficiales DiFogo. 3.2.21: vuelven los logos GatoMix previos
+// (gatomix_logo.png y gatomix_wordmark.png, sin cambios desde f94684c).
+// Solo lectura de fuentes y assets.
 const List<String> _assets = <String>[
-  'assets/branding/difogo_logo.png',
-  'assets/branding/difogo_wordmark.png',
-  'assets/branding/difogo_logo3.png',
+  'assets/branding/gatomix_logo.png',
+  'assets/branding/gatomix_wordmark.png',
 ];
 
 bool _isPng(List<int> b) =>
@@ -20,7 +21,7 @@ bool _isPng(List<int> b) =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  test('3.1.59 los 3 PNG DiFogo existen y son PNG reales', () {
+  test('3.2.21 los 2 PNG GatoMix existen y son PNG reales', () {
     for (final String a in _assets) {
       final File f = File(a);
       expect(f.existsSync(), isTrue, reason: a);
@@ -29,7 +30,7 @@ void main() {
     }
   });
 
-  test('3.1.59 los 3 PNG cargan via rootBundle', () async {
+  test('3.2.21 los 2 PNG GatoMix cargan via rootBundle', () async {
     for (final String a in _assets) {
       final ByteData d = await rootBundle.load(a);
       expect(d.lengthInBytes, File(a).lengthSync(), reason: a);
@@ -46,28 +47,29 @@ void main() {
     expect(jpg, isEmpty);
   });
 
-  test('3.1.59 laptop e iPhone usan los logos DiFogo', () {
+  test('3.2.21 laptop e iPhone usan los logos GatoMix', () {
     for (final String f in <String>[
       'lib/main.dart',
       'lib/djiphone/main.dart',
     ]) {
       final String src = File(f).readAsStringSync();
-      expect(src.contains('gatomix_logo.png'), isFalse, reason: f);
-      expect(src.contains('gatomix_wordmark.png'), isFalse, reason: f);
       expect(
-        src.contains("'assets/branding/difogo_logo3.png'"),
+        src.contains("'assets/branding/gatomix_logo.png'"),
         isTrue,
         reason: f,
       );
       expect(
-        src.contains("'assets/branding/difogo_wordmark.png'"),
-        isFalse, // 3.1.65: wordmark fuera del sidebar
+        src.contains("'assets/branding/gatomix_wordmark.png'"),
+        isTrue,
         reason: f,
       );
+      expect(src.contains('difogo_logo'), isFalse, reason: f);
+      expect(src.contains('difogo_wordmark'), isFalse, reason: f);
     }
     final String pub = File('pubspec.yaml').readAsStringSync();
     for (final String a in _assets) {
       expect(pub.contains('- $a'), isTrue, reason: a);
     }
+    expect(pub.contains('- assets/branding/difogo_'), isFalse);
   });
 }
