@@ -106,8 +106,27 @@ class TrackTags {
     return t;
   }
 
+  /// 3.2.17: avisos al olvidar una ruta (Live DJ suelta su duracion medida).
+  static final Set<void Function(String path)> _forgetListeners =
+      <void Function(String path)>{};
+
+  static void addForgetListener(void Function(String path) f) =>
+      _forgetListeners.add(f);
+
+  static void removeForgetListener(void Function(String path) f) =>
+      _forgetListeners.remove(f);
+
   /// Olvida una ruta (p. ej. tras volver a masterizar).
-  static void forget(String path) => _cache.remove(_k(path));
+  static void forget(String path) {
+    _cache.remove(_k(path));
+    for (final void Function(String path) f in List<void Function(String)>.of(
+      _forgetListeners,
+    )) {
+      try {
+        f(path);
+      } catch (_) {}
+    }
+  }
 
   /// Vacía la caché. Lo usan las pruebas del Shuffle.
   static void clear() => _cache.clear();

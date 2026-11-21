@@ -271,6 +271,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     _attachListeners(_playerA);
     _persistReady = _initPersistence();
     attachPlaybackExclusion();
+    // 3.2.17: Masterizar/editar olvida la ruta en TrackTags: la duracion
+    // decodificada en cache tambien se suelta y se vuelve a medir.
+    TrackTags.addForgetListener(_forgetExactDuration);
 
     // TIPO DE MEZCLA persistente: cada cambio de fórmula baja a disco.
     ref.listen<MixFormula>(mixFormulaProvider, (previous, next) {
@@ -283,6 +286,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
 
     ref.onDispose(() {
       _postMix.cancel();
+      TrackTags.removeForgetListener(_forgetExactDuration);
       // 3.2.6: lo pendiente de la lista persistente no se pierde al cerrar.
       unawaited(_listsView?.store.flushIfDirty() ?? Future<void>.value());
       _positionSub?.cancel();
@@ -1621,6 +1625,43 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     return fresh.length;
   }
 
+  /// 3.2.17 filtro en vivo de sub-generos: quita de la cola las pendientes
+  /// de [paths] sin reiniciar el resto. La que suena no esta en la cola; en
+  /// un cruce o con la rampa previa comprometida se conservan la cabeza, la
+  /// precargada y la fijada (la entrante no se toca). Sin cruce, si la
+  /// precargada en standby era de las quitadas se suelta el armado para que
+  /// precargue la nueva cabeza. Decks, curva DAWN y candados sin cambios.
+  /// Devuelve cuantas pistas salieron.
+  int dropTracksLive(Iterable<String> paths) {
+    final Set<String> drop = <String>{
+      for (final String p in paths)
+        if (p.isNotEmpty) audioPathKey(p),
+    };
+    if (drop.isEmpty || state.queue.isEmpty) return 0;
+    final bool busy = _isCrossfading || _drift.preRollActive;
+    final Set<String> keep = <String>{
+      if (busy) audioPathKey(state.queue.first.path),
+      if (busy && _standbyArmedPath != null) audioPathKey(_standbyArmedPath!),
+      if (busy && _driftNextPath != null) audioPathKey(_driftNextPath!),
+    };
+    final List<File> next = liveDjQueueWithout(state.queue, drop, keep: keep);
+    final int removed = state.queue.length - next.length;
+    if (removed == 0) return 0;
+    for (final String k in drop) {
+      _queueAddPending.remove(k);
+    }
+    final String? armed = _standbyArmedPath;
+    if (!busy && armed != null && drop.contains(audioPathKey(armed))) {
+      _isStandbyArmed = false;
+      _standbyArmedPath = null;
+      _driftNextPath = null;
+    }
+    state = state.copyWith(queue: next);
+    if (!busy) _rememberDriftNext();
+    unawaited(_saveSnapshot());
+    return removed;
+  }
+
   void removeTrack(String path) {
     final newQueue = state.queue
         .where((f) => !sameAudioPath(f.path, path))
@@ -1787,6 +1828,15 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   }
 
   final Map<String, int> _exactDurCache = {};
+
+  /// 3.2.17: TrackTags.forget(path) (tras Masterizar/editar) suelta tambien
+  /// la duracion decodificada de esa ruta (cualquier grafia).
+  void _forgetExactDuration(String path) {
+    if (path.isEmpty) return;
+    final String k = audioPathKey(path);
+    _exactDurCache.remove(path);
+    _exactDurCache.removeWhere((String p, int _) => audioPathKey(p) == k);
+  }
 
   /// Duración decodificada (`exact_duration_ms`). Ni TLEN ni la estimación
   /// de libmpv deciden la barra ni el disparo. Sin medición, duración 0.
@@ -2055,6 +2105,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         state.currentTrackPath!,
         player,
       );
+      // 3.2.17: tras el await pudo cambiar la pista o el deck activo (swap
+      // A/B): un resultado tardio no pisa la marca de la pista nueva.
+      if (state.currentTrackPath != durPath || player != _activePlayer) return;
       final mode = _isMixTrack(dur.inMilliseconds)
           ? LiveDjMixMode.longBypass
           : LiveDjMixMode.activeSync;
@@ -4161,6 +4214,20 @@ List<File>? liveDjReorderWindow(
   if (part == null) return null;
   return <File>[for (final String p in part) File(p), ...queue.sublist(end)];
 }
+
+/// 3.2.17: [queue] sin las pistas cuyas claves (`audioPathKey`) estan en
+/// [drop], salvo las de [keep]; el resto queda en el mismo orden (mismos
+/// `File`).
+List<File> liveDjQueueWithout(
+  List<File> queue,
+  Set<String> drop, {
+  Set<String> keep = const <String>{},
+}) => <File>[
+  for (final File f in queue)
+    if (!drop.contains(audioPathKey(f.path)) ||
+        keep.contains(audioPathKey(f.path)))
+      f,
+];
 
 /// [incoming] sin karaoke, sin repetidas y sin las que ya estan en [queue]
 /// o suenan (Set de `audioPathKey`, O(1) por pista).

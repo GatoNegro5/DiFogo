@@ -96,6 +96,23 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
     return fresh;
   }
 
+  /// 3.2.17: en la estacion que suena, desmarcar/marcar un sub-genero
+  /// filtra la cola de Live DJ en vivo (sin reiniciar la lista).
+  void _liveFilter(
+    GenreStation st,
+    VibeHubNotifier n,
+    StationChecks checks,
+    VibeHubState s,
+  ) {
+    if (st.key != s.activeStation) return;
+    final List<String> subs = <String>[
+      for (final String g in st.subGenres)
+        if (checks.isOn(st.key, g)) g,
+    ];
+    if (subs.isEmpty) return;
+    unawaited(n.applyLiveSubFilter(st.key, subs).catchError((Object _) => 0));
+  }
+
   void _change(VoidCallback f) {
     setState(() {
       f();
@@ -194,8 +211,10 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                               key: Key('vibe-hub-cat-$g'),
                               label: g,
                               on: checks.isOn(st.key, g),
-                              onTap: () =>
-                                  _change(() => checks.toggleSub(st.key, g)),
+                              onTap: () {
+                                _change(() => checks.toggleSub(st.key, g));
+                                _liveFilter(st, n, checks, s);
+                              },
                             ),
                       ],
                     ],

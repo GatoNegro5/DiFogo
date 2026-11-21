@@ -11,6 +11,7 @@ import 'package:mime/mime.dart';
 import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import '../../core/lan_sync_plan.dart';
+import '../../core/library_guard.dart' show libraryWriteBlocked;
 import '../../core/gatomix_store.dart' show TrackMusic, saveTrackMusicBatch;
 import '../../core/queue_bpm.dart' show knownBpm;
 
@@ -1190,19 +1191,11 @@ class _LanSyncWorkspaceState extends ConsumerState<LanSyncWorkspace>
         final song = query['song'] ?? '';
         if (song.isNotEmpty) {
           try {
+            // 3.2.17: pasa por library_guard: dentro de ReGenial no escribe.
             final targetPath = _resolvePath('ReGenial');
-            final wishlistFile = File(
-              '$targetPath${Platform.pathSeparator}wishlist_pedidos.txt',
-            );
-            if (!wishlistFile.existsSync()) {
-              wishlistFile.createSync(recursive: true);
+            if (!appendWishlistLine(targetPath, song)) {
+              debugPrint('wishlist bloqueada (biblioteca solo lectura)');
             }
-
-            final timestamp = DateTime.now().toString().split('.').first;
-            wishlistFile.writeAsStringSync(
-              '[$timestamp] - $song\n',
-              mode: FileMode.append,
-            );
           } catch (e) {
             debugPrint("🔴 Error escribiendo en wishlist: $e");
           }
@@ -3333,4 +3326,17 @@ class _LanSyncWorkspaceState extends ConsumerState<LanSyncWorkspace>
     }
     return lyrics;
   }
+}
+
+/// 3.2.17: pedido de la wishlist LAN a `wishlist_pedidos.txt` en [dir], solo
+/// si library_guard lo permite: dentro de la biblioteca (ReGenial) no se
+/// escribe nada. Devuelve true si escribio la linea.
+bool appendWishlistLine(String dir, String song, {DateTime? now}) {
+  final String path = '$dir${Platform.pathSeparator}wishlist_pedidos.txt';
+  if (libraryWriteBlocked(path, what: 'wishlist')) return false;
+  final File file = File(path);
+  if (!file.existsSync()) file.createSync(recursive: true);
+  final String timestamp = (now ?? DateTime.now()).toString().split('.').first;
+  file.writeAsStringSync('[$timestamp] - $song\n', mode: FileMode.append);
+  return true;
 }

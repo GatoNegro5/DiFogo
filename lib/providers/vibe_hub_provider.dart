@@ -1078,6 +1078,137 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     );
   }
 
+  Future<int> _subFilterChain = Future<int>.value(0);
+
+  /// 3.2.17 filtro en vivo de sub-generos de la estacion que suena: al
+  /// desmarcar uno, sus pendientes salen ya de la cola de Live DJ y de la
+  /// lista persistente activa (la que suena y la entrante de un cruce se
+  /// quedan); al volver a marcarlo, sus pistas aun no sonadas vuelven a la
+  /// cola sin reiniciar la lista. Los toques se aplican en orden. Devuelve
+  /// pistas quitadas mas agregadas.
+  Future<int> applyLiveSubFilter(String key, List<String> checked) {
+    final List<String> subs = List<String>.from(checked);
+    final Future<int> run = _subFilterChain
+        .catchError((Object _) => 0)
+        .then((_) => _applyLiveSubFilter(key, subs));
+    _subFilterChain = run;
+    return run;
+  }
+
+  Future<int> _applyLiveSubFilter(String key, List<String> checked) async {
+    if (checked.isEmpty || state.busy || _loading) return 0;
+    final GenreSessionDoc d = _stationsDoc;
+    final GenreSession? s = d.stations[key];
+    if (d.active != key || s == null || !_stationTracked(key)) return 0;
+    final List<String> prev = s.subGenresChecked;
+    final List<String> off = <String>[
+      for (final String g in prev)
+        if (!checked.contains(g)) g,
+    ];
+    final List<String> on = <String>[
+      for (final String g in checked)
+        if (!prev.contains(g)) g,
+    ];
+    if (off.isEmpty && on.isEmpty) return 0;
+    final int epoch = _playEpoch;
+    final List<String> keptPool = await _stationPool(key, checked);
+    final List<String> offPool = off.isEmpty
+        ? const <String>[]
+        : await _stationPool(key, off);
+    final List<String> onPool = on.isEmpty
+        ? const <String>[]
+        : await _stationPool(key, on);
+    if (epoch != _playEpoch || d.active != key || state.busy || _loading) {
+      return 0;
+    }
+    final GenreSession now = d.stations[key] ?? s;
+    final StationLive live = _live();
+    final StationSubFilter plan = stationSubFilterPlan(
+      queue: live.queue,
+      current: live.current,
+      played: now.playedPaths,
+      offPool: offPool,
+      onPool: onPool,
+      keptPool: keptPool,
+    );
+    final bool realDj = debugStationLive == null && debugStationPlay == null;
+    if (realDj) {
+      final LiveDjNotifier dj = ref.read(liveDjProvider.notifier);
+      if (plan.drop.isNotEmpty) dj.dropTracksLive(plan.drop);
+      if (plan.add.isNotEmpty) {
+        dj.addAllTracks(<File>[for (final String p in plan.add) File(p)]);
+      }
+    }
+    final Set<String> dropKeys = <String>{
+      for (final String p in plan.drop) stationPathKey(p),
+    };
+    final List<String> after = realDj
+        ? _live().queue
+        : <String>[
+            for (final String p in live.queue)
+              if (!dropKeys.contains(stationPathKey(p))) p,
+          ];
+    final Set<String> still = <String>{
+      for (final String p in after) stationPathKey(p),
+    };
+    final Set<String> keptKeys = <String>{
+      for (final String p in keptPool) stationPathKey(p),
+    };
+    final String? ck = live.current == null
+        ? null
+        : stationPathKey(live.current!);
+    _dropFromPersistentList(key, <String>{
+      for (final String p in offPool)
+        if (!keptKeys.contains(stationPathKey(p)) &&
+            !still.contains(stationPathKey(p)) &&
+            stationPathKey(p) != ck)
+          persistentPathKey(p),
+    });
+    final Set<String> seen = <String>{};
+    d.stations[key] = now.copyWith(
+      subGenresChecked: List<String>.from(checked),
+      remainingQueuePaths: <String>[
+        for (final String p in <String>[...after, ...plan.add])
+          if (seen.add(stationPathKey(p))) p,
+      ],
+    );
+    await _saveStations(key);
+    return plan.drop.length + plan.add.length;
+  }
+
+  /// 3.2.17: saca de la lista persistente de [station] las pendientes de
+  /// [gone] (claves `persistentPathKey`); sonadas y actual se conservan.
+  void _dropFromPersistentList(String station, Set<String> gone) {
+    if (gone.isEmpty) return;
+    final PersistentLists lists = _lists;
+    final String lk = persistentGenreKey(station);
+    final PersistentList? l = lists.get(lk);
+    if (l == null) return;
+    final Set<String> keep = <String>{
+      ...l.playedKeys,
+      if (l.currentPath != null) persistentPathKey(l.currentPath!),
+    };
+    final List<String> order = <String>[
+      for (final String p in l.order)
+        if (keep.contains(persistentPathKey(p)) ||
+            !gone.contains(persistentPathKey(p)))
+          p,
+    ];
+    if (order.length == l.order.length) return;
+    lists.store.put(
+      lists.space,
+      lk,
+      PersistentList(
+        order: order,
+        played: l.played,
+        currentPath: l.currentPath,
+        positionMs: l.positionMs,
+        updatedAtMs: l.updatedAtMs,
+        meta: l.meta,
+      ),
+    );
+  }
+
   /// Sesion guardada de [key] (sub-generos en visto, pista, segundo).
   GenreSession? stationSession(String key) => _stationsDoc.stations[key];
 
@@ -1238,6 +1369,58 @@ List<String> stationRefinedTracks(
     if (g.stationId == key && want.contains(g.subGenreId)) out.add(p);
   }
   return out;
+}
+
+/// 3.2.17: resultado del filtro en vivo de sub-generos.
+class StationSubFilter {
+  const StationSubFilter(this.drop, this.add);
+
+  /// Pendientes de la cola que salen (sub-genero desmarcado).
+  final List<String> drop;
+
+  /// Pistas del sub-genero remarcado que aun no sonaron ni estan en cola.
+  final List<String> add;
+}
+
+/// 3.2.17: que sale y que vuelve al desmarcar/marcar sub-generos de la
+/// estacion que suena. Sale de [queue] lo de [offPool] que no esta en
+/// [keptPool] (otro sub-genero en visto lo sigue pidiendo); la que suena
+/// ([current]) nunca esta en la cola. Vuelve de [onPool] lo que no sono
+/// ([played]), no suena y no esta en la cola. Sin I/O.
+StationSubFilter stationSubFilterPlan({
+  required List<String> queue,
+  required String? current,
+  required List<String> played,
+  required List<String> offPool,
+  required List<String> onPool,
+  required List<String> keptPool,
+}) {
+  final Set<String> kept = <String>{
+    for (final String p in keptPool) stationPathKey(p),
+  };
+  final Set<String> off = <String>{
+    for (final String p in offPool)
+      if (!kept.contains(stationPathKey(p))) stationPathKey(p),
+  };
+  final String? ck = current == null ? null : stationPathKey(current);
+  final List<String> drop = <String>[
+    for (final String p in queue)
+      if (off.contains(stationPathKey(p)) && stationPathKey(p) != ck) p,
+  ];
+  final Set<String> dropKeys = <String>{
+    for (final String p in drop) stationPathKey(p),
+  };
+  final Set<String> seen = <String>{
+    for (final String p in queue)
+      if (!dropKeys.contains(stationPathKey(p))) stationPathKey(p),
+    ?ck,
+    for (final String p in played) stationPathKey(p),
+  };
+  final List<String> add = <String>[
+    for (final String p in onPool)
+      if (seen.add(stationPathKey(p))) p,
+  ];
+  return StationSubFilter(drop, add);
 }
 
 /// 3.2.2: [base] mas [extra] sin repetir (por [stationPathKey]).
