@@ -183,6 +183,14 @@ jobs:
           subst W: "%GITHUB_WORKSPACE%"
           if errorlevel 1 exit /b 1
           cd /d W:\
+          rem 3.2.15: ort-sys 2.0.0-rc.10 (copy-dylibs) toma OUT_DIR.ancestors().nth(3)
+          rem pensando en el layout viejo de cargo; con el build-dir nuevo de cargo 1.99
+          rem (release\build\ort-sys\HASH\out) eso cae en release\build y luego copia
+          rem las dll a release\build\examples y release\build\deps, que no existen.
+          rem Se crean antes del build (target-dir de cargokit + target msvc).
+          set "ORTB=W:\build\windows\x64\plugins\rust_lib_gatomix_player\cargokit_build\x86_64-pc-windows-msvc\release\build"
+          if not exist "%ORTB%\examples" mkdir "%ORTB%\examples"
+          if not exist "%ORTB%\deps" mkdir "%ORTB%\deps"
           set "V=%GITHUB_REF_NAME:~1%"
           rem 3.2.14: el crate cmake lee CMAKE_GENERATOR; whisper-rs-sys compila
           rem con Ninja (sin MSBuild ni FileTracker). Flutter pasa -G propio.
