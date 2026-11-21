@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio_path.dart';
@@ -24,8 +23,6 @@ import '../vibe_hub_view.dart'
     show PersistentListResetButton, showPersistentListBusy;
 import '../../providers/pipeline_provider.dart';
 import '../../providers/theme_provider.dart';
-
-final automixSyncArmedProvider = StateProvider<bool>((ref) => false);
 
 /// Solo pruebas: fuerza el layout movil de Automix (null = segun plataforma).
 @visibleForTesting
@@ -108,20 +105,14 @@ class _AutomixWorkspaceState extends ConsumerState<AutomixWorkspace> {
     );
 
     final compact = automixIsMobile();
-    final bool syncArmed = compact && ref.watch(automixSyncArmedProvider);
     return Column(
       children: [
         if (compact)
-          syncArmed
-              ? Expanded(flex: 8, child: MixerPanel(key: _mixerKey))
-              : MixerPanel(key: _mixerKey)
+          MixerPanel(key: _mixerKey)
         else
           const Expanded(flex: 5, child: MixerPanel()),
         const Divider(height: 1, color: Colors.white10),
-        Expanded(
-          flex: compact ? (syncArmed ? 2 : 6) : 5,
-          child: threeSelectorPanels,
-        ),
+        Expanded(flex: compact ? 6 : 5, child: threeSelectorPanels),
       ],
     );
   }
@@ -1223,65 +1214,19 @@ class MixerPanel extends ConsumerStatefulWidget {
 class _MixerPanelState extends ConsumerState<MixerPanel> {
   final FixedExtentScrollController _lyricsController =
       FixedExtentScrollController();
-  final ScrollController _lyricsListController = ScrollController();
-  bool _lyricPickArmed = false;
-  int _anchorMode = 1;
   double _wheelExtent = 0;
 
   @override
   void dispose() {
     _lyricsController.dispose();
-    _lyricsListController.dispose();
     super.dispose();
   }
 
-  double _lyricRowExtent() =>
-      Platform.isAndroid || Platform.isIOS ? 22.0 : 28.0;
-
-  void _followArmedList(int index, {required bool animate}) {
-    if (!_lyricPickArmed || !mounted) return;
-    final int line = index < 0 ? 0 : index;
-    final bool ready =
-        _lyricsListController.hasClients &&
-        _lyricsListController.position.hasContentDimensions;
-    if (!ready) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || !_lyricPickArmed) return;
-        if (!_lyricsListController.hasClients ||
-            !_lyricsListController.position.hasContentDimensions) {
-          return;
-        }
-        _jumpArmedList(line, animate);
-      });
-      return;
-    }
-    _jumpArmedList(line, animate);
-  }
-
-  void _jumpArmedList(int line, bool animate) {
-    final position = _lyricsListController.position;
-    final double extent = _lyricRowExtent();
-    final double raw =
-        (line * extent) - (position.viewportDimension / 2) + (extent / 2);
-    final double maxExtent = position.maxScrollExtent;
-    final double target = raw.clamp(0.0, maxExtent < 0 ? 0.0 : maxExtent);
-    if ((position.pixels - target).abs() < 0.5) return;
-    if (animate) {
-      _lyricsListController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutCubic,
-      );
-    } else {
-      _lyricsListController.jumpTo(target);
-    }
-  }
-
   void _followCylinder(int index, {required bool animate}) {
-    if (_lyricPickArmed || !mounted || index < 0) return;
+    if (!mounted || index < 0) return;
     if (!_lyricsController.hasClients) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _lyricPickArmed || !_lyricsController.hasClients) {
+        if (!mounted || !_lyricsController.hasClients) {
           return;
         }
         _jumpCylinder(index, animate);
@@ -1328,15 +1273,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
       next,
     ) {
       if (next < 0) {
-        if (_lyricPickArmed) {
-          _followArmedList(0, animate: false);
-        } else {
-          _followCylinder(0, animate: false);
-        }
-        return;
-      }
-      if (_lyricPickArmed) {
-        _followArmedList(next, animate: true);
+        _followCylinder(0, animate: false);
         return;
       }
       _followCylinder(next, animate: true);
@@ -1348,11 +1285,7 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
     ) {
       if (next <= 0) return;
       if (ref.read(automixProvider).activeLyricIndex >= 0) return;
-      if (_lyricPickArmed) {
-        _followArmedList(0, animate: false);
-      } else {
-        _followCylinder(0, animate: false);
-      }
+      _followCylinder(0, animate: false);
     });
 
     String displayTitle = "Esperando pista...";
@@ -1374,7 +1307,6 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
         final bool menuOpen = compact
             ? ref.watch(mobileNavOpenProvider)
             : false;
-        final bool syncExpand = compact && ref.watch(automixSyncArmedProvider);
 
         final Widget lyricsBox = ClipRect(
           child: Container(
@@ -1400,210 +1332,89 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
                   ),
                 ),
               ),
-              onSync: () {
-                automixNotifier.autoSyncFirstLyric();
-              },
-              onSyncMed: (line) {
-                if (lyrics.isEmpty) return;
-                automixNotifier.autoSyncFromCurrentLyric(lineIndex: line);
-              },
-              onSyncSingle: (line) {
-                if (lyrics.isEmpty) return;
-                automixNotifier.autoSyncSingleLyric(lineIndex: line);
-              },
-              onUndo: () {
-                automixNotifier.undoLastLyricSync();
-              },
-              syncArmed: _lyricPickArmed,
-              anchorMode: _anchorMode,
-              onAnchorMode: (mode) {
-                setState(() => _anchorMode = mode);
-              },
-              onArmedChanged: (armed) {
-                setState(() {
-                  _lyricPickArmed = armed;
-                  if (!armed) _anchorMode = 1;
-                });
-                if (lyrics.isNotEmpty) {
-                  final int idx = ref.read(automixProvider).activeLyricIndex;
-                  final int line = (idx >= 0 ? idx : 0).clamp(
-                    0,
-                    lyrics.length - 1,
-                  );
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    if (armed) {
-                      if (!_lyricPickArmed) return;
-                      _followArmedList(line, animate: false);
-                    } else {
-                      if (_lyricPickArmed) return;
-                      _followCylinder(line, animate: false);
+              lyricsWidget: LayoutBuilder(
+                builder: (context, box) {
+                  // Movil: 3 lineas siempre (anterior, activa, siguiente).
+                  final double extent = compact
+                      ? lyricWheelExtent(box.maxHeight)
+                      : 32.0;
+                  if (compact && (extent - _wheelExtent).abs() > 0.5) {
+                    final bool had = _wheelExtent > 0;
+                    _wheelExtent = extent;
+                    if (had) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (!mounted) return;
+                        final int idx = ref
+                            .read(automixProvider)
+                            .activeLyricIndex;
+                        _followCylinder(idx < 0 ? 0 : idx, animate: false);
+                      });
                     }
-                  });
-                }
-                if (Platform.isAndroid || Platform.isIOS) {
-                  ref.read(automixSyncArmedProvider.notifier).state = armed;
-                }
-              },
-              lyricsWidget: _lyricPickArmed
-                  ? ListView.builder(
-                      controller: _lyricsListController,
-                      physics: const BouncingScrollPhysics(),
-                      itemExtent: _lyricRowExtent(),
-                      itemCount: lyrics.length,
-                      itemBuilder: (context, index) {
-                        return Consumer(
-                          builder: (context, ref, _) {
-                            final activeIdx = ref.watch(
-                              automixProvider.select((s) => s.activeLyricIndex),
-                            );
-                            final isCurrent = index == activeIdx;
-                            final bool previewFirst =
-                                activeIdx < 0 && index == 0;
-                            final isPassed = index < activeIdx;
-                            final Color textColor = isCurrent
-                                ? GatoMixTheme.statusReady
-                                : (previewFirst
-                                      ? Colors.white
-                                      : (isPassed
-                                            ? Colors.white38
-                                            : Colors.white70));
-                            return Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                              ),
-                              child: Row(
-                                children: [
-                                  SizedBox(
-                                    width: compact ? 22 : 28,
-                                    child: Text(
-                                      '${index + 1}',
-                                      textAlign: TextAlign.right,
-                                      maxLines: 1,
-                                      style: TextStyle(
-                                        color: isCurrent
-                                            ? GatoMixTheme.techCyan
-                                            : textColor,
-                                        fontSize: compact ? 10 : 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Expanded(
-                                    child: Text(
-                                      lyrics[index].text.toString(),
-                                      style: TextStyle(
-                                        color: textColor,
-                                        fontSize: compact ? 11 : 13,
-                                        fontWeight: isCurrent || previewFirst
-                                            ? FontWeight.bold
-                                            : FontWeight.normal,
-                                        fontStyle: isPassed
-                                            ? FontStyle.italic
-                                            : FontStyle.normal,
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.visible,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        );
-                      },
-                    )
-                  : LayoutBuilder(
-                      builder: (context, box) {
-                        // Movil: 3 lineas siempre (anterior, activa, siguiente).
-                        final double extent = compact
-                            ? lyricWheelExtent(box.maxHeight)
-                            : 32.0;
-                        if (compact && (extent - _wheelExtent).abs() > 0.5) {
-                          final bool had = _wheelExtent > 0;
-                          _wheelExtent = extent;
-                          if (had) {
-                            WidgetsBinding.instance.addPostFrameCallback((_) {
-                              if (!mounted) return;
-                              final int idx = ref
-                                  .read(automixProvider)
-                                  .activeLyricIndex;
-                              _followCylinder(
-                                idx < 0 ? 0 : idx,
-                                animate: false,
-                              );
-                            });
+                  }
+                  return ListWheelScrollView(
+                    controller: _lyricsController,
+                    itemExtent: extent,
+                    diameterRatio: 10.0,
+                    perspective: 0.0001,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: List.generate(lyrics.length, (index) {
+                      return Consumer(
+                        builder: (context, ref, _) {
+                          final activeIdx = ref.watch(
+                            automixProvider.select((s) => s.activeLyricIndex),
+                          );
+                          final highlightIdx = activeIdx;
+                          final isCurrent = index == highlightIdx;
+                          final isNext = index == highlightIdx + 1;
+                          final isPassed = index < highlightIdx;
+
+                          Color textColor;
+                          double fontSize;
+                          FontWeight fontWeight;
+
+                          if (isCurrent) {
+                            textColor = GatoMixTheme.statusReady;
+                            fontSize = compact
+                                ? (extent * 0.75).clamp(10.0, 14.0)
+                                : 24;
+                            fontWeight = FontWeight.bold;
+                          } else if (highlightIdx < 0 && index == 0) {
+                            textColor = Colors.white;
+                            fontSize = compact
+                                ? (extent * 0.75).clamp(10.0, 14.0)
+                                : 24;
+                            fontWeight = FontWeight.bold;
+                          } else if (isNext) {
+                            textColor = Colors.white.withValues(alpha: 0.95);
+                            fontSize = compact ? 11 : 14;
+                            fontWeight = FontWeight.w600;
+                          } else {
+                            textColor = Colors.white38;
+                            fontSize = compact ? 10 : 12;
+                            fontWeight = FontWeight.normal;
                           }
-                        }
-                        return ListWheelScrollView(
-                          controller: _lyricsController,
-                          itemExtent: extent,
-                          diameterRatio: 10.0,
-                          perspective: 0.0001,
-                          physics: const NeverScrollableScrollPhysics(),
-                          children: List.generate(lyrics.length, (index) {
-                            return Consumer(
-                              builder: (context, ref, _) {
-                                final activeIdx = ref.watch(
-                                  automixProvider.select(
-                                    (s) => s.activeLyricIndex,
-                                  ),
-                                );
-                                final highlightIdx = activeIdx;
-                                final isCurrent = index == highlightIdx;
-                                final isNext = index == highlightIdx + 1;
-                                final isPassed = index < highlightIdx;
 
-                                Color textColor;
-                                double fontSize;
-                                FontWeight fontWeight;
-
-                                if (isCurrent) {
-                                  textColor = GatoMixTheme.statusReady;
-                                  fontSize = compact
-                                      ? (extent * 0.75).clamp(10.0, 14.0)
-                                      : 24;
-                                  fontWeight = FontWeight.bold;
-                                } else if (highlightIdx < 0 && index == 0) {
-                                  textColor = Colors.white;
-                                  fontSize = compact
-                                      ? (extent * 0.75).clamp(10.0, 14.0)
-                                      : 24;
-                                  fontWeight = FontWeight.bold;
-                                } else if (isNext) {
-                                  textColor = Colors.white.withValues(
-                                    alpha: 0.95,
-                                  );
-                                  fontSize = compact ? 11 : 14;
-                                  fontWeight = FontWeight.w600;
-                                } else {
-                                  textColor = Colors.white38;
-                                  fontSize = compact ? 10 : 12;
-                                  fontWeight = FontWeight.normal;
-                                }
-
-                                return Center(
-                                  child: Text(
-                                    lyrics[index].text.toString(),
-                                    style: TextStyle(
-                                      color: textColor,
-                                      fontSize: fontSize,
-                                      fontWeight: fontWeight,
-                                      fontStyle: isPassed
-                                          ? FontStyle.italic
-                                          : FontStyle.normal,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.visible,
-                                  ),
-                                );
-                              },
-                            );
-                          }),
-                        );
-                      },
-                    ),
+                          return Center(
+                            child: Text(
+                              lyrics[index].text.toString(),
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: fontSize,
+                                fontWeight: fontWeight,
+                                fontStyle: isPassed
+                                    ? FontStyle.italic
+                                    : FontStyle.normal,
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.visible,
+                            ),
+                          );
+                        },
+                      );
+                    }),
+                  );
+                },
+              ),
             ),
           ),
         );
@@ -1612,58 +1423,35 @@ class _MixerPanelState extends ConsumerState<MixerPanel> {
           padding: EdgeInsets.all(compact ? 4.0 : 20.0),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            mainAxisSize: (compact && !syncExpand)
-                ? MainAxisSize.min
-                : MainAxisSize.max,
+            mainAxisSize: compact ? MainAxisSize.min : MainAxisSize.max,
             children: [
               if (compact)
-                syncExpand
-                    ? Expanded(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            GatoMixMobileModeBar(
-                              title: 'Mix con Letra',
-                              accent: GatoMixTheme.deckA,
-                              open: menuOpen,
-                              expand: false,
-                              onTap: () =>
-                                  ref
-                                          .read(mobileNavOpenProvider.notifier)
-                                          .state =
-                                      !menuOpen,
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(child: lyricsBox),
-                          ],
-                        ),
-                      )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          GatoMixMobileModeBar(
-                            title: 'Mix con Letra',
-                            accent: GatoMixTheme.deckA,
-                            open: menuOpen,
-                            expand: false,
-                            onTap: () =>
-                                ref.read(mobileNavOpenProvider.notifier).state =
-                                    !menuOpen,
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: SizedBox(
-                              // Móvil acostado: letra más baja, cola más alta.
-                              height:
-                                  MediaQuery.of(context).orientation ==
-                                      Orientation.landscape
-                                  ? 80
-                                  : 100,
-                              child: lyricsBox,
-                            ),
-                          ),
-                        ],
-                      )
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    GatoMixMobileModeBar(
+                      title: 'Mix con Letra',
+                      accent: GatoMixTheme.deckA,
+                      open: menuOpen,
+                      expand: false,
+                      onTap: () =>
+                          ref.read(mobileNavOpenProvider.notifier).state =
+                              !menuOpen,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: SizedBox(
+                        // Móvil acostado: letra más baja, cola más alta.
+                        height:
+                            MediaQuery.of(context).orientation ==
+                                Orientation.landscape
+                            ? 80
+                            : 100,
+                        child: lyricsBox,
+                      ),
+                    ),
+                  ],
+                )
               else
                 Expanded(child: lyricsBox),
               SizedBox(height: compact ? 2 : 8),
@@ -2100,14 +1888,6 @@ class LyricsSyncPanel extends ConsumerStatefulWidget {
   final bool hasLyrics;
   final Widget lyricsWidget;
   final Widget noLyricsWidget;
-  final VoidCallback onSync;
-  final ValueChanged<int> onSyncMed;
-  final ValueChanged<int> onSyncSingle;
-  final ValueChanged<bool>? onArmedChanged;
-  final ValueChanged<int>? onAnchorMode;
-  final bool syncArmed;
-  final int anchorMode;
-  final VoidCallback? onUndo;
 
   const LyricsSyncPanel({
     super.key,
@@ -2115,14 +1895,6 @@ class LyricsSyncPanel extends ConsumerStatefulWidget {
     required this.hasLyrics,
     required this.lyricsWidget,
     required this.noLyricsWidget,
-    required this.onSync,
-    required this.onSyncMed,
-    required this.onSyncSingle,
-    this.onArmedChanged,
-    this.onAnchorMode,
-    this.syncArmed = false,
-    this.anchorMode = 1,
-    this.onUndo,
   });
 
   @override
@@ -2130,74 +1902,9 @@ class LyricsSyncPanel extends ConsumerStatefulWidget {
 }
 
 class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
-  bool isArmed = false;
   bool _labBusy = false;
   final List<String> _labQueue = <String>[];
   String? _labInFlight;
-  final TextEditingController _filaCtrl = TextEditingController();
-
-  @override
-  void initState() {
-    super.initState();
-    HardwareKeyboard.instance.addHandler(_onUndoKey);
-  }
-
-  @override
-  void dispose() {
-    HardwareKeyboard.instance.removeHandler(_onUndoKey);
-    _filaCtrl.dispose();
-    super.dispose();
-  }
-
-  bool _onUndoKey(KeyEvent event) {
-    if (event is! KeyDownEvent) return false;
-    if (!isArmed || _filaCtrl.text.isNotEmpty) return false;
-    final bool ctrl =
-        HardwareKeyboard.instance.isControlPressed ||
-        HardwareKeyboard.instance.isMetaPressed;
-    if (!ctrl || event.logicalKey != LogicalKeyboardKey.keyZ) return false;
-    widget.onUndo?.call();
-    return true;
-  }
-
-  void _needLineNumber() {
-    ScaffoldMessenger.of(context).clearSnackBars();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        duration: Duration(seconds: 2),
-        content: Text('Indica primero el número de la línea'),
-      ),
-    );
-  }
-
-  @override
-  void didUpdateWidget(LyricsSyncPanel oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.syncArmed != isArmed) {
-      isArmed = widget.syncArmed;
-    }
-  }
-
-  void _stampNow() {
-    if (!isArmed) return;
-    if (widget.anchorMode == 1) {
-      widget.onSync();
-      return;
-    }
-    final int? n = int.tryParse(_filaCtrl.text.trim());
-    if (n == null || n < 1) {
-      _needLineNumber();
-      return;
-    }
-    final int line = n - 1;
-    if (widget.anchorMode == 2) {
-      widget.onSyncMed(line);
-    } else {
-      widget.onSyncSingle(line);
-    }
-    _filaCtrl.clear();
-    setState(() {});
-  }
 
   Future<void> _sendCurrentTrackToLab(
     String trackPath,
@@ -2427,49 +2134,6 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
     );
   }
 
-  Widget _anchorNumBtn({
-    required String n,
-    required Color color,
-    required bool selected,
-    required bool isMobileLandscape,
-    required String tooltip,
-    required VoidCallback? onPressed,
-  }) {
-    final double size = isMobileLandscape ? 22 : 26;
-    return Padding(
-      padding: const EdgeInsets.only(right: 6),
-      child: Tooltip(
-        message: tooltip,
-        child: SizedBox(
-          width: size,
-          height: size,
-          child: Material(
-            color: selected
-                ? color.withValues(alpha: 0.28)
-                : Colors.transparent,
-            shape: CircleBorder(
-              side: BorderSide(color: color, width: selected ? 2 : 1),
-            ),
-            child: InkWell(
-              customBorder: const CircleBorder(),
-              onTap: onPressed,
-              child: Center(
-                child: Text(
-                  n,
-                  style: TextStyle(
-                    color: color,
-                    fontSize: isMobileLandscape ? 11 : 13,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final bool isMobileLandscape = MediaQuery.of(context).size.height < 500;
@@ -2550,142 +2214,6 @@ class _LyricsSyncPanelState extends ConsumerState<LyricsSyncPanel> {
                     );
                   },
                 ),
-                if (widget.hasLyrics) ...[
-                  const SizedBox(width: 15),
-                  Text(
-                    "Sync I/O",
-                    style: TextStyle(
-                      color: Colors.white70,
-                      fontSize: isMobileLandscape ? 10 : 11,
-                    ),
-                  ),
-                  Theme(
-                    data: ThemeData(unselectedWidgetColor: Colors.white38),
-                    child: Checkbox(
-                      value: isArmed,
-                      activeColor: GatoMixTheme.fire,
-                      visualDensity: VisualDensity.compact,
-                      onChanged: (val) {
-                        final bool armed = val ?? false;
-                        setState(() => isArmed = armed);
-                        widget.onArmedChanged?.call(armed);
-                      },
-                    ),
-                  ),
-                  AnimatedOpacity(
-                    opacity: isArmed ? 1.0 : 0.0,
-                    duration: const Duration(milliseconds: 200),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _anchorNumBtn(
-                          n: '1',
-                          color: GatoMixTheme.fire,
-                          selected: widget.anchorMode == 1,
-                          isMobileLandscape: isMobileLandscape,
-                          tooltip: 'Ancla 1: bloque entero',
-                          onPressed: isArmed
-                              ? () => widget.onAnchorMode?.call(1)
-                              : null,
-                        ),
-                        _anchorNumBtn(
-                          n: '2',
-                          color: GatoMixTheme.techCyan,
-                          selected: widget.anchorMode == 2,
-                          isMobileLandscape: isMobileLandscape,
-                          tooltip: 'Ancla 2: desde #Fila al final',
-                          onPressed: isArmed
-                              ? () => widget.onAnchorMode?.call(2)
-                              : null,
-                        ),
-                        _anchorNumBtn(
-                          n: '3',
-                          color: GatoMixTheme.deckA,
-                          selected: widget.anchorMode == 3,
-                          isMobileLandscape: isMobileLandscape,
-                          tooltip: 'Ancla 3: solo #Fila',
-                          onPressed: isArmed
-                              ? () => widget.onAnchorMode?.call(3)
-                              : null,
-                        ),
-                        if (widget.anchorMode != 1) ...[
-                          SizedBox(
-                            width: isMobileLandscape ? 56 : 72,
-                            height: isMobileLandscape ? 22 : 28,
-                            child: TextField(
-                              controller: _filaCtrl,
-                              enabled: isArmed,
-                              keyboardType: TextInputType.number,
-                              inputFormatters: [
-                                FilteringTextInputFormatter.digitsOnly,
-                              ],
-                              onChanged: (_) => setState(() {}),
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: isMobileLandscape ? 10 : 12,
-                              ),
-                              decoration: InputDecoration(
-                                isDense: true,
-                                hintText: '#Fila',
-                                hintStyle: TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: isMobileLandscape ? 9 : 10,
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 4,
-                                ),
-                                border: const OutlineInputBorder(),
-                                enabledBorder: const OutlineInputBorder(
-                                  borderSide: BorderSide(color: Colors.white24),
-                                ),
-                                focusedBorder: const OutlineInputBorder(
-                                  borderSide: BorderSide(
-                                    color: GatoMixTheme.techCyan,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                        ],
-                        IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          tooltip: 'EMPATAR AHORA',
-                          icon: Icon(
-                            Icons.my_location,
-                            size: isMobileLandscape ? 16 : 18,
-                            color: GatoMixTheme.techCyan,
-                          ),
-                          onPressed: isArmed ? _stampNow : null,
-                        ),
-                        ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: isMobileLandscape ? 90 : 140,
-                          ),
-                          child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              widget.anchorMode == 3
-                                  ? '3 solo fila ${_filaCtrl.text.isEmpty ? '#' : _filaCtrl.text}'
-                                  : (widget.anchorMode == 2
-                                        ? '2 desde fila ${_filaCtrl.text.isEmpty ? '#' : _filaCtrl.text}'
-                                        : '1 bloque a AHORA'),
-                              maxLines: 1,
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: isMobileLandscape ? 9 : 10,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
               ],
             ),
           ),
