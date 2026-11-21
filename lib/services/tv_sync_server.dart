@@ -4,18 +4,43 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/safe_media_path.dart';
+import 'tv_apk_cache.dart';
 
 class TvSyncServer {
+  /// 3.2.25: [port] y [apkCacheRoot] inyectables (pruebas en puerto 0 y
+  /// cache en %TEMP%); la app usa siempre 55056 y la cache real.
+  TvSyncServer({this.port = 55056, this.apkCacheRoot});
+
   HttpServer? _server;
   final List<WebSocket> _clients = [];
-  final int port = 55056;
+  final int port;
+  final String? apkCacheRoot;
+  Future<void>? _starting;
+
+  /// Puerto real (con [port] 0 lo elige el sistema).
+  int get boundPort => _server?.port ?? port;
+
+  bool get isRunning => _server != null;
   void Function(Map<String, dynamic> message)? onTvMessage;
   void Function()? onTvJoined;
 
   bool get hasTvClient =>
       _clients.any((client) => client.readyState == WebSocket.open);
 
-  Future<void> start() async {
+  Future<void> start() => _starting ??= _start();
+
+  /// 3.2.25: garantiza el nodo levantado antes de mostrar la URL de /apk;
+  /// si el primer bind fallo, reintenta una vez.
+  Future<bool> ensureStarted() async {
+    await start();
+    if (_server == null) {
+      _starting = _start();
+      await _starting;
+    }
+    return _server != null;
+  }
+
+  Future<void> _start() async {
     try {
       // 0.0.0.0 expone el puerto a toda tu red LAN (WiFi)
       _server = await HttpServer.bind(InternetAddress.anyIPv4, port);
@@ -171,6 +196,11 @@ class TvSyncServer {
 
   Future<void> _serveKaraokeFile(HttpRequest request) async {
     try {
+      // 3.2.25: /apk fijo (GET y HEAD) antes de cualquier otra ruta.
+      if (request.uri.path == '/apk') {
+        await _serveApk(request);
+        return;
+      }
       if (request.method != 'GET') {
         request.response
           ..statusCode = HttpStatus.methodNotAllowed
@@ -224,6 +254,46 @@ class TvSyncServer {
     }
   }
 
+  /// 3.2.25: sirve SOLO el APK de la cache `tv_cache` (nunca una ruta que
+  /// mande el cliente). Sin APK -> 404 en texto plano.
+  Future<void> _serveApk(HttpRequest request) async {
+    final HttpResponse res = request.response;
+    if (request.method != 'GET' && request.method != 'HEAD') {
+      res.statusCode = HttpStatus.methodNotAllowed;
+      await res.close();
+      return;
+    }
+    final File apk = tvApkCacheFile(root: apkCacheRoot);
+    if (!await apk.exists()) {
+      res
+        ..statusCode = HttpStatus.notFound
+        ..headers.contentType = ContentType('text', 'plain', charset: 'utf-8')
+        ..write(
+          'GatoMix: el APK de la TV todavia no esta listo. En la laptop abre '
+          'Karaoke > Instalar en TV > Preparar APK y vuelve a intentar.',
+        );
+      await res.close();
+      return;
+    }
+    final int length = await apk.length();
+    res.statusCode = HttpStatus.ok;
+    res.headers.contentType = ContentType(
+      'application',
+      'vnd.android.package-archive',
+    );
+    res.headers.set(
+      'Content-Disposition',
+      'attachment; filename="$kTvApkName"',
+    );
+    res.contentLength = length;
+    if (request.method == 'HEAD') {
+      await res.close();
+      return;
+    }
+    await res.addStream(apk.openRead());
+    await res.close();
+  }
+
   /// 3.2.24: tipo MIME por extension permitida.
   static ContentType _mediaContentType(String ext) {
     switch (ext) {
@@ -250,6 +320,8 @@ class TvSyncServer {
     }
     _clients.clear();
     _server?.close(force: true);
+    _server = null;
+    _starting = null;
     debugPrint("🔴 [TV SYNC] Nodo Emisor destruido.");
   }
 }

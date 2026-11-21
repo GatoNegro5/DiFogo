@@ -2,12 +2,15 @@ import 'dart:io';
 import '../widgets/approx_lyric_icon.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/lyric_files.dart';
 import '../../core/library_guard.dart' show lrcReadFile;
 import '../../services/tv_sync_server.dart';
 import '../../services/tv_adb_deployment_service.dart';
+import '../../services/tv_apk_cache.dart';
+import 'lan_sync_workspace.dart' show pickLanIpv4;
 
 /// 3.2.24: `.lrc` de Karaoke con la misma cascada que Mix con Letra
 /// ([lrcReadFile]): espejo local de letras, espejo heredado y por ultimo
@@ -842,10 +845,15 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
 
   Future<void> _showTvInstaller() async {
     if (!Platform.isWindows && !Platform.isMacOS && !Platform.isLinux) return;
+    // 3.2.25: asistente sin ADB (recomendado); el flujo ADB queda adentro
+    // como opcion avanzada.
     await showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => TvDeploymentDialog(service: _tvDeploymentService),
+      builder: (_) => TvInstallWizardDialog(
+        server: ref.read(tvSyncProvider),
+        adbService: _tvDeploymentService,
+      ),
     );
   }
 
@@ -890,7 +898,7 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
                                 Icons.search,
                                 color: Color(0xFF39FF14),
                               ),
-                              tooltip: 'Buscar e instalar en Google TV',
+                              tooltip: 'Instalar GatoMix TV',
                             ),
                             IconButton(
                               onPressed: () {
@@ -1334,6 +1342,382 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// 3.2.25: IP LAN para la URL de /apk (misma eleccion que LAN Sync:
+/// prefiere Wi-Fi, salta virtuales y 169.254). null si no hay red.
+Future<String?> karaokeLanIp() async {
+  try {
+    final List<NetworkInterface> interfaces = await NetworkInterface.list(
+      type: InternetAddressType.IPv4,
+      includeLoopback: false,
+    );
+    return pickLanIpv4(<({String name, List<String> addresses})>[
+      for (final NetworkInterface i in interfaces)
+        (
+          name: i.name,
+          addresses: <String>[
+            for (final InternetAddress a in i.addresses) a.address,
+          ],
+        ),
+    ], preferWlan: true);
+  } catch (_) {
+    return null;
+  }
+}
+
+/// 3.2.25: direccion que se escribe en Downloader.
+String tvApkUrl(String ip, int port) => 'http://$ip:$port/apk';
+
+/// 3.2.25: asistente de instalacion de GatoMix TV. Recomendado: sin cables
+/// ni Modo Desarrollador (Downloader + /apk del nodo TV). Avanzado: el
+/// flujo ADB de siempre ([TvDeploymentDialog]) sin cambios.
+class TvInstallWizardDialog extends StatefulWidget {
+  final TvSyncServer server;
+  final TvAdbDeploymentService adbService;
+  final TvApkCache? cache;
+
+  const TvInstallWizardDialog({
+    super.key,
+    required this.server,
+    required this.adbService,
+    this.cache,
+  });
+
+  @override
+  State<TvInstallWizardDialog> createState() => _TvInstallWizardDialogState();
+}
+
+class _TvInstallWizardDialogState extends State<TvInstallWizardDialog> {
+  static const Color _neon = Color(0xFF39FF14);
+  static const Color _cyan = Color(0xFF00FFFF);
+
+  late final TvApkCache _cache = widget.cache ?? TvApkCache();
+  String? _ip;
+  bool _serverUp = false;
+  bool _apkReady = false;
+  bool _busy = false;
+  double? _progress;
+  String _status = 'Revisando la red y el APK…';
+
+  String? get _url =>
+      _ip == null ? null : tvApkUrl(_ip!, widget.server.boundPort);
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_boot());
+  }
+
+  Future<void> _boot() async {
+    final bool up = await widget.server.ensureStarted();
+    final String? ip = await karaokeLanIp();
+    final bool ready = await _cache.isValid();
+    if (!mounted) return;
+    setState(() {
+      _serverUp = up;
+      _ip = ip;
+      _apkReady = ready;
+      _status = !up
+          ? 'No se pudo abrir el puerto ${widget.server.port}. Cierra otra '
+                'copia de GatoMix y vuelve a abrir este asistente.'
+          : ip == null
+          ? 'Sin red local: conecta la laptop al mismo Wi-Fi que la TV.'
+          : ready
+          ? 'APK listo. Sigue los 3 pasos en la TV.'
+          : 'Primero prepara el APK (se baja una sola vez, unos 90 MB).';
+    });
+  }
+
+  Future<void> _prepare({required bool force}) async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _progress = null;
+      _status = force ? 'Actualizando APK…' : 'Preparando APK…';
+    });
+    try {
+      await _cache.ensure(
+        force: force,
+        onProgress: (int got, int? total) {
+          if (!mounted || total == null || total <= 0) return;
+          final double p = got / total;
+          final double? last = _progress;
+          if (last != null && p < 1 && (p - last).abs() < 0.01) return;
+          setState(() => _progress = p);
+        },
+      );
+      if (!mounted) return;
+      setState(() {
+        _apkReady = true;
+        _status = _ip == null
+            ? 'APK listo, pero falta red local en la laptop.'
+            : 'APK listo. Sigue los 3 pasos en la TV.';
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _status = 'No se pudo preparar el APK: $e');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _progress = null;
+        });
+      }
+    }
+  }
+
+  Future<void> _copy() async {
+    final String? url = _url;
+    if (url == null) return;
+    await Clipboard.setData(ClipboardData(text: url));
+    if (!mounted) return;
+    setState(() => _status = 'Dirección copiada: $url');
+  }
+
+  Future<void> _openAdb() async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => TvDeploymentDialog(service: widget.adbService),
+    );
+  }
+
+  Widget _step(String n, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          CircleAvatar(
+            radius: 11,
+            backgroundColor: _neon,
+            child: Text(
+              n,
+              style: const TextStyle(
+                color: Colors.black,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(color: Colors.white70, height: 1.35),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final String? url = _url;
+    final bool showQr = _serverUp && _apkReady && url != null;
+    return Dialog(
+      backgroundColor: const Color(0xFF0B0D10),
+      shape: RoundedRectangleBorder(
+        side: const BorderSide(color: _neon),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 760, maxHeight: 700),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.live_tv, color: _neon, size: 32),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'INSTALAR GATOMIX TV',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w900,
+                            fontSize: 18,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                        Text(
+                          'Karaoke en tu Google TV o Android TV',
+                          style: TextStyle(color: Colors.white54),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    tooltip: 'Cerrar',
+                    icon: const Icon(Icons.close, color: Colors.white54),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF12161B),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: _neon.withValues(alpha: 0.6)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Instalar sin cables ni Modo Desarrollador (Recomendado)',
+                      style: TextStyle(
+                        color: _neon,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 176,
+                          height: 176,
+                          padding: const EdgeInsets.all(8),
+                          color: Colors.white,
+                          child: showQr
+                              ? QrImageView(
+                                  data: url,
+                                  version: QrVersions.auto,
+                                  size: 160,
+                                )
+                              : Center(
+                                  child: _busy
+                                      ? CircularProgressIndicator(
+                                          value: _progress,
+                                          color: Colors.black54,
+                                        )
+                                      : const Icon(
+                                          Icons.qr_code_2,
+                                          color: Colors.black26,
+                                          size: 96,
+                                        ),
+                                ),
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SelectableText(
+                                url ?? 'Buscando la IP de la laptop…',
+                                style: const TextStyle(
+                                  color: _cyan,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 17,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  OutlinedButton.icon(
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: _cyan,
+                                      side: const BorderSide(color: _cyan),
+                                    ),
+                                    onPressed: url == null ? null : _copy,
+                                    icon: const Icon(Icons.copy, size: 16),
+                                    label: const Text('COPIAR'),
+                                  ),
+                                  ElevatedButton.icon(
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _neon,
+                                      foregroundColor: Colors.black,
+                                    ),
+                                    onPressed: _busy || !_serverUp
+                                        ? null
+                                        : () => _prepare(force: _apkReady),
+                                    icon: Icon(
+                                      _apkReady
+                                          ? Icons.refresh
+                                          : Icons.download,
+                                      size: 18,
+                                    ),
+                                    label: Text(
+                                      _apkReady
+                                          ? 'ACTUALIZAR APK'
+                                          : 'PREPARAR APK',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 14),
+                              _step(
+                                '1',
+                                'En la TV abre la app Downloader (gratis en '
+                                    'Google Play).',
+                              ),
+                              _step(
+                                '2',
+                                'Escribe la dirección de arriba o escanea el '
+                                    'QR con el celular.',
+                              ),
+                              _step(
+                                '3',
+                                'Instala y abre GatoMix TV. Si la TV lo pide, '
+                                    'permite instalar apps desde Downloader.',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_busy) ...[
+                      const SizedBox(height: 12),
+                      LinearProgressIndicator(
+                        value: _progress,
+                        color: _neon,
+                        backgroundColor: Colors.white10,
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    Text(
+                      _status,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              OutlinedButton.icon(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white70,
+                  side: const BorderSide(color: Colors.white24),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                ),
+                onPressed: _openAdb,
+                icon: const Icon(Icons.developer_mode),
+                label: const Text('Instalación automática por ADB (Avanzado)'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

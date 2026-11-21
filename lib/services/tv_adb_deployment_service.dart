@@ -4,6 +4,7 @@ import 'dart:io';
 
 import '../core/brand_paths.dart';
 import '../core/net/safe_download.dart';
+import 'tv_apk_cache.dart';
 
 enum TvAdbTargetState { connected, discoverable, pairingRequired }
 
@@ -565,16 +566,23 @@ class TvAdbDeploymentService {
   }
 
   /// APK de Karaoke TV ya compilado por el CI (release más reciente).
+  static const String _tvApkUrl =
+      'https://github.com/GatoNegro5/DiFogo/releases/latest/download/gatomix-tv.apk';
+
+  /// 3.2.25: pasa por la cache unica `tv_cache` (la misma que sirve /apk):
+  /// se reutiliza si es valida; si no, descarga atomica con validacion.
   Future<File> _downloadTvApk(void Function(String) onProgress) async {
-    final dir = Directory('${_appDataDir()}${Platform.pathSeparator}tv');
-    dir.createSync(recursive: true);
-    final apk = File('${dir.path}${Platform.pathSeparator}gatomix-tv.apk');
-    onProgress('Descargando GatoMix Karaoke (APK)…');
-    await downloadFileRobust(
-      'https://github.com/GatoNegro5/DiFogo/releases/latest/download/gatomix-tv.apk',
-      apk.path,
+    onProgress('Preparando GatoMix Karaoke (APK)…');
+    int lastPct = -1;
+    return TvApkCache(url: _tvApkUrl).ensure(
+      onProgress: (int got, int? total) {
+        if (total == null || total <= 0) return;
+        final int pct = got * 100 ~/ total;
+        if (pct == lastPct) return;
+        lastPct = pct;
+        onProgress('Descargando GatoMix Karaoke (APK)… $pct%');
+      },
     );
-    return apk;
   }
 
   Directory _resolveTvProject() {
