@@ -12,6 +12,7 @@ import 'package:http/http.dart' as http;
 import 'package:permission_handler/permission_handler.dart';
 import '../../core/lan_sync_plan.dart';
 import '../../core/library_guard.dart' show libraryWriteBlocked;
+import '../../core/safe_media_path.dart';
 import '../../core/gatomix_store.dart' show TrackMusic, saveTrackMusicBatch;
 import '../../core/queue_bpm.dart' show knownBpm;
 
@@ -1159,6 +1160,19 @@ class _LanSyncWorkspaceState extends ConsumerState<LanSyncWorkspace>
       if (request.method == 'POST' && path == '/api/queue/add') {
         final user = query['user'] ?? 'Anónimo';
         final song = query['song'] ?? '';
+        // 3.2.24: solo audio dentro de la biblioteca (o la Musica de LAN
+        // Sync); ruta arbitraria, relativa o con `..` -> 403.
+        if (song.isNotEmpty &&
+            !isSafeMediaPath(
+              song,
+              roots: safeMediaRoots(extra: <String>[_getBaseMusicPath()]),
+              allowedExts: kSafeMediaAudioExts,
+            )) {
+          request.response
+            ..statusCode = HttpStatus.forbidden
+            ..close();
+          return;
+        }
         if (song.isNotEmpty) KaraokeCore().addToQueue(user, song);
         request.response
           ..statusCode = 200

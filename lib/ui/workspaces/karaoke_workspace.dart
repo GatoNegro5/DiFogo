@@ -5,8 +5,43 @@ import 'package:flutter/material.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/lyric_files.dart';
+import '../../core/library_guard.dart' show lrcReadFile;
 import '../../services/tv_sync_server.dart';
 import '../../services/tv_adb_deployment_service.dart';
+
+/// 3.2.24: `.lrc` de Karaoke con la misma cascada que Mix con Letra
+/// ([lrcReadFile]): espejo local de letras, espejo heredado y por ultimo
+/// el `.lrc` junto al audio.
+File karaokeLrcFile(String audioPath) => lrcReadFile(
+  audioPath,
+  audioPath.replaceAll(RegExp(r'\.mp3$', caseSensitive: false), '.lrc'),
+);
+
+/// 3.2.24: eleccion `_K` vs original con I/O asincrono (antes existsSync y
+/// lengthSync en el hilo de UI). Mismas reglas: `_K` de al menos 256 KB y
+/// no menor al 45 por ciento del original; si no, el original.
+Future<String> resolveKaraokeAudio(String originalPath) async {
+  final String karaokePath = originalPath.replaceAll(
+    RegExp(r'\.mp3$', caseSensitive: false),
+    '_K.mp3',
+  );
+  try {
+    final File instrumental = File(karaokePath);
+    if (!await instrumental.exists()) return originalPath;
+    final int karaokeBytes = await instrumental.length();
+    if (karaokeBytes < 256 * 1024) return originalPath;
+    final File original = File(originalPath);
+    if (await original.exists()) {
+      final int originalBytes = await original.length();
+      if (originalBytes > 0 && karaokeBytes < (originalBytes * 0.45).round()) {
+        return originalPath;
+      }
+    }
+    return karaokePath;
+  } catch (_) {
+    return originalPath;
+  }
+}
 
 // ----------------------------------------------------------------------
 // 1. SINGLETON (Puente de Memoria RAM entre el Servidor REST y la UI)
@@ -376,25 +411,6 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
     _pushStageState();
   }
 
-  String _resolveKaraokeAudio(String originalPath) {
-    final karaokePath = originalPath.replaceAll(
-      RegExp(r'\.mp3$', caseSensitive: false),
-      '_K.mp3',
-    );
-    final original = File(originalPath);
-    final instrumental = File(karaokePath);
-    if (!instrumental.existsSync()) return originalPath;
-    final karaokeBytes = instrumental.lengthSync();
-    if (karaokeBytes < 256 * 1024) return originalPath;
-    if (original.existsSync()) {
-      final originalBytes = original.lengthSync();
-      if (originalBytes > 0 && karaokeBytes < (originalBytes * 0.45).round()) {
-        return originalPath;
-      }
-    }
-    return karaokePath;
-  }
-
   String _displayName(String path) {
     return path
         .replaceAll('\\', '/')
@@ -404,10 +420,8 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
   }
 
   Map<String, String> _edgeUrls(String audioPath, String originalPath) {
-    final lrcPath = originalPath.replaceAll(
-      RegExp(r'\.mp3$', caseSensitive: false),
-      '.lrc',
-    );
+    // 3.2.24: la TV pide el .lrc resuelto (espejo de letras o junto al mp3).
+    final lrcPath = karaokeLrcFile(originalPath).path;
     return {
       'mp3':
           'http://$_hostIp:55056/karaoke/audio?p=${Uri.encodeQueryComponent(audioPath)}',
@@ -441,12 +455,14 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
     _preloadTimer?.cancel();
     final next = KaraokeCore().peekNext();
     if (next == null) return;
-    _preloadTimer = Timer(const Duration(seconds: 15), () {
+    _preloadTimer = Timer(const Duration(seconds: 15), () async {
       if (!mounted || !KaraokeCore().sessionActive.value) return;
       final queued = KaraokeCore().peekNext();
       if (queued == null) return;
       final originalPath = '${queued['song']}';
-      final urls = _edgeUrls(_resolveKaraokeAudio(originalPath), originalPath);
+      final String audioPath = await resolveKaraokeAudio(originalPath);
+      if (!mounted || !KaraokeCore().sessionActive.value) return;
+      final urls = _edgeUrls(audioPath, originalPath);
       try {
         ref
             .read(tvSyncProvider)
@@ -604,6 +620,24 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
 
   StreamSubscription<String>? _lrcSub;
 
+  /// 3.2.24: turno del ultimo cambio de cantante; un despacho viejo que
+  /// termina tarde no pisa al nuevo.
+  int _dispatchSeq = 0;
+
+  Future<void> _dispatchResolved({
+    required int seq,
+    required String originalPath,
+    required String singer,
+  }) async {
+    final String audioPath = await resolveKaraokeAudio(originalPath);
+    if (!mounted || seq != _dispatchSeq) return;
+    _dispatchEdgeExecute(
+      audioPath: audioPath,
+      originalPath: originalPath,
+      singer: singer,
+    );
+  }
+
   /// Buscar letra / Deshacer / Restaurar cambiaron el `.lrc`: si es el tema
   /// abierto, se relee.
   void _onLrcChanged(String audioPath) {
@@ -618,11 +652,13 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
       final originalPath = songData['song']!;
       _loadLrc(originalPath);
 
-      final finalAudioPath = _resolveKaraokeAudio(originalPath);
-      _dispatchEdgeExecute(
-        audioPath: finalAudioPath,
-        originalPath: originalPath,
-        singer: songData['user'] ?? '',
+      // 3.2.24: _K vs original se resuelve sin I/O sincrono en la UI.
+      unawaited(
+        _dispatchResolved(
+          seq: ++_dispatchSeq,
+          originalPath: originalPath,
+          singer: songData['user'] ?? '',
+        ),
       );
 
       _frozenPos = Duration.zero;
@@ -636,6 +672,8 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
       _preloadNext();
       _pushStageState();
     } else {
+      // 3.2.24: sin cantante, un despacho pendiente ya no sale.
+      _dispatchSeq++;
       try {
         ref.read(tvSyncProvider).broadcastEdgeStop();
       } catch (_) {}
@@ -652,11 +690,8 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
   }
 
   void _loadLrc(String mp3Path) {
-    final lrcPath = mp3Path.replaceAll(
-      RegExp(r'\.mp3$', caseSensitive: false),
-      '.lrc',
-    );
-    final file = File(lrcPath);
+    // 3.2.24: misma cascada que Mix con Letra (espejo, heredado, junto).
+    final file = karaokeLrcFile(mp3Path);
 
     if (file.existsSync()) {
       final rawLrcContent = file.readAsStringSync();

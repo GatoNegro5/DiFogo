@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/safe_media_path.dart';
+
 class TvSyncServer {
   HttpServer? _server;
   final List<WebSocket> _clients = [];
@@ -195,11 +197,11 @@ class TvSyncServer {
         return;
       }
 
+      // 3.2.24: solo audio o .lrc estrictamente dentro de la biblioteca o
+      // del espejo de letras (ruta canonica, sin `..` ni prefijo hermano).
+      // Cualquier otra ruta -> 403 sin detalles del disco.
       final file = File(raw);
-      final lower = raw.toLowerCase();
-      final allowed =
-          (lower.endsWith('.mp3') || lower.endsWith('.lrc')) &&
-          file.existsSync();
+      final bool allowed = isSafeMediaPath(raw) && await file.exists();
       if (!allowed) {
         request.response
           ..statusCode = HttpStatus.forbidden
@@ -207,9 +209,9 @@ class TvSyncServer {
         return;
       }
 
-      request.response.headers.contentType = lower.endsWith('.lrc')
-          ? ContentType('text', 'plain', charset: 'utf-8')
-          : ContentType('audio', 'mpeg');
+      request.response.headers.contentType = _mediaContentType(
+        mediaExtension(raw),
+      );
       await request.response.addStream(file.openRead());
       await request.response.close();
     } catch (e) {
@@ -219,6 +221,26 @@ class TvSyncServer {
           ..statusCode = HttpStatus.internalServerError
           ..close();
       } catch (_) {}
+    }
+  }
+
+  /// 3.2.24: tipo MIME por extension permitida.
+  static ContentType _mediaContentType(String ext) {
+    switch (ext) {
+      case '.lrc':
+        return ContentType('text', 'plain', charset: 'utf-8');
+      case '.wav':
+        return ContentType('audio', 'wav');
+      case '.flac':
+        return ContentType('audio', 'flac');
+      case '.m4a':
+        return ContentType('audio', 'mp4');
+      case '.aac':
+        return ContentType('audio', 'aac');
+      case '.ogg':
+        return ContentType('audio', 'ogg');
+      default:
+        return ContentType('audio', 'mpeg');
     }
   }
 
