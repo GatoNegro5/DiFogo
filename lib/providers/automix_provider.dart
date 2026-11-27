@@ -1136,7 +1136,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
     }
     unawaited(_loadLyrics(queue.first).catchError((Object _) {}));
     unawaited(_loadTrackMetadata(queue.first).catchError((Object _) {}));
-    if (plan.fresh && random) {
+    // 3.2.28: tambien en listas retomadas; la pista retomada queda primera
+    // (head) y el orden armonico solo toca las pendientes.
+    if (random) {
       unawaited(_shufflePlaylistAsync().catchError((Object _) {}));
     }
   }

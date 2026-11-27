@@ -6,7 +6,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/discovery_dedup_controller.dart';
+import '../core/gatomix_radio.dart' show warmHarmonicDna, kDnaWarmWait;
 import '../core/genre_stations.dart';
+import '../core/livedj_order.dart' show camelotFromPath, harmonicDnaOf;
+import '../core/queue_bpm.dart' show memoryBpm, preloadQueueBpmAsync;
 import '../core/mode_session.dart';
 import '../core/persistent_lists.dart';
 import '../ui/mobile/music_picker_screen.dart'
@@ -574,6 +577,11 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
         return 0;
       }
       final GenreSessionDoc d = _stationsDoc;
+      // 3.2.28: BPM y ADN de una ventana de la estacion antes del orden,
+      // con tope de espera; lo que no llegue ordena por la cache en memoria.
+      if (debugStationCollect == null) {
+        await _warmStation(stationWarmWindow(all, d.stations[key]));
+      }
       final StationPlan plan = planStation(
         all,
         d.stations[key],
@@ -581,6 +589,10 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
         exists: debugStationCollect != null
             ? null
             : (String p) => File(p).existsSync(),
+        // 3.2.28: energia pareja (BPM en memoria, Camelot del nombre, ADN).
+        bpmOf: memoryBpm,
+        keyOf: camelotFromPath,
+        dnaOf: harmonicDnaOf,
       );
       await _startPlan(key, subGenres, plan);
       await frozen;
@@ -599,6 +611,18 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       _loading = false;
       state = state.copyWith(busy: false);
     }
+  }
+
+  /// 3.2.28: calienta BPM (sin leer TBPM en el UI isolate) y ADN de [win]
+  /// con tope [kDnaWarmWait]. Nunca falla.
+  Future<void> _warmStation(List<String> win) async {
+    if (win.isEmpty) return;
+    try {
+      await Future.wait<void>(<Future<void>>[
+        preloadQueueBpmAsync(win),
+        warmHarmonicDna(win),
+      ]).timeout(kDnaWarmWait, onTimeout: () => const <void>[]);
+    } catch (_) {}
   }
 
   /// Arma la sesion de [key] con [plan] y la hace sonar en Live DJ ya.

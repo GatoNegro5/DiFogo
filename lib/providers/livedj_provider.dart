@@ -1704,8 +1704,9 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   /// 3.1.61 Estaciones DiFogo: reemplaza la cola por la de una estacion
   /// (ya barajada y sin pistas sonadas), carga [currentPath] en el segundo
   /// [positionMs] y suena de inmediato. 3.1.70: la cola queda en Shuffle
-  /// (ya viene barajada con Smart Shuffle); como _backfillEpoch queda en
-  /// null, el reorden armonico no la toca y se respeta el orden guardado.
+  /// (ya viene barajada con Smart Shuffle). 3.2.28: _backfillEpoch queda en
+  /// la cola cargada, asi el reorden armonico de la ventana (BPM medido y
+  /// ADN) tambien actua en estaciones; Phrase 8 conserva su regla.
   /// Devuelve false si hay un cruce en curso.
   Future<bool> loadStation({
     String? currentPath,
@@ -1752,6 +1753,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       mixStrategy: LiveDjMixStrategy.random,
       sortMode: LiveDjSortMode.manual,
     );
+    // 3.2.28: la cola de la estacion queda como epoca del reorden.
+    _backfillEpoch = state.queue;
     _sessionPositionMs = pos;
     _lastSavedPositionMs = pos;
     await _saveSnapshot();

@@ -19,6 +19,20 @@ Future<void> preloadQueueBpm(List<String> paths) async {
   if (pending.isNotEmpty) await Future.wait(pending);
 }
 
+/// 3.2.28: como [preloadQueueBpm] sin leer el TBPM en este isolate: nombre
+/// y `.gatomix.json` y, para las que faltan, [TrackTags.load] (Rust,
+/// asincrono). Lo usa el armado de estaciones para no trabar el UI.
+Future<void> preloadQueueBpmAsync(List<String> paths) async {
+  preloadQueueBpmFromStore(paths);
+  final List<Future<void>> pending = <Future<void>>[];
+  for (final String path in paths) {
+    if (path.isEmpty || isKaraokeAudioPath(path)) continue;
+    if ((TrackTags.peek(path)?.bpm ?? 0) > 0) continue;
+    pending.add(TrackTags.load(path));
+  }
+  if (pending.isNotEmpty) await Future.wait(pending);
+}
+
 void preloadQueueBpmSync(List<String> paths) {
   _preloadQueueBpm(paths, readTags: true);
 }

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'gatomix_store.dart' show peekTrackDna, warmTrackDnaFor, TrackDnaEntry;
+import 'livedj_order.dart' show buildHarmonicShuffle, HarmonicDna;
 import 'session_store.dart';
 
 /// 3.1.61 Estaciones DiFogo (3.1.64: catalogo universal de 7 estaciones con
@@ -564,11 +565,17 @@ class StationPlan {
 /// orden restante y agrega al final (barajadas) las pistas nuevas. Nunca
 /// repite [GenreSession.playedPaths]; solo lo reinicia cuando ya sono el
 /// 100 % de la estacion.
+/// 3.2.28: con [bpmOf] (y [keyOf]/[dnaOf]) las pistas nuevas salen en orden
+/// de energia pareja (ver [stationSmartShuffle]); la cola guardada no se
+/// reordena.
 StationPlan planStation(
   List<String> all,
   GenreSession? saved, {
   Random? rng,
   bool Function(String path)? exists,
+  double Function(String path)? bpmOf,
+  String? Function(String path)? keyOf,
+  HarmonicDna? Function(String path)? dnaOf,
 }) {
   final Random r = rng ?? Random();
   final bool Function(String) ok = exists ?? (String p) => true;
@@ -609,6 +616,9 @@ StationPlan planStation(
       fresh,
       r,
       after: queue.isNotEmpty ? queue.last : current,
+      bpmOf: bpmOf,
+      keyOf: keyOf,
+      dnaOf: dnaOf,
     ),
   );
   if (current == null && queue.isEmpty && all.isNotEmpty) {
@@ -616,6 +626,9 @@ StationPlan planStation(
     final List<String> again = stationSmartShuffle(
       byKey.values.toList()..sort(),
       r,
+      bpmOf: bpmOf,
+      keyOf: keyOf,
+      dnaOf: dnaOf,
     );
     return StationPlan(
       currentTrackPath: null,
@@ -664,19 +677,94 @@ String stationArtistKey(String path) {
 const int kStationBlockMin = 3;
 const int kStationBlockMax = 4;
 
-/// 3.1.70 Smart Shuffle: Fisher-Yates y despues dispersion de artistas, para
-/// que nunca suenen dos canciones del mismo artista seguidas (salvo que ya
-/// no quede otra). [after] es la pista que suena justo antes de la primera.
-/// 3.2.1: micro-bloques de 3-4 pistas del mismo sub-genero/idioma
-/// ([blockOf], por defecto [trackBlockKey]) antes de rotar al siguiente,
-/// sin romper la regla de artistas. Con menos de dos bloques distintos el
-/// orden es el de la 3.1.70.
-List<String> stationSmartShuffle(
+/// 3.2.28: salto maximo de BPM entre dos pistas vecinas de una estacion
+/// (8 % del BPM de la anterior) mientras quede alternativa.
+const double kStationBpmStep = 0.08;
+
+/// 3.2.28: pistas de la estacion cuyo BPM y ADN se calientan antes de
+/// armar la cola (la cola guardada primero y una muestra pareja del resto).
+const int kStationWarmWindow = 96;
+
+/// 3.2.28: true si [b] queda a <= [kStationBpmStep] de [a]. Sin BPM de
+/// alguna de las dos no hay regla (true).
+bool stationBpmNear(double a, double b) {
+  if (a <= 0 || b <= 0) return true;
+  return (b - a).abs() <= a * kStationBpmStep + 1e-9;
+}
+
+/// 3.2.28: ventana a calentar (BPM y ADN) antes de [planStation]: pista y
+/// cola guardadas primero (hasta la mitad) y luego una muestra pareja de
+/// [all], sin azar y sin repetir, hasta [limit] pistas.
+List<String> stationWarmWindow(
+  List<String> all,
+  GenreSession? saved, {
+  int limit = kStationWarmWindow,
+}) {
+  final List<String> out = <String>[];
+  if (limit <= 0) return out;
+  final Set<String> seen = <String>{};
+  void add(String p) {
+    if (p.isNotEmpty && out.length < limit && seen.add(stationPathKey(p))) {
+      out.add(p);
+    }
+  }
+
+  final String? cur = saved?.currentTrackPath;
+  if (cur != null) add(cur);
+  for (final String p in saved?.remainingQueuePaths ?? const <String>[]) {
+    if (out.length >= limit ~/ 2) break;
+    add(p);
+  }
+  if (all.isNotEmpty) {
+    final int step = all.length <= limit ? 1 : all.length ~/ limit;
+    for (int i = 0; i < all.length && out.length < limit; i += step) {
+      add(all[i]);
+    }
+  }
+  return out;
+}
+
+/// 3.2.28: semilla del Smart Shuffle. Con [bpmOf] y 2 o mas BPM conocidos
+/// es el orden armonico existente ([buildHarmonicShuffle]: BPM, Camelot,
+/// ADN de energia y micro-bloques); lo que ese orden no devuelve (karaoke,
+/// duplicados, [after]) va al final para no perder ninguna pista. Sin eso,
+/// Fisher-Yates como en 3.1.70 (mismo uso de [rng]). El bool dice si la
+/// semilla es armonica.
+(List<String>, bool) _stationSeed(
   List<String> tracks,
   Random rng, {
   String? after,
   String? Function(String path)? blockOf,
+  double Function(String path)? bpmOf,
+  String? Function(String path)? keyOf,
+  HarmonicDna? Function(String path)? dnaOf,
 }) {
+  if (bpmOf != null) {
+    int known = 0;
+    for (final String p in tracks) {
+      if (bpmOf(p) > 0 && ++known >= 2) break;
+    }
+    if (known >= 2) {
+      final List<String> seed = List<String>.from(
+        buildHarmonicShuffle(
+          tracks,
+          bpmOf,
+          keyOf: keyOf,
+          continueFrom: after,
+          rng: rng,
+          subOf: blockOf ?? trackBlockKey,
+          dnaOf: dnaOf,
+        ).tracks,
+      );
+      final Set<String> got = <String>{
+        for (final String p in seed) stationPathKey(p),
+      };
+      for (final String p in tracks) {
+        if (got.add(stationPathKey(p))) seed.add(p);
+      }
+      return (seed, true);
+    }
+  }
   final List<String> pool = List<String>.from(tracks);
   for (int i = pool.length - 1; i > 0; i--) {
     final int j = rng.nextInt(i + 1);
@@ -684,7 +772,45 @@ List<String> stationSmartShuffle(
     pool[i] = pool[j];
     pool[j] = t;
   }
+  return (pool, false);
+}
+
+/// 3.1.70 Smart Shuffle: Fisher-Yates y despues dispersion de artistas, para
+/// que nunca suenen dos canciones del mismo artista seguidas (salvo que ya
+/// no quede otra). [after] es la pista que suena justo antes de la primera.
+/// 3.2.1: micro-bloques de 3-4 pistas del mismo sub-genero/idioma
+/// ([blockOf], por defecto [trackBlockKey]) antes de rotar al siguiente,
+/// sin romper la regla de artistas. Con menos de dos bloques distintos el
+/// orden es el de la 3.1.70.
+/// 3.2.28: con [bpmOf] (2 o mas BPM conocidos) la semilla es el orden
+/// armonico y cada paso prefiere una pista a <= 8 % de BPM de la anterior:
+/// primero la del bloque que toca, si no hay, otra cercana (no se fuerza la
+/// rotacion de bloque con un salto > 8 %), y solo sin alternativa se salta.
+/// La regla de artistas manda siempre. Sin [bpmOf] el orden es el de 3.2.1.
+List<String> stationSmartShuffle(
+  List<String> tracks,
+  Random rng, {
+  String? after,
+  String? Function(String path)? blockOf,
+  double Function(String path)? bpmOf,
+  String? Function(String path)? keyOf,
+  HarmonicDna? Function(String path)? dnaOf,
+}) {
+  final (List<String> pool, bool harmonic) = _stationSeed(
+    tracks,
+    rng,
+    after: after,
+    blockOf: blockOf,
+    bpmOf: bpmOf,
+    keyOf: keyOf,
+    dnaOf: dnaOf,
+  );
   if (pool.isEmpty) return pool;
+  final double Function(String path)? bo = harmonic ? bpmOf : null;
+  final List<double> bpms = <double>[
+    for (final String p in pool) bo == null ? 0 : bo(p),
+  ];
+  double lastBpm = bo != null && after != null ? bo(after) : 0;
   final List<String> keys = <String>[
     for (final String p in pool) stationArtistKey(p),
   ];
@@ -713,6 +839,13 @@ List<String> stationSmartShuffle(
   final List<int> idx = List<int>.generate(pool.length, (int i) => i);
   final List<String> out = <String>[];
   String last = after == null ? '' : stationArtistKey(after);
+  int scan(bool Function(int at) okAt) {
+    for (int q = 0; q < idx.length; q++) {
+      if (okAt(idx[q])) return q;
+    }
+    return -1;
+  }
+
   while (idx.isNotEmpty) {
     final int r = idx.length;
     // Un artista con mas de la mitad de lo que queda tiene que ir ya.
@@ -727,32 +860,35 @@ List<String> stationSmartShuffle(
     final String? forced = force;
     bool artistOk(String k) =>
         forced != null ? k == forced : (k.isEmpty || k != last);
+    bool near(int at) => stationBpmNear(lastBpm, bpms[at]);
     int pick = -1;
     if (grouped && forced == null) {
       // Bloque abierto (< meta): sigue el mismo sub-genero; bloque cumplido:
       // rota a otro. Siempre sin repetir artista.
       final bool stay = curBlock != null && run < target;
-      for (int q = 0; q < idx.length; q++) {
-        final int at = idx[q];
-        if (!artistOk(keys[at])) continue;
+      bool blockOk(int at) {
         final bool same = blocks[at] == curBlock;
-        if (stay ? same : !same) {
-          pick = q;
-          break;
-        }
+        return stay ? same : !same;
+      }
+
+      // 3.2.28: sin BPM [near] siempre es true (orden de 3.2.1).
+      pick = scan((int at) => artistOk(keys[at]) && blockOk(at) && near(at));
+      if (pick < 0 && harmonic) {
+        // 3.2.28: el bloque que toca saltaria > 8 %: otra cercana.
+        pick = scan((int at) => artistOk(keys[at]) && near(at));
+      }
+      if (pick < 0 && harmonic) {
+        pick = scan((int at) => artistOk(keys[at]) && blockOk(at));
       }
     }
-    if (pick < 0) {
-      for (int q = 0; q < idx.length; q++) {
-        if (artistOk(keys[idx[q]])) {
-          pick = q;
-          break;
-        }
-      }
+    if (pick < 0 && harmonic) {
+      pick = scan((int at) => artistOk(keys[at]) && near(at));
     }
+    if (pick < 0) pick = scan((int at) => artistOk(keys[at]));
     if (pick < 0) pick = 0;
     final int at = idx.removeAt(pick);
     out.add(pool[at]);
+    if (bpms[at] > 0) lastBpm = bpms[at];
     final String k = keys[at];
     if (k.isNotEmpty) {
       final int n = left[k]! - 1;
