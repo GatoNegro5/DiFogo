@@ -451,8 +451,9 @@ class _YoutubeSearchAndDownloadWorkspaceState
           .replaceAll(RegExp(r'[\\/:*?"<>|]'), '')
           .trim();
 
+      // 3.2.32: temporal unico por video (antes raw_vr_audio.m4a fijo).
       final tempRawPath =
-          '${tempDir.path}${Platform.pathSeparator}raw_vr_audio.m4a';
+          '${tempDir.path}${Platform.pathSeparator}raw_${videoId.value}.m4a';
       final tempMp3Path =
           '${tempDir.path}${Platform.pathSeparator}$safeTitle.mp3';
 

@@ -7,6 +7,7 @@ import 'package:difogo/core/lab_quarantine.dart' as labq;
 import 'package:difogo/core/id3_names.dart';
 import 'package:difogo/core/lyric_files.dart';
 import 'package:difogo/core/lyric_match.dart';
+import 'package:difogo/core/splice_detector.dart';
 import 'package:difogo/core/track_name_clean.dart';
 import 'package:difogo/djiphone/iphone_library.dart';
 import 'package:difogo/services/id3_title_artist.dart';
@@ -329,6 +330,21 @@ class _LabWorkspaceState extends ConsumerState<LabWorkspace> {
         );
       }
     }
+  }
+
+  /// 3.2.32: corre el detector de empalmes sobre la pista (solo lectura).
+  Future<void> _detectSplice(String fileName) async {
+    final String path = '$_labPath${Platform.pathSeparator}$fileName';
+    final ScaffoldMessengerState? sm = ScaffoldMessenger.maybeOf(context);
+    String msg;
+    try {
+      msg = '$fileName: ${(await detectSpliceFile(path)).text}';
+    } catch (e) {
+      msg = '$fileName: no se pudo analizar ($e)';
+    }
+    sm?.showSnackBar(
+      SnackBar(content: Text(msg), duration: const Duration(seconds: 8)),
+    );
   }
 
   void _deleteFile(String fileName) {
@@ -1255,6 +1271,7 @@ class _LabWorkspaceState extends ConsumerState<LabWorkspace> {
                 onSelected: (value) {
                   if (value == 'restore') _restoreFile(fileName, registryValue);
                   if (value == 'delete') _deleteFile(fileName);
+                  if (value == 'splice') _detectSplice(fileName);
                 },
                 itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                   const PopupMenuItem<String>(
@@ -1265,6 +1282,24 @@ class _LabWorkspaceState extends ConsumerState<LabWorkspace> {
                         SizedBox(width: 10),
                         Text(
                           'Restaurar a Origen',
+                          style: TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // 3.2.32: detector de empalmes (solo lectura).
+                  const PopupMenuItem<String>(
+                    value: 'splice',
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.content_cut,
+                          color: Colors.orangeAccent,
+                          size: 18,
+                        ),
+                        SizedBox(width: 10),
+                        Text(
+                          'Detectar empalme',
                           style: TextStyle(color: Colors.white, fontSize: 12),
                         ),
                       ],

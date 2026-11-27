@@ -269,6 +269,42 @@ fn decoded_duration_ms(input_path: &str) -> Result<u64, String> {
     Ok(t.seconds * 1000 + (t.frac * 1000.0) as u64)
 }
 
+/// 3.2.32: duracion en ms de `frames` muestras por canal a `rate` Hz.
+fn frames_ms(frames: u64, rate: u32) -> u64 {
+    if rate == 0 {
+        0
+    } else {
+        frames.saturating_mul(1000) / rate as u64
+    }
+}
+
+/// 3.2.32: el temporal tiene que durar y pesar lo que pide SU fuente.
+fn verify_part(part: &str, expect_ms: u64, kbps: u32) -> Result<(), String> {
+    let got = decoded_duration_ms(part)?;
+    let size = std::fs::metadata(part)
+        .map(|m| m.len())
+        .map_err(|e| e.to_string())?;
+    let r = crate::anti_splice::check_part(got, size, expect_ms, kbps);
+    if let Err(e) = &r {
+        eprintln!("ANTI_SPLICE {part}: {e}");
+    }
+    r
+}
+
+/// 3.2.32: `part` reemplaza a `output` solo si cuadra con la fuente; si no,
+/// se borra el temporal y el original queda intacto.
+fn replace_verified(part: &str, output: &str, expect_ms: u64, kbps: u32) -> Result<(), String> {
+    if let Err(e) = verify_part(part, expect_ms, kbps) {
+        let _ = std::fs::remove_file(part);
+        return Err(e);
+    }
+    let _ = std::fs::remove_file(output);
+    std::fs::rename(part, output).map_err(|e| {
+        let _ = std::fs::remove_file(part);
+        e.to_string()
+    })
+}
+
 /// Marca si el TLEN original y el audio medido difieren más de 10 s.
 /// El valor es `tlen=<ms>,audio=<ms>`. Sin TLEN previo no hay marca.
 pub fn len_mismatch_value(previous_tlen_ms: Option<u64>, audio_ms: u64) -> Option<String> {
@@ -2340,6 +2376,8 @@ pub fn encode_to_mp3(
     bitrate_kbps: u32,
     master: bool,
 ) -> Result<bool, String> {
+    // 3.2.32: un solo escritor por salida (un huerfano no comparte archivo).
+    let _out = crate::anti_splice::claim_output(&output_path)?;
     if master {
         encode_mastered_mp3(&input_path, &output_path, bitrate_kbps)
     } else {
@@ -2358,7 +2396,9 @@ fn encode_plain_mp3(
         .make(&params, &DecoderOptions::default())
         .map_err(|e| format!("Códec no soportado: {e}"))?;
 
-    let tmp = format!("{output_path}.part");
+    // 3.2.32: temporal unico (create_new) y duracion de la fuente.
+    let expect_ms = decoded_duration_ms(&input_path).unwrap_or(0);
+    let tmp = crate::anti_splice::unique_part(&output_path, "part")?;
     let mut sink: Option<Mp3Sink> = None;
     let mut wrote = false;
     let res: Result<(), String> = (|| {
@@ -2400,8 +2440,13 @@ fn encode_plain_mp3(
         let _ = std::fs::remove_file(&tmp);
         return Err("Sin audio decodificable".to_string());
     }
-    let _ = std::fs::remove_file(&output_path);
-    std::fs::rename(&tmp, &output_path).map_err(|e| e.to_string())?;
+    if expect_ms > 0 {
+        replace_verified(&tmp, &output_path, expect_ms, bitrate_kbps)?;
+    } else {
+        // Fuente sin duracion medible: sin referencia que comparar.
+        let _ = std::fs::remove_file(&output_path);
+        std::fs::rename(&tmp, &output_path).map_err(|e| e.to_string())?;
+    }
     Ok(true)
 }
 
@@ -2425,7 +2470,12 @@ fn encode_mastered_mp3(input: &str, output: &str, kbps: u32) -> Result<bool, Str
         return Ok(true);
     }
     let plan = plan_span(m, true, true, -1, -1, 0.0);
-    let tmp = format!("{output}.part");
+    // 3.2.32: temporal unico y duracion esperada de lo que se conserva.
+    let expect_ms = frames_ms(
+        m.samples.saturating_sub(plan.head_s).saturating_sub(plan.tail_s),
+        m.rate,
+    );
+    let tmp = crate::anti_splice::unique_part(output, "part")?;
     encode_master_stream(
         input,
         &tmp,
@@ -2466,8 +2516,7 @@ fn encode_mastered_mp3(input: &str, output: &str, kbps: u32) -> Result<bool, Str
         let _ = std::fs::remove_file(&tmp);
         e.to_string()
     })?;
-    let _ = std::fs::remove_file(output);
-    std::fs::rename(&tmp, output).map_err(|e| e.to_string())?;
+    replace_verified(&tmp, output, expect_ms, kbps)?;
     Ok(true)
 }
 
@@ -2490,7 +2539,12 @@ fn encode_mastered_mp3_ram(input: &str, output: &str, kbps: u32) -> Result<bool,
         return Ok(true);
     }
     let plan = plan_span(m, true, true, -1, -1, 0.0);
-    let tmp = format!("{output}.part");
+    // 3.2.32: temporal unico y duracion esperada de lo que se conserva.
+    let expect_ms = frames_ms(
+        m.samples.saturating_sub(plan.head_s).saturating_sub(plan.tail_s),
+        m.rate,
+    );
+    let tmp = crate::anti_splice::unique_part(output, "part")?;
     encode_master_span(
         &take.pcm,
         &tmp,
@@ -2530,8 +2584,7 @@ fn encode_mastered_mp3_ram(input: &str, output: &str, kbps: u32) -> Result<bool,
         let _ = std::fs::remove_file(&tmp);
         e.to_string()
     })?;
-    let _ = std::fs::remove_file(output);
-    std::fs::rename(&tmp, output).map_err(|e| e.to_string())?;
+    replace_verified(&tmp, output, expect_ms, kbps)?;
     Ok(true)
 }
 
@@ -5492,7 +5545,7 @@ fn try_lossless_repair(path: &str, before: u32) -> Result<Option<(String, Stream
     if !st.changed() {
         return Ok(None);
     }
-    let tmp = format!("{path}.gmxrepair.mp3");
+    let tmp = crate::anti_splice::unique_part(path, "gmxrepair.mp3")?;
     std::fs::write(&tmp, &fixed).map_err(|e| e.to_string())?;
     let m2 = match measure_stream(&tmp) {
         Ok(m) => m,
@@ -5566,6 +5619,8 @@ fn master_rewrite_core(
             )
         });
     }
+    // 3.2.32: un solo trabajo por pista; un huerfano deja "Ocupado".
+    let _out = crate::anti_splice::claim_output(&input_path)?;
     let _prio = if headless_master_folder() {
         PriorityGuard::skip()
     } else {
@@ -5737,6 +5792,8 @@ fn master_rewrite_core(
         out_lufs: 0.0,
     };
     let bpm_path: String;
+    // 3.2.32: lo que debe durar el temporal (fuente menos el corte).
+    let mut part_expect_ms = 0u64;
     let mut grid_feed: Option<GridFeed> = None;
     let (bpm_head, bpm_tail) = if let Some(m) = &measured {
         let head_s = if cut_head_ms >= 50 {
@@ -5751,7 +5808,11 @@ fn master_rewrite_core(
         };
         let audio_change = head_s > 0 || tail_s > 0 || lufs_encode;
         if audio_change {
-            let tmp = format!("{input_path}.gmxpart");
+            let tmp = crate::anti_splice::unique_part(&input_path, "gmxpart")?;
+            part_expect_ms = frames_ms(
+                m.samples.saturating_sub(head_s).saturating_sub(tail_s),
+                m.rate,
+            );
             // 3.1.12: sin PCM en RAM. La rejilla se alimenta en la primera
             // pasada del render con las muestras crudas de [head..end).
             let mega = intro_bpm
@@ -5979,6 +6040,11 @@ fn master_rewrite_core(
             e.to_string()
         })?;
         if let Err(e) = cancel_now() {
+            discard_partial(&tmp);
+            return Err(e);
+        }
+        // 3.2.32: antes de tocar el original, el temporal tiene que cuadrar.
+        if let Err(e) = verify_part(&tmp, part_expect_ms, kbps) {
             discard_partial(&tmp);
             return Err(e);
         }
@@ -6507,7 +6573,12 @@ impl VocalWav {
         let mut s = path.as_os_str().to_os_string();
         s.push(".part");
         let part = std::path::PathBuf::from(s);
-        let f = File::create(&part).map_err(|e| e.to_string())?;
+        // 3.2.32: create_new; la ruta de la voz ya es unica por trabajo.
+        let f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&part)
+            .map_err(|e| e.to_string())?;
         let mut out = std::io::BufWriter::with_capacity(1 << 16, f);
         if let Err(e) = out.write_all(&vocal_wav_header(0)) {
             drop(out);
@@ -6748,6 +6819,9 @@ fn karaoke_separate_vocals(
             karaoke_separate_vocals(input_path, model_path, output_path, vocals.as_deref())
         });
     }
+    // 3.2.32: un solo escritor por _K y duracion de la fuente.
+    let _out = crate::anti_splice::claim_output(&output_path)?;
+    let expect_ms = decoded_duration_ms(&input_path).unwrap_or(0);
     let _prio = PriorityGuard::enter();
     KAR_CANCEL.store(false, Ordering::Relaxed);
     KAR_PROGRESS.store(0, Ordering::Relaxed);
@@ -6785,7 +6859,7 @@ fn karaoke_separate_vocals(
         out
     };
 
-    let tmp = format!("{output_path}.part");
+    let tmp = crate::anti_splice::unique_part(&output_path, "part")?;
     let mut sink = Mp3Sink::new(&tmp, K_RATE, true, 320)?;
     let mut next = || -> Result<Option<Vec<(f32, f32)>>, String> {
         loop {
@@ -6834,9 +6908,16 @@ fn karaoke_separate_vocals(
         let _ = std::fs::remove_file(&tmp);
         return Err(e);
     }
-    sink.finish()?;
-    let _ = std::fs::remove_file(&output_path);
-    std::fs::rename(&tmp, &output_path).map_err(|e| e.to_string())?;
+    if let Err(e) = sink.finish() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    if expect_ms > 0 {
+        replace_verified(&tmp, &output_path, expect_ms, 320)?;
+    } else {
+        let _ = std::fs::remove_file(&output_path);
+        std::fs::rename(&tmp, &output_path).map_err(|e| e.to_string())?;
+    }
     KAR_PROGRESS.store(1000, Ordering::Relaxed);
     Ok(true)
 }
@@ -10195,3 +10276,154 @@ mod track_dna_3203_tests {
         assert_eq!(missing, TrackDna::default());
     }
 }
+
+#[cfg(test)]
+mod anti_splice_3232_scenario {
+    //! 3.2.32 (DIF-29): escenario del empalme. A larga y lenta, B corta; el
+    //! "timeout" de Dart suelta A sin esperarla y arranca B en seguida.
+    use super::*;
+
+    fn dir(tag: &str) -> std::path::PathBuf {
+        let d = std::env::temp_dir().join(format!("gmx_3232_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    /// Tono bajito (para que Masterizar suba a -14 y recodifique) con 2 s de
+    /// silencio a cada lado (para que corte).
+    fn write_track(path: &std::path::Path, hz: f32, secs: f32) {
+        let rate = 44100u32;
+        let pad = 2 * rate as usize;
+        let n = (secs * rate as f32) as usize;
+        let mut pcm = vec![0.0f32; pad];
+        pcm.extend((0..n).map(|i| {
+            0.08 * (2.0 * std::f32::consts::PI * hz * i as f32 / rate as f32).sin()
+        }));
+        pcm.extend(std::iter::repeat(0.0).take(pad));
+        let s = path.to_string_lossy().to_string();
+        encode_master_span(&pcm, &s, rate, 1, pcm.len() as u64, 0, 0, 1.0, false, 192).unwrap();
+    }
+
+    fn dur(p: &std::path::Path) -> u64 {
+        decoded_duration_ms(&p.to_string_lossy()).unwrap()
+    }
+
+    fn scan(p: &std::path::Path) -> Vec<crate::anti_splice::SpliceHit> {
+        let d = decode_channels(&p.to_string_lossy(), 0, 3600, 2).unwrap();
+        crate::anti_splice::splice_scan(&to_mono(&d), d.rate)
+    }
+
+    fn leftovers(d: &std::path::Path) -> Vec<String> {
+        std::fs::read_dir(d)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.contains("part") || n.contains("gmxside") || n.contains("gmxrepair"))
+            .collect()
+    }
+
+    #[test]
+    fn anti_splice_3232_huerfano_no_pega_otra_pista() {
+        let d = dir("orphan");
+        let a = d.join("A_larga_440Hz.mp3");
+        let b = d.join("B_corta_1000Hz.mp3");
+        write_track(&a, 440.0, 120.0);
+        write_track(&b, 1000.0, 30.0);
+        let (a_src, b_src) = (dur(&a), dur(&b));
+        let a_s = a.to_string_lossy().to_string();
+        // Timeout forzado: A sigue en su hilo y nadie la espera.
+        let orphan = std::thread::spawn(move || master_rewrite(a_s, true, true, false, -1, -1));
+        let rb = master_rewrite(b.to_string_lossy().to_string(), true, true, false, -1, -1)
+            .expect("B se masteriza aunque A siga viva");
+        assert!(rb.rewritten);
+        let b_out = dur(&b);
+        let b_expect = b_src - rb.trim_head_ms as u64 - rb.trim_tail_ms as u64;
+        eprintln!("FASE2 B src={b_src} out={b_out} esperado={b_expect} hits={:?}", scan(&b));
+        assert!(b_out.abs_diff(b_expect) <= 400, "B {b_out} vs {b_expect}");
+        assert!(b_out < a_src / 2, "B no trae el largo de A");
+        assert!(scan(&b).is_empty(), "B sin escalon ni reinicio");
+        let ra = orphan.join().unwrap().expect("A termina sola");
+        let a_out = dur(&a);
+        let a_expect = a_src - ra.trim_head_ms as u64 - ra.trim_tail_ms as u64;
+        eprintln!("FASE2 A src={a_src} out={a_out} esperado={a_expect} hits={:?}", scan(&a));
+        assert!(a_out.abs_diff(a_expect) <= 400);
+        assert!(scan(&a).is_empty());
+        assert!(leftovers(&d).is_empty(), "{:?}", leftovers(&d));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn anti_splice_3232_misma_pista_dos_trabajos_uno_ocupado() {
+        let d = dir("busy");
+        let a = d.join("A.mp3");
+        write_track(&a, 440.0, 90.0);
+        let src = dur(&a);
+        let s1 = a.to_string_lossy().to_string();
+        let s2 = s1.clone();
+        let t = std::thread::spawn(move || master_rewrite(s1, true, true, false, -1, -1));
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        let second = master_rewrite(s2, true, true, false, -1, -1);
+        let first = t.join().unwrap();
+        let errs: Vec<String> = [&first, &second]
+            .iter()
+            .filter_map(|r| r.as_ref().err().cloned())
+            .collect();
+        eprintln!("FASE2 misma pista: errores={errs:?}");
+        assert!(first.is_ok() || second.is_ok());
+        assert!(errs.iter().all(|e| e.starts_with("Ocupado")), "{errs:?}");
+        let out = dur(&a);
+        assert!(out < src && src - out < 5000, "{src} -> {out}");
+        assert!(scan(&a).is_empty());
+        assert!(leftovers(&d).is_empty(), "{:?}", leftovers(&d));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn anti_splice_3232_temporal_empalmado_no_toca_el_original() {
+        let d = dir("verify");
+        let a = d.join("A.mp3");
+        let b = d.join("B.mp3");
+        write_track(&a, 440.0, 60.0);
+        write_track(&b, 1000.0, 20.0);
+        let b_src = dur(&b);
+        let before = std::fs::read(&b).unwrap();
+        // Lo que dejaba el temporal compartido: B y luego un pedazo de A.
+        let bs = b.to_string_lossy().to_string();
+        let part = crate::anti_splice::unique_part(&bs, "gmxpart").unwrap();
+        let mut glued = before.clone();
+        glued.extend(std::fs::read(&a).unwrap());
+        std::fs::write(&part, &glued).unwrap();
+        let got = dur(std::path::Path::new(&part));
+        let err = replace_verified(&part, &bs, b_src, 192).unwrap_err();
+        eprintln!("FASE2 verificacion: temporal={got} ms fuente={b_src} ms -> {err}");
+        assert!(err.starts_with(crate::anti_splice::SPLICE_ERR));
+        assert_eq!(std::fs::read(&b).unwrap(), before, "original intacto");
+        assert!(!std::path::Path::new(&part).exists(), "temporal borrado");
+        // El detector tambien lo ve en el archivo pegado.
+        let g = d.join("pegado.mp3");
+        std::fs::write(&g, &glued).unwrap();
+        let hits = scan(&g);
+        eprintln!("FASE2 detector sobre el pegado: {hits:?}");
+        assert!(hits.iter().any(|h| h.kind == "reinicio"), "{hits:?}");
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn anti_splice_3232_encode_to_mp3_verifica() {
+        let d = dir("enc");
+        let a = d.join("fuente.mp3");
+        write_track(&a, 660.0, 40.0);
+        let out = d.join("salida.mp3");
+        let os = out.to_string_lossy().to_string();
+        assert!(encode_to_mp3(a.to_string_lossy().to_string(), os.clone(), 320, true).unwrap());
+        assert!(encode_to_mp3(a.to_string_lossy().to_string(), os.clone(), 320, false).unwrap());
+        assert!(dur(&out).abs_diff(dur(&a)) <= 400);
+        assert!(leftovers(&d).is_empty(), "{:?}", leftovers(&d));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+}
+/// 3.2.32 (DIF-29): arnes de reemplazo (solo a mano, ignorado).
+#[cfg(test)]
+#[path = "../dif29_harness.rs"]
+mod dif29_harness;

@@ -27,6 +27,13 @@ import '../../providers/dsp_provider.dart';
 import '../../providers/db_provider.dart';
 
 /// Bitrate de la transcodificación AAC→MP3. Una fuente de 128 no se infla a 320.
+/// 3.2.32: temporal crudo unico por video (antes `raw_vr_audio.m4a` fijo:
+/// dos descargas seguidas podian compartirlo).
+String ytRawTempPath(String tempDir, String videoId) {
+  final String safe = videoId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+  return '$tempDir${Platform.pathSeparator}raw_$safe.m4a';
+}
+
 int mp3KbpsForSource(int sourceKbps) {
   if (sourceKbps <= 0) return 192;
   if (sourceKbps <= 160) return 192;
@@ -538,6 +545,7 @@ class _YoutubeSearchAndDownloadWorkspaceState
       _statusText = "Iniciando motor híbrido (Extracción + MP3 Rust)...";
     });
 
+    String? rawToClean;
     try {
       final ytdlpPath = await _resolveBinary('yt-dlp');
       final downloadPath = _selectedFolderPath;
@@ -572,11 +580,12 @@ class _YoutubeSearchAndDownloadWorkspaceState
 
       final tempDir = Directory.systemTemp;
       final String sep = Platform.pathSeparator;
-      final tempRawPath =
-          '${tempDir.path}$sep'
-          'raw_vr_audio.m4a';
-      final tempM4aPath = '${tempDir.path}$sep$trackStem.m4a';
-      final tempMp3Path = '${tempDir.path}$sep$trackStem.mp3';
+      // 3.2.32: temporales unicos por video (antes raw_vr_audio.m4a fijo y
+      // compartido entre descargas); se borran al terminar o fallar.
+      final tempRawPath = ytRawTempPath(tempDir.path, videoId.value);
+      rawToClean = tempRawPath;
+      final tempM4aPath = '${tempDir.path}$sep$trackStem.${videoId.value}.m4a';
+      final tempMp3Path = '${tempDir.path}$sep$trackStem.${videoId.value}.mp3';
       final tempLrcPath = '${tempDir.path}$sep$trackStem.lrc';
 
       if (File(tempRawPath).existsSync()) File(tempRawPath).deleteSync();
@@ -827,6 +836,12 @@ class _YoutubeSearchAndDownloadWorkspaceState
             : "🔴 ERROR FATAL: ${e.toString().replaceAll('Exception: ', '')}",
       );
     } finally {
+      final String? raw = rawToClean;
+      if (raw != null) {
+        try {
+          if (File(raw).existsSync()) File(raw).deleteSync();
+        } catch (_) {}
+      }
       setState(() => _isProcessing = false);
     }
   }
