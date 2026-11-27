@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/discovery_dedup_controller.dart';
+import '../core/dj_trace.dart' show djTrace;
 import '../core/folder_sets.dart';
 import '../core/gatomix_radio.dart' show warmHarmonicDna, kDnaWarmWait;
 import '../core/genre_stations.dart';
@@ -163,6 +164,39 @@ class VibeHubState {
 
 /// 3.1.70: cada cuantos segundos se guarda el segundo de la estacion.
 const int kStationSaveEverySec = 5;
+
+/// 3.2.31: las pruebas capturan la traza de cambios de estacion.
+@visibleForTesting
+void Function(String msg)? debugStationTrace;
+
+/// 3.2.31: cada cambio de estacion queda en difogo_livedj_trace.txt con su
+/// origen (quien llamo), para cazar cualquier cambio "fantasma".
+void _stationTrace(String msg) {
+  final void Function(String)? h = debugStationTrace;
+  if (h != null) {
+    h(msg);
+    return;
+  }
+  // Las pruebas no ensucian la traza real de %TEMP%.
+  if (Platform.environment.containsKey('FLUTTER_TEST')) return;
+  djTrace(msg);
+}
+
+final RegExp _callerRe = RegExp(r'\((?:package:[^/]+/)?([^()]+?:\d+)');
+
+/// 3.2.31: hasta 3 llamadores fuera de este archivo (origen del cambio).
+String stationCallers(StackTrace st) {
+  final List<String> out = <String>[];
+  for (final String l in st.toString().split('\n')) {
+    final RegExpMatch? m = _callerRe.firstMatch(l);
+    if (m == null) continue;
+    final String f = m.group(1)!;
+    if (f.contains('vibe_hub_provider.dart') || f.startsWith('dart:')) continue;
+    out.add(f.split('/').last);
+    if (out.length == 3) break;
+  }
+  return out.isEmpty ? '?' : out.join('<');
+}
 
 class VibeHubNotifier extends Notifier<VibeHubState> {
   String _path() => debugVibeHubStatePath ?? automixStatePath();
@@ -570,6 +604,11 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
   /// sonadas, baraja, suena de una en Live DJ y, si ya tenia sesion, sigue
   /// en su pista y segundo. Devuelve las pistas de la estacion.
   Future<int> playStation(String key, List<String> subGenres) async {
+    _stationTrace(
+      'ESTACION play $key desde=${state.activeStation ?? '-'} '
+      'subs=${subGenres.length} busy=${state.busy} '
+      'origen=${stationCallers(StackTrace.current)}',
+    );
     if (state.busy || subGenres.isEmpty) return 0;
     state = state.copyWith(busy: true, clearMessage: true);
     _loading = true;
@@ -715,6 +754,9 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
     final List<String> queue = List<String>.from(plan.queue);
     final String? current =
         plan.currentTrackPath ?? (queue.isEmpty ? null : queue.removeAt(0));
+    if (d.active != key) {
+      _stationTrace('ESTACION activa ${d.active ?? '-'} -> $key');
+    }
     d.active = key;
     _lists.activeKey = persistentGenreKey(key);
     d.stations[key] = GenreSession(

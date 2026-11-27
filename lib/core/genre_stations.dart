@@ -2713,4 +2713,14 @@ class StationChecks {
     }
     return null;
   }
+
+  /// 3.2.31: la estacion que suena cambio (Play, reanudar, Fiesta): los
+  /// vistos siguen a [key] para que el Hub no deje marcada otra estacion
+  /// (antes Tropical quedaba en visto mientras sonaba Rock). True si resembro.
+  bool follow(String key, {List<String>? saved}) {
+    if (_focus == key && master(key)) return false;
+    if (_find(key) == null) return false;
+    seed(key: key, saved: saved);
+    return true;
+  }
 }

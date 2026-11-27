@@ -33,6 +33,8 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
   String? _open;
   StationChecks? _checks;
   bool _empty = false;
+  // 3.2.31: ultima estacion activa que siguieron los vistos.
+  String? _followed;
 
   // 3.1.67: movil: cerrar la hoja tras tocar los vistos la hace sonar.
   VibeHubNotifier? _hub;
@@ -85,7 +87,16 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
   /// primera vez, Musica del Momento con todo en visto.
   StationChecks _checksFor(VibeHubState s, VibeHubNotifier n) {
     final StationChecks? c = _checks;
-    if (c != null) return c..updateStations(s.stations);
+    if (c != null) {
+      c.updateStations(s.stations);
+      final String? act = s.activeStation;
+      if (act != null && act != _followed) {
+        _followed = act;
+        c.follow(act, saved: n.stationSession(act)?.subGenresChecked);
+      }
+      return c;
+    }
+    _followed = s.activeStation;
     final String? key = n.savedActiveStation();
     final StationChecks fresh = StationChecks(s.stations)
       ..seed(
