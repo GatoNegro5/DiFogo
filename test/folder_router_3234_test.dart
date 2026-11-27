@@ -92,35 +92,33 @@ void main() {
     expect(t.rel, '80s Ingles${_s}Rock');
   });
 
-  test(
-    'desconocido: Por clasificar con sugerencia; externo lo ubica',
-    () async {
-      final LibraryIndex i = LibraryIndex.build(root);
-      final RouteDecision d = await decideFolder(
-        nameOrPath: 'Zzqx Banda - Tema Raro.mp3',
-        index: i,
-      );
-      expect(d.rel, kPorClasificar);
-      expect(d.confident, isFalse);
-      debugArtistGenreLookup = (String a, String t) async =>
-          const ExternalGenre('Salsa', 2001);
-      final RouteDecision e = await decideFolder(
-        nameOrPath: 'Zzqx Banda - Tema Raro.mp3',
-        index: i,
-      );
-      expect(e.rel, 'Salsa');
-      expect(e.reason, contains('externo'));
-      // DESCUBRE: estacion conocida a la carpeta real.
-      final RouteDecision s = await decideFolder(
-        nameOrPath: 'Otro Grupo - Otro.mp3',
-        index: i,
-        stationId: 'tropical',
-        subGenreId: 'Salsa',
-        external: false,
-      );
-      expect(s.rel, 'Salsa');
-    },
-  );
+  test('desconocido: Por clasificar; el genero externo solo sugiere', () async {
+    final LibraryIndex i = LibraryIndex.build(root);
+    final RouteDecision d = await decideFolder(
+      nameOrPath: 'Zzqx Banda - Tema Raro.mp3',
+      index: i,
+    );
+    expect(d.rel, kPorClasificar);
+    expect(d.confident, isFalse);
+    debugArtistGenreLookup = (String a, String t) async =>
+        const ExternalGenre('Salsa', 2001);
+    final RouteDecision e = await decideFolder(
+      nameOrPath: 'Zzqx Banda - Tema Raro.mp3',
+      index: i,
+    );
+    // El externo solo sugiere (acierta poco contra las carpetas reales).
+    expect(e.rel, kPorClasificar);
+    expect(e.suggestion, 'Salsa');
+    // DESCUBRE: estacion conocida a la carpeta real.
+    final RouteDecision s = await decideFolder(
+      nameOrPath: 'Otro Grupo - Otro.mp3',
+      index: i,
+      stationId: 'tropical',
+      subGenreId: 'Salsa',
+      external: false,
+    );
+    expect(s.rel, 'Salsa');
+  });
 
   test('nombre repetido: no pisa, queda (2) y el existente intacto', () async {
     song('Salsa', 'Marc Anthony - Nueva.mp3', 'VIEJO');

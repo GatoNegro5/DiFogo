@@ -425,10 +425,8 @@ Future<RouteDecision> decideFolder({
     if (total >= 2 && share >= 0.75) {
       return ok(top.key, 0.9, 'artista ${top.value}/$total');
     }
+    // 3.2.34: con menos del 75 % (medido: ~49 % de acierto) solo sugiere.
     weak = top.key;
-    if (total >= 2 && share >= 0.5) {
-      return ok(top.key, 0.65, 'artista ${top.value}/$total');
-    }
   }
   // b) estacion conocida o clasificador por nombre.
   if (stationId != null) {
@@ -443,11 +441,14 @@ Future<RouteDecision> decideFolder({
   String? byName;
   if (g.stationId != null && g.level <= 2) {
     byName = index.folderFor(g.stationId!, g.subGenreId, lang: lang);
-    if (byName != null) {
-      return ok(byName, g.level <= 1 ? 0.7 : 0.6, 'clasificador $g');
+    // 3.2.34: por nombre solo (nivel 2) acierta ~51 %: solo sugiere; con
+    // genero de tags (nivel <= 1) coloca.
+    if (byName != null && g.level <= 1) {
+      return ok(byName, 0.7, 'clasificador $g');
     }
   }
   // c) genero externo.
+  String? extHint;
   if (external && artist != null) {
     final int cut = stem.indexOf(' - ');
     final String title = cut > 0 ? stem.substring(cut + 3) : stem;
@@ -464,18 +465,16 @@ Future<RouteDecision> decideFolder({
         tags: TrackTagHint(genre: x.genre, year: x.year ?? year, lang: lang),
         bpm: bpm,
       );
+      // 3.2.34: el genero externo acierta poco contra las carpetas de
+      // ReGenial (muestra: ~22 %): solo sugiere.
       if (e.stationId != null && e.level <= 1) {
-        final String? f = index.folderFor(
-          e.stationId!,
-          e.subGenreId,
-          lang: lang,
-        );
-        if (f != null) return ok(f, 0.65, 'externo ${x.genre}');
+        external = false;
+        extHint = index.folderFor(e.stationId!, e.subGenreId, lang: lang);
       }
     }
   }
   // d) baja: Por clasificar con la mejor sugerencia.
-  String? hint = weak ?? byName;
+  String? hint = weak ?? byName ?? extHint;
   if (hint == null && g.stationId != null) {
     hint = index.folderFor(g.stationId!, g.subGenreId, lang: lang);
   }
