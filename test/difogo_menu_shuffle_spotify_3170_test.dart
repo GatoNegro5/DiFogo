@@ -232,14 +232,16 @@ void main() {
   });
 
   test(
-    '3170 menu lateral: AutomixDj primero, Mix con Letra, Comparte Musica',
+    '3170 menu lateral: Dj primero (3.2.30), Mix con Letra, Comparte Musica',
     () {
       for (final String f in <String>[
         'lib/main.dart',
         'lib/djiphone/main.dart',
       ]) {
         final String src = File(f).readAsStringSync().replaceAll("'", '"');
-        final int dj = src.indexOf('label: "AutomixDj"');
+        // 3.2.30: AutomixDj se llama Dj (solo el texto visible).
+        expect(src.contains('label: "AutomixDj"'), isFalse, reason: f);
+        final int dj = src.indexOf('label: "Dj"');
         final int letra = src.indexOf('label: "Mix con Letra"');
         final int lan = src.indexOf('label: "Comparte Música"');
         expect(dj, greaterThan(0), reason: f);
@@ -331,7 +333,8 @@ void main() {
       expect(find.byKey(const Key('livedj-spotify-toggle')), findsNothing);
       expect(find.byKey(const Key('livedj-spotify-panel')), findsOneWidget);
       expect(find.byKey(const Key('livedj-mode-dj-button')), findsOneWidget);
-      expect(find.byKey(const Key('radio-discovery-toggle')), findsOneWidget);
+      // 3.2.30: Radio vive en el segmentado de modos de Dj.
+      expect(find.byKey(const Key('dj-mode-radio')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

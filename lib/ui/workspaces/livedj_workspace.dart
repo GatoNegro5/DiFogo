@@ -24,6 +24,8 @@ import '../../core/livedj_next.dart';
 import '../../core/track_name_clean.dart';
 import '../curator_inbox_dialog.dart';
 import '../vibe_hub_view.dart';
+import '../../providers/dj_ui_provider.dart';
+import 'dj_mode_bar.dart';
 import '../../providers/vibe_hub_provider.dart';
 import '../widgets/radio_track_actions.dart';
 
@@ -213,6 +215,8 @@ void _liveDjPlayNext(WidgetRef ref, File file) {
 /// (`folder:<ruta>`, 100 % sin repetir) y suena de una.
 Future<void> _liveDjMix(WidgetRef ref, List<File> files) async {
   if (files.isEmpty) return;
+  // 3.2.30: la carpeta queda como ultima fuente de Dj.
+  ref.read(djUiProvider.notifier).noteFolder(mixFolderPathOf(files));
   await ref
       .read(liveDjProvider.notifier)
       .playFolderList(mixFolderPathOf(files), files);
@@ -266,6 +270,9 @@ class LiveDjFolderPanel extends ConsumerWidget {
                     : () async {
                         // 3.2.7: la carpeta como lista persistente
                         // `folder:<ruta>` (retoma sin repetir) y suena.
+                        ref
+                            .read(djUiProvider.notifier)
+                            .noteFolder(dirState.currentPath);
                         await ref
                             .read(liveDjProvider.notifier)
                             .playFolderList(
@@ -1008,6 +1015,10 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
     );
 
     final bool tightList = compact && !spotify;
+    // 3.2.30: letra de la pista que suena bajo la portada (boton Letras).
+    final bool lyricsOn = ref.watch(
+      djUiProvider.select((DjUiState s) => s.lyrics),
+    );
     return Column(
       mainAxisSize: tightList ? MainAxisSize.min : MainAxisSize.max,
       children: [
@@ -1017,7 +1028,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
             child: Row(
               children: [
                 GatoMixMobileModeBar(
-                  title: 'AutomixDj',
+                  title: 'Dj',
                   accent: GatoMixTheme.syncActive,
                   open: menuOpen,
                   expand: false,
@@ -1045,10 +1056,10 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                   ),
                 ),
                 const LiveDjModeDjButton(compact: true),
-                // 3.2.9: Radio junto a Modo DJ (antes en la cabecera de la
-                // cola); Spotify Pro es la vista unica: sin conmutador.
-                // Radio se achica si no cabe y el buscador se oculta si su
-                // hueco no alcanza (fuentes grandes): nunca desborda.
+                // 3.2.30: Letras junto a Modo DJ (Radio paso al segmentado
+                // de modos, fila de abajo). Letras se achica si no cabe y
+                // el buscador se oculta si su hueco no alcanza: nunca
+                // desborda.
                 Expanded(
                   child: LayoutBuilder(
                     builder: (context, c) => Row(
@@ -1057,7 +1068,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                           constraints: BoxConstraints(
                             maxWidth: c.maxWidth > 4 ? c.maxWidth - 4 : 0,
                           ),
-                          child: const RadioDiscoveryButton(compact: true),
+                          child: const DjLyricsButton(compact: true),
                         ),
                         const SizedBox(width: 4),
                         Expanded(
@@ -1086,8 +1097,9 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                 // 3.1.84 Consumer Clean Mode: titulo y un solo boton Modo DJ
                 // (tipo de mezcla, FX AUTO/FIJO y BPM en la hoja).
                 const Expanded(
+                  flex: 2,
                   child: Text(
-                    'AutomixDj',
+                    'Dj',
                     key: Key('livedj-clean-title'),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -1098,15 +1110,34 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                     ),
                   ),
                 ),
-                // 3.2.9: Radio junto a Modo DJ (antes en la cabecera de la
-                // cola); Spotify Pro es la vista unica: sin conmutador.
-                const RadioDiscoveryButton(compact: true),
+                // 3.2.30: segmentado [Automix | Radio | Fiesta] (reemplaza
+                // los chips Radio y Modo Fiesta), Letras y Modo DJ.
+                const Flexible(
+                  flex: 5,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: DjModeBar(),
+                  ),
+                ),
                 const SizedBox(width: 6),
-                // 3.2.29: Modo Fiesta (sets de 8 por genero).
-                const FiestaModeButton(compact: true),
+                const DjLyricsButton(),
                 const SizedBox(width: 6),
                 const LiveDjModeDjButton(),
               ],
+            ),
+          ),
+        // 3.2.30: segmentado de modos en su propia fila en telefono.
+        if (compact)
+          const ColoredBox(
+            color: GatoMixTheme.bgDark,
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(6, 0, 6, 4),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: DjModeBar(compact: true),
+                ),
+              ),
             ),
           ),
         if (tightList)
@@ -1119,6 +1150,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
               ? compactListCard
               : SingleChildScrollView(child: songCard),
         ),
+        if (lyricsOn) DjLyricsPanel(compact: compact),
         // 3.1.84: sin franja con el nombre de archivo de la siguiente (la
         // cola ya la muestra en primer lugar).
         if (!compact) routingBar,

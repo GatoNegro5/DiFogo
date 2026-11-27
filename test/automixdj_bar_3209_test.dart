@@ -131,7 +131,7 @@ void main() {
     ('telefono acostado 780x360', const Size(780, 360), true),
     ('telefono acostado 844x390', const Size(844, 390), true),
   ]) {
-    testWidgets('3209 barra AutomixDj ${v.$1}: Radio junto a Modo DJ', (
+    testWidgets('3209 barra Dj ${v.$1}: modos y Letras junto a Modo DJ', (
       WidgetTester t,
     ) async {
       await pumpAt(t, v.$2, v.$3);
@@ -142,23 +142,38 @@ void main() {
       // Disco / pantalla completa intacto.
       // El disco de la barra movil sigue intacto.
       if (v.$3) expect(find.byIcon(Icons.album), findsWidgets);
-      // Una sola Radio, en la fila de Modo DJ y sobre la cabecera de la cola.
-      final Finder radio = find.byKey(const Key('radio-discovery-toggle'));
+      // 3.2.30: el chip Radio paso al segmentado [Automix | Radio |
+      // Fiesta]; Letras queda junto a Modo DJ. Todo sobre la cola.
+      expect(find.byKey(const Key('radio-discovery-toggle')), findsNothing);
+      final Finder bar = find.byKey(const Key('dj-mode-bar'));
+      final Finder letras = find.byKey(const Key('dj-lyrics-toggle'));
       final Finder dj = find.byKey(const Key('livedj-mode-dj-button'));
-      expect(radio, findsOneWidget);
+      expect(bar, findsOneWidget);
+      expect(letras, findsOneWidget);
       expect(dj, findsOneWidget);
-      final Rect r = t.getRect(radio);
+      final Rect r = t.getRect(letras);
       final Rect d = t.getRect(dj);
+      final Rect b = t.getRect(bar);
       expect((r.center.dy - d.center.dy).abs(), lessThan(16));
       expect((r.center.dx - d.center.dx).abs(), lessThan(140));
+      if (v.$3) {
+        // Telefono: segmentado en su propia fila bajo Modo DJ.
+        expect(b.top, greaterThanOrEqualTo(d.bottom - 1));
+      } else {
+        expect((b.center.dy - d.center.dy).abs(), lessThan(16));
+        expect(b.right, lessThanOrEqualTo(r.left));
+      }
       final Finder cola = find.textContaining(
         v.$3 ? 'COLA (2)' : 'COLA DE REPRODUCCIÓN (2)',
       );
       expect(cola, findsOneWidget);
       expect(r.bottom, lessThanOrEqualTo(t.getRect(cola).top));
+      expect(b.bottom, lessThanOrEqualTo(t.getRect(cola).top));
       // Dentro de la pantalla.
-      expect(r.left, greaterThanOrEqualTo(0));
-      expect(r.right, lessThanOrEqualTo(v.$2.width));
+      for (final Rect x in <Rect>[r, b]) {
+        expect(x.left, greaterThanOrEqualTo(0));
+        expect(x.right, lessThanOrEqualTo(v.$2.width));
+      }
       if (realFont && !v.$3) {
         final RenderParagraph p = t.renderObject<RenderParagraph>(
           find.text('Modo DJ').first,
@@ -178,9 +193,10 @@ void main() {
     expect(panel.contains('RadioDiscoveryButton('), isFalse);
     expect(panel.contains('CuratorInboxButton()'), isTrue);
     expect(ws.contains('LiveDjSpotifyToggle()'), isFalse);
+    // 3.2.30: Letras junto a Modo DJ; sin chips Radio ni Fiesta sueltos.
     expect(
       RegExp(
-        r'RadioDiscoveryButton\(compact: true\),\s*const SizedBox\(width: 6\),'
+        r'DjLyricsButton\(\),\s*const SizedBox\(width: 6\),'
         r'\s*const LiveDjModeDjButton\(\),',
       ).hasMatch(ws),
       isTrue,
@@ -188,10 +204,13 @@ void main() {
     expect(
       RegExp(
         r'LiveDjModeDjButton\(compact: true\),[\s\S]{0,900}?'
-        r'RadioDiscoveryButton\(compact: true\),',
+        r'DjLyricsButton\(compact: true\),',
       ).hasMatch(ws),
       isTrue,
     );
+    expect(ws.contains('RadioDiscoveryButton(compact: true)'), isFalse);
+    expect(ws.contains('FiestaModeButton(compact: true)'), isFalse);
+    expect(ws.contains('DjModeBar('), isTrue);
     // La clase y el modo siguen (codigo clasico intacto).
     final String sp = _src('lib/ui/workspaces/livedj_spotify_panel.dart');
     expect(sp.contains('class LiveDjSpotifyToggle'), isTrue);

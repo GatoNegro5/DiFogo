@@ -1370,6 +1370,13 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
 
   Future<int> toggleDiscovery() => setDiscovery(!state.discoveryOn);
 
+  /// 3.2.30: al reabrir Dj en modo Radio vuelve solo la bandera (sin
+  /// bombear temas ni sonar); el primer tema nuevo entra al tocar estacion.
+  void restoreDiscoveryFlag(bool on) {
+    if (state.discoveryOn == on) return;
+    state = state.copyWith(discoveryOn: on);
+  }
+
   /// Cierto si en las proximas pistas de la cola ya no hay tema nuevo.
   bool _discoveryDry() {
     final List<File> q = ref.read(liveDjProvider).queue;

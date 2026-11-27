@@ -13,6 +13,7 @@ import 'package:difogo/core/audio/dj_audio_handler.dart';
 import 'package:difogo/djiphone/iphone_library.dart';
 import 'package:difogo/providers/automix_provider.dart';
 import 'package:difogo/providers/livedj_provider.dart';
+import 'package:difogo/providers/dj_ui_provider.dart';
 import 'package:difogo/providers/pipeline_provider.dart';
 import 'package:difogo/providers/theme_provider.dart';
 import 'package:difogo/services/audio_interruption.dart';
@@ -171,6 +172,10 @@ class _DjIphoneLifecycleState extends ConsumerState<_DjIphoneLifecycle>
       await ref.read(liveDjProvider.notifier).persistSession();
     } catch (_) {}
     try {
+      // 3.2.30: modo y Letras de Dj.
+      ref.read(djUiProvider.notifier).persist();
+    } catch (_) {}
+    try {
       await ref.read(automixProvider.notifier).parkIdleDecks(force: true);
     } catch (_) {}
     try {
@@ -196,6 +201,9 @@ class _DjIphoneLifecycleState extends ConsumerState<_DjIphoneLifecycle>
       } catch (_) {}
       try {
         ref.read(liveDjProvider.notifier).persistSession();
+      } catch (_) {}
+      try {
+        ref.read(djUiProvider.notifier).persist();
       } catch (_) {}
     }
   }
@@ -415,7 +423,7 @@ String _title(int route) {
     case 4:
       return 'Comparte Música';
     case 5:
-      return 'AutomixDj';
+      return 'Dj';
     default:
       return 'GatoMix';
   }
@@ -535,7 +543,7 @@ class _DjIphoneNav extends ConsumerWidget {
           ),
         ),
         const AppVersionLabel(),
-        tile(icon: Icons.radio, label: 'AutomixDj', route: 5),
+        tile(icon: Icons.radio, label: 'Dj', route: 5),
         tile(icon: Icons.album, label: 'Mix con Letra', route: 0),
         tile(icon: Icons.settings, label: 'Masterizar', route: 1),
         tile(icon: Icons.science, label: 'Laboratorio', route: 3),

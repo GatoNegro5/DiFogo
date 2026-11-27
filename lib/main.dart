@@ -16,6 +16,7 @@ import 'package:difogo/src/rust/frb_generated.dart';
 import 'providers/automix_provider.dart';
 import 'providers/theme_provider.dart';
 import 'providers/livedj_provider.dart';
+import 'providers/dj_ui_provider.dart';
 import 'providers/pipeline_provider.dart';
 
 import 'core/audio/dj_audio_handler.dart';
@@ -240,6 +241,10 @@ class _MobileAudioLifecycleState extends ConsumerState<_MobileAudioLifecycle>
       await ref.read(liveDjProvider.notifier).persistSession();
     } catch (_) {}
     try {
+      // 3.2.30: modo y Letras de Dj.
+      ref.read(djUiProvider.notifier).persist();
+    } catch (_) {}
+    try {
       await ref.read(automixProvider.notifier).parkIdleDecks(force: true);
     } catch (_) {}
     try {
@@ -260,6 +265,10 @@ class _MobileAudioLifecycleState extends ConsumerState<_MobileAudioLifecycle>
     } catch (_) {}
     try {
       await ref.read(liveDjProvider.notifier).persistSession();
+    } catch (_) {}
+    try {
+      // 3.2.30: modo y Letras de Dj.
+      ref.read(djUiProvider.notifier).persist();
     } catch (_) {}
   }
 
@@ -560,7 +569,7 @@ String _moduleTitle(int route, bool mobile) {
     case 4:
       return "Comparte Música";
     case 5:
-      return "AutomixDj";
+      return "Dj";
     case 6:
       return "Karaoke";
     default:
@@ -650,7 +659,7 @@ class _GatoMixNavColumn extends ConsumerWidget {
         // internas (5 = Live DJ, 0 = Automix, 4 = LAN Sync) se conservan.
         tile(
           icon: Icons.radio,
-          label: "AutomixDj",
+          label: "Dj",
           route: 5,
           accent: GatoMixTheme.syncActive,
         ),

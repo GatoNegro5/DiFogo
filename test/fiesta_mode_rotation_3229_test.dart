@@ -183,9 +183,14 @@ void main() {
     final String view = _src('lib/ui/vibe_hub_view.dart');
     expect(view, contains('class FiestaModeButton'));
     expect(view, contains('GatoMixTheme.fire'));
+    // 3.2.30: en la cabecera de Dj, Fiesta es un segmento de DjModeBar.
     expect(
       _src('lib/ui/workspaces/livedj_workspace.dart'),
-      contains('const FiestaModeButton(compact: true)'),
+      contains('DjModeBar('),
+    );
+    expect(
+      _src('lib/providers/dj_ui_provider.dart'),
+      contains('await hub.setFiestaMode(true);'),
     );
   });
 }
