@@ -291,12 +291,99 @@ fn verify_part(part: &str, expect_ms: u64, kbps: u32) -> Result<(), String> {
     r
 }
 
+/// 3.2.33: ventanas del detector de empalmes leyendo el archivo por
+/// paquetes (sin PCM en RAM; sirve tambien para mixes largos).
+fn splice_frames_of(path: &str) -> Result<(Vec<f32>, Vec<f32>), String> {
+    let (mut format, track_id, params) = open_format(path)?;
+    let rate = params.sample_rate.ok_or("Sin frecuencia de muestreo")?;
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&params, &DecoderOptions::default())
+        .map_err(|e| e.to_string())?;
+    let mut acc = crate::anti_splice::FrameAcc::new(rate);
+    loop {
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(_) => break,
+        };
+        if packet.track_id() != track_id {
+            continue;
+        }
+        match decoder.decode(&packet) {
+            Ok(decoded) => {
+                let spec = *decoded.spec();
+                let n_ch = spec.channels.count().max(1);
+                let mut buf = SampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
+                buf.copy_interleaved_ref(decoded);
+                for f in buf.samples().chunks(n_ch) {
+                    acc.push(f.iter().sum::<f32>() / n_ch as f32);
+                }
+            }
+            Err(SymError::DecodeError(_)) => continue,
+            Err(_) => break,
+        }
+    }
+    Ok(acc.finish())
+}
+
+/// 3.2.33: marcas del detector sobre un archivo (vacio = limpio).
+fn splice_hits_of(path: &str) -> Result<Vec<crate::anti_splice::SpliceHit>, String> {
+    let (db, zc) = splice_frames_of(path)?;
+    Ok(crate::anti_splice::scan_frames(&db, &zc))
+}
+
+/// 3.2.33: el detector aprueba el temporal; si marca, error con el prefijo
+/// de empalme (el llamador descarta y rehace desde la fuente). Si `source`
+/// trae ruta y la fuente ya marca, el error lleva SPLICE_NO_RETRY: rehacer
+/// no sirve (la cancion de origen ya viene asi).
+fn splice_gate(part: &str, source: Option<&str>) -> Result<(), String> {
+    let hits = splice_hits_of(part)?;
+    if let Some(h) = hits.first() {
+        let src_bad = source
+            .map(|s| splice_hits_of(s).map(|v| !v.is_empty()).unwrap_or(false))
+            .unwrap_or(false);
+        let msg = format!(
+            "{}: detector {} en {} ms ({}){}",
+            crate::anti_splice::SPLICE_ERR,
+            h.kind,
+            h.at_ms,
+            h.detail,
+            if src_bad {
+                format!(", la fuente ya marca, {}", crate::anti_splice::SPLICE_NO_RETRY)
+            } else {
+                String::new()
+            }
+        );
+        eprintln!("ANTI_SPLICE {part}: {msg}");
+        return Err(msg);
+    }
+    Ok(())
+}
+
+/// 3.2.33: `_K.mp3` (instrumental): el detector no la juzga (los huecos de la
+/// voz dan falsos "reinicio"); la _K solo nace de un mp3 que ya paso.
+fn is_k_path(p: &str) -> bool {
+    p.to_lowercase().ends_with("_k.mp3")
+}
+
 /// 3.2.32: `part` reemplaza a `output` solo si cuadra con la fuente; si no,
 /// se borra el temporal y el original queda intacto.
-fn replace_verified(part: &str, output: &str, expect_ms: u64, kbps: u32) -> Result<(), String> {
+/// 3.2.33: con `gate` el detector de empalmes tambien aprueba el temporal.
+fn replace_verified(
+    part: &str,
+    output: &str,
+    expect_ms: u64,
+    kbps: u32,
+    gate: bool,
+) -> Result<(), String> {
     if let Err(e) = verify_part(part, expect_ms, kbps) {
         let _ = std::fs::remove_file(part);
         return Err(e);
+    }
+    if gate && !is_k_path(output) {
+        if let Err(e) = splice_gate(part, None) {
+            let _ = std::fs::remove_file(part);
+            return Err(e);
+        }
     }
     let _ = std::fs::remove_file(output);
     std::fs::rename(part, output).map_err(|e| {
@@ -2441,7 +2528,7 @@ fn encode_plain_mp3(
         return Err("Sin audio decodificable".to_string());
     }
     if expect_ms > 0 {
-        replace_verified(&tmp, &output_path, expect_ms, bitrate_kbps)?;
+        replace_verified(&tmp, &output_path, expect_ms, bitrate_kbps, true)?;
     } else {
         // Fuente sin duracion medible: sin referencia que comparar.
         let _ = std::fs::remove_file(&output_path);
@@ -2516,7 +2603,7 @@ fn encode_mastered_mp3(input: &str, output: &str, kbps: u32) -> Result<bool, Str
         let _ = std::fs::remove_file(&tmp);
         e.to_string()
     })?;
-    replace_verified(&tmp, output, expect_ms, kbps)?;
+    replace_verified(&tmp, output, expect_ms, kbps, true)?;
     Ok(true)
 }
 
@@ -2584,7 +2671,7 @@ fn encode_mastered_mp3_ram(input: &str, output: &str, kbps: u32) -> Result<bool,
         let _ = std::fs::remove_file(&tmp);
         e.to_string()
     })?;
-    replace_verified(&tmp, output, expect_ms, kbps)?;
+    replace_verified(&tmp, output, expect_ms, kbps, true)?;
     Ok(true)
 }
 
@@ -5583,15 +5670,29 @@ pub fn master_rewrite(
     force_head_ms: i32,
     force_tail_ms: i32,
 ) -> Result<MasterRewrite, String> {
-    master_rewrite_core(
-        input_path,
-        do_trim,
-        do_lufs,
-        intro_bpm,
-        force_head_ms,
-        force_tail_ms,
-        false,
-    )
+    // 3.2.33: si el detector marca el temporal, se descarta y se rehace desde
+    // el original (intacto) hasta SPLICE_RETRIES veces mas, sin avisos.
+    let mut attempt = 0u32;
+    loop {
+        let r = master_rewrite_core(
+            input_path.clone(),
+            do_trim,
+            do_lufs,
+            intro_bpm,
+            force_head_ms,
+            force_tail_ms,
+            false,
+        );
+        match &r {
+            Err(e) if crate::anti_splice::splice_retryable(e)
+                && attempt < crate::anti_splice::SPLICE_RETRIES =>
+            {
+                attempt += 1;
+                eprintln!("ANTI_SPLICE reintento {attempt} {input_path}: {e}");
+            }
+            _ => return r,
+        }
+    }
 }
 
 /// 3.1.12: nucleo de `master_rewrite` en streaming de 2 pasadas (sin PCM en
@@ -6047,6 +6148,13 @@ fn master_rewrite_core(
         if let Err(e) = verify_part(&tmp, part_expect_ms, kbps) {
             discard_partial(&tmp);
             return Err(e);
+        }
+        // 3.2.33: y pasar el detector (no en la _K). El original sigue intacto.
+        if !ram_ref && !is_k_path(&input_path) {
+            if let Err(e) = splice_gate(&tmp, Some(&input_path)) {
+                discard_partial(&tmp);
+                return Err(e);
+            }
         }
         let side = format!("{input_path}.gmxside");
         if let Err(e) = std::fs::rename(&input_path, &side) {
@@ -6821,6 +6929,15 @@ fn karaoke_separate_vocals(
     }
     // 3.2.32: un solo escritor por _K y duracion de la fuente.
     let _out = crate::anti_splice::claim_output(&output_path)?;
+    // 3.2.33: la _K solo sale de un mp3 que pasa el detector.
+    if !is_k_path(&input_path) {
+        if let Err(e) = splice_gate(&input_path, None) {
+            return Err(format!(
+                "{e}, sin _K, {}",
+                crate::anti_splice::SPLICE_NO_RETRY
+            ));
+        }
+    }
     let expect_ms = decoded_duration_ms(&input_path).unwrap_or(0);
     let _prio = PriorityGuard::enter();
     KAR_CANCEL.store(false, Ordering::Relaxed);
@@ -6913,7 +7030,7 @@ fn karaoke_separate_vocals(
         return Err(e);
     }
     if expect_ms > 0 {
-        replace_verified(&tmp, &output_path, expect_ms, 320)?;
+        replace_verified(&tmp, &output_path, expect_ms, 320, false)?;
     } else {
         let _ = std::fs::remove_file(&output_path);
         std::fs::rename(&tmp, &output_path).map_err(|e| e.to_string())?;
@@ -10353,6 +10470,42 @@ mod anti_splice_3232_scenario {
         let _ = std::fs::remove_dir_all(&d);
     }
 
+    /// 3.2.33: pista pegada (fin, 2 s de silencio y otra fuerte): la _K no
+    /// nace (falla antes de abrir el modelo) y no se reintenta; una pista
+    /// limpia pasa el detector.
+    #[test]
+    fn anti_splice_3233_gate_k_solo_de_mp3_limpio() {
+        let d = dir("gate3233");
+        let rate = 44100u32;
+        let tone = |hz: f32, secs: f32, amp: f32| -> Vec<f32> {
+            (0..(secs * rate as f32) as usize)
+                .map(|i| amp * (2.0 * std::f32::consts::PI * hz * i as f32 / rate as f32).sin())
+                .collect()
+        };
+        let mut pcm = tone(440.0, 40.0, 0.5);
+        pcm.extend(std::iter::repeat(0.0).take(2 * rate as usize));
+        pcm.extend(tone(1200.0, 10.0, 0.5));
+        let glued = d.join("Pegada.mp3");
+        let gs = glued.to_string_lossy().to_string();
+        encode_master_span(&pcm, &gs, rate, 1, pcm.len() as u64, 0, 0, 1.0, false, 192).unwrap();
+        let ks = d.join("Pegada_K.mp3").to_string_lossy().to_string();
+        let e = karaoke_separate_vocals(gs.clone(), "no_existe.onnx".into(), ks.clone(), None)
+            .unwrap_err();
+        eprintln!("DIF30 K previa: {e}");
+        assert!(e.starts_with(crate::anti_splice::SPLICE_ERR), "{e}");
+        assert!(!crate::anti_splice::splice_retryable(&e));
+        assert!(!std::path::Path::new(&ks).exists());
+        let e2 = splice_gate(&gs, None).unwrap_err();
+        assert!(crate::anti_splice::splice_retryable(&e2), "{e2}");
+        let e3 = splice_gate(&gs, Some(&gs)).unwrap_err();
+        assert!(!crate::anti_splice::splice_retryable(&e3), "{e3}");
+        let clean = d.join("Limpia.mp3");
+        write_track(&clean, 440.0, 30.0);
+        assert!(splice_gate(&clean.to_string_lossy(), None).is_ok());
+        assert!(is_k_path("C:\\M\\X_K.mp3") && !is_k_path("C:\\M\\X.mp3"));
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
     #[test]
     fn anti_splice_3232_misma_pista_dos_trabajos_uno_ocupado() {
         let d = dir("busy");
@@ -10395,7 +10548,7 @@ mod anti_splice_3232_scenario {
         glued.extend(std::fs::read(&a).unwrap());
         std::fs::write(&part, &glued).unwrap();
         let got = dur(std::path::Path::new(&part));
-        let err = replace_verified(&part, &bs, b_src, 192).unwrap_err();
+        let err = replace_verified(&part, &bs, b_src, 192, true).unwrap_err();
         eprintln!("FASE2 verificacion: temporal={got} ms fuente={b_src} ms -> {err}");
         assert!(err.starts_with(crate::anti_splice::SPLICE_ERR));
         assert_eq!(std::fs::read(&b).unwrap(), before, "original intacto");

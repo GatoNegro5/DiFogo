@@ -21,6 +21,7 @@ import '../core/lyric_files.dart';
 import '../core/lyric_match.dart';
 import '../core/lyric_approx.dart';
 import '../core/lyric_timing_check.dart';
+import '../core/splice_retry.dart';
 import '../providers/db_provider.dart';
 import '../providers/metadata_provider.dart';
 import '../providers/nlp_provider.dart';
@@ -218,6 +219,18 @@ class MasterTrack {
         );
       } catch (e) {
         if (e.toString().contains('Cancelado')) return abortedAt(current);
+        // 3.2.33: Rust ya rehizo 2 veces desde el original (intacto); queda
+        // una linea en el registro y el estado, sin dialogos.
+        if (isSpliceError(e)) {
+          logSpliceEvent('Master $current', e);
+          return MasterOutcome(
+            path: current,
+            trimHeadMs: 0,
+            lyric: null,
+            detail: 'Sin masterizar: empalme persistente (difogo_empalmes.log)',
+            stopped: true,
+          );
+        }
         rethrow;
       }
       trimHead = rw.trimHeadMs;

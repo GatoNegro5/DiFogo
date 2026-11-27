@@ -19,6 +19,15 @@ use std::sync::{Mutex, OnceLock};
 
 /// Prefijo de los errores de verificacion (la UI lo muestra tal cual).
 pub(crate) const SPLICE_ERR: &str = "Empalme evitado";
+/// 3.2.33: marca de "no rehacer" (la fuente ya viene empalmada).
+pub(crate) const SPLICE_NO_RETRY: &str = "sin reintento";
+/// 3.2.33: reintentos automaticos tras un empalme (ademas del primer intento).
+pub(crate) const SPLICE_RETRIES: u32 = 2;
+
+/// 3.2.33: error de empalme que vale la pena rehacer desde la fuente.
+pub(crate) fn splice_retryable(e: &str) -> bool {
+    e.starts_with(SPLICE_ERR) && !e.contains(SPLICE_NO_RETRY)
+}
 
 static SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -119,7 +128,6 @@ pub(crate) fn check_part(got_ms: u64, size: u64, expect_ms: u64, kbps: u32) -> R
 }
 
 /// Marca del detector: segundo del cambio, tipo y detalle legible.
-#[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct SpliceHit {
     pub at_ms: u64,
@@ -127,30 +135,63 @@ pub(crate) struct SpliceHit {
     pub detail: String,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-const WIN_MS: u64 = 250;
+/// 3.2.33: ventana del detector (500 ms).
+pub(crate) const WIN_MS: u64 = 500;
 
-#[cfg_attr(not(test), allow(dead_code))]
-fn frames(mono: &[f32], rate: u32) -> (Vec<f32>, Vec<f32>) {
-    let n = ((rate as u64 * WIN_MS) / 1000).max(1) as usize;
-    let mut db = Vec::new();
-    let mut zc = Vec::new();
-    for w in mono.chunks(n) {
-        if w.len() < n / 2 {
-            break;
-        }
-        let e: f64 = w.iter().map(|&x| (x as f64) * (x as f64)).sum::<f64>() / w.len() as f64;
-        db.push((10.0 * (e + 1e-12).log10()) as f32);
-        let c = w
-            .windows(2)
-            .filter(|p| (p[0] >= 0.0) != (p[1] >= 0.0))
-            .count();
-        zc.push(c as f32 / w.len() as f32);
-    }
-    (db, zc)
+/// 3.2.33: acumulador en streaming (sin guardar el PCM): RMS en dB y
+/// cruces por cero por ventana.
+pub(crate) struct FrameAcc {
+    n: usize,
+    e: f64,
+    c: u32,
+    k: usize,
+    last: f32,
+    db: Vec<f32>,
+    zc: Vec<f32>,
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
+impl FrameAcc {
+    pub(crate) fn new(rate: u32) -> Self {
+        FrameAcc {
+            n: ((rate as u64 * WIN_MS) / 1000).max(1) as usize,
+            e: 0.0,
+            c: 0,
+            k: 0,
+            last: 0.0,
+            db: Vec::new(),
+            zc: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push(&mut self, x: f32) {
+        self.e += (x as f64) * (x as f64);
+        if self.k > 0 && (x >= 0.0) != (self.last >= 0.0) {
+            self.c += 1;
+        }
+        self.last = x;
+        self.k += 1;
+        if self.k == self.n {
+            self.close();
+        }
+    }
+
+    fn close(&mut self) {
+        let k = self.k.max(1) as f64;
+        self.db.push((10.0 * (self.e / k + 1e-12).log10()) as f32);
+        self.zc.push(self.c as f32 / k as f32);
+        self.e = 0.0;
+        self.c = 0;
+        self.k = 0;
+    }
+
+    pub(crate) fn finish(mut self) -> (Vec<f32>, Vec<f32>) {
+        if self.k >= self.n / 2 {
+            self.close();
+        }
+        (self.db, self.zc)
+    }
+}
+
 fn mean(v: &[f32]) -> f32 {
     if v.is_empty() {
         0.0
@@ -159,36 +200,40 @@ fn mean(v: &[f32]) -> f32 {
     }
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
-fn ratio(a: f32, b: f32) -> f32 {
-    let (a, b) = (a.max(1e-4), b.max(1e-4));
-    if a > b {
-        a / b
-    } else {
-        b / a
-    }
-}
-
-/// Detector barato de empalmes sobre PCM mono. Ventanas de 250 ms:
-/// - "reinicio" (despues del primer 10 %): hueco >= 1,5 s por debajo de
-///   (pico - 35 dB) seguido de >= 3 s fuertes (>= pico - 20 dB): otra
-///   cancion despues del final.
-/// - "escalon" (ultimo 45 %, donde aparecio el pedazo pegado): salto brusco
-///   entre dos ventanas (>= 6 dB o brillo x1,6) que se sostiene 3 s a cada
-///   lado (medias >= 9 dB o brillo x1,8), con audio a los dos lados.
+/// Detector sobre PCM mono (pruebas y herramientas).
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn splice_scan(mono: &[f32], rate: u32) -> Vec<SpliceHit> {
-    let (db, zc) = frames(mono, rate);
+    let mut a = FrameAcc::new(rate);
+    for &x in mono {
+        a.push(x);
+    }
+    let (db, zc) = a.finish();
+    scan_frames(&db, &zc)
+}
+
+/// 3.2.33: umbrales (ventanas de 500 ms). Ver LOG 3.2.33.
+const SIDE: usize = 6; // 3 s
+const GAP_MIN: usize = 3; // hueco >= 1,5 s
+const QUIET_DB: f32 = 35.0;
+const LOUD_DB: f32 = 20.0;
+const DIP_DB: f32 = 18.0;
+const JUMP_DB: f32 = 12.0;
+
+/// Detector de empalmes (3.2.33). Ventanas de 500 ms:
+/// - "reinicio": hueco >= 1,5 s por debajo de (pico - 35 dB) y luego >= 3 s
+///   fuertes (>= pico - 20 dB), despues del primer 10 %.
+/// - "corte": final de cancion (3 s con media <= pico - 18 dB) y salto de
+///   >= 12 dB en una ventana a >= 3 s fuertes, despues del 50 %. Es el
+///   empalme real de DIF-29: la cancion se apaga y entra otra de golpe.
+/// El "escalon" de brillo de 3.2.32 ya no marca (falsos positivos).
+pub(crate) fn scan_frames(db: &[f32], _zc: &[f32]) -> Vec<SpliceHit> {
     let mut hits = Vec::new();
-    if db.len() < 40 {
+    if db.len() < 20 {
         return hits;
     }
     let peak = db.iter().cloned().fold(f32::MIN, f32::max);
-    let quiet = peak - 35.0;
-    let loud = peak - 20.0;
-    let from = db.len() * 55 / 100;
-    let side = 12usize; // 3 s
-    // Reinicio tras un hueco.
+    let quiet = peak - QUIET_DB;
+    let loud = peak - LOUD_DB;
     let mut i = db.len() / 10;
     while i < db.len() {
         if db[i] < quiet {
@@ -196,14 +241,14 @@ pub(crate) fn splice_scan(mono: &[f32], rate: u32) -> Vec<SpliceHit> {
             while j < db.len() && db[j] < quiet {
                 j += 1;
             }
-            if j - i >= 6 && j + side <= db.len() {
-                let after = &db[j..j + side];
-                if after.iter().filter(|&&d| d >= loud).count() >= side * 3 / 4 {
+            if j - i >= GAP_MIN && j + SIDE <= db.len() {
+                let after = &db[j..j + SIDE];
+                if after.iter().filter(|&&d| d >= loud).count() >= SIDE * 3 / 4 {
                     hits.push(SpliceHit {
                         at_ms: j as u64 * WIN_MS,
                         kind: "reinicio",
                         detail: format!(
-                            "hueco de {} ms y luego {:.1} dB sostenidos",
+                            "hueco de {} ms y luego {:.1} dB",
                             (j - i) as u64 * WIN_MS,
                             mean(after) - peak
                         ),
@@ -215,32 +260,35 @@ pub(crate) fn splice_scan(mono: &[f32], rate: u32) -> Vec<SpliceHit> {
             i += 1;
         }
     }
-    // Escalon sin hueco.
-    let mut k = from.max(side);
-    while k + side <= db.len() {
-        let (b_db, a_db) = (&db[k - side..k], &db[k..k + side]);
-        let (b_zc, a_zc) = (&zc[k - side..k], &zc[k..k + side]);
-        let audible = mean(b_db) > quiet + 10.0 && mean(a_db) > quiet + 10.0;
-        let sharp = (db[k] - db[k - 1]).abs() >= 6.0 || ratio(zc[k], zc[k - 1]) >= 1.6;
-        let held = (mean(a_db) - mean(b_db)).abs() >= 9.0 || ratio(mean(a_zc), mean(b_zc)) >= 1.8;
-        if audible && sharp && held {
+    let mut k = (db.len() / 2).max(SIDE);
+    while k + SIDE <= db.len() {
+        let before = mean(&db[k - SIDE..k]);
+        let after = &db[k..k + SIDE];
+        let jump = db[k] - db[k - 1];
+        let near = hits
+            .iter()
+            .any(|h| h.at_ms.abs_diff(k as u64 * WIN_MS) <= SIDE as u64 * WIN_MS);
+        if !near
+            && before <= peak - DIP_DB
+            && jump >= JUMP_DB
+            && after.iter().filter(|&&d| d >= loud).count() >= SIDE * 3 / 4
+        {
             hits.push(SpliceHit {
                 at_ms: k as u64 * WIN_MS,
-                kind: "escalon",
+                kind: "corte",
                 detail: format!(
-                    "{:+.1} dB, brillo x{:.2}",
-                    mean(a_db) - mean(b_db),
-                    ratio(mean(a_zc), mean(b_zc))
+                    "final a {:.1} dB y salto de {:+.1} dB",
+                    before - peak,
+                    jump
                 ),
             });
-            k += side;
+            k += SIDE;
         } else {
             k += 1;
         }
     }
     hits
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,13 +353,58 @@ mod tests {
         s.extend(tone(1200.0, 8.0, r, 0.5));
         let hits = splice_scan(&s, r);
         assert!(hits.iter().any(|h| h.kind == "reinicio"), "{hits:?}");
-        // Pedazo pegado sin hueco y con otro brillo.
+        // 3.2.33: solo cambio de brillo (antes "escalon"): ya no marca.
         let mut t = tone(300.0, 40.0, r, 0.5);
         t.extend(tone(1500.0, 8.0, r, 0.5));
-        let hits = splice_scan(&t, r);
-        assert!(hits.iter().any(|h| h.kind == "escalon"), "{hits:?}");
+        assert!(splice_scan(&t, r).is_empty());
+        // 3.2.33: "corte": se apaga a -20 dB y entra otra de golpe.
+        let mut c = tone(440.0, 40.0, r, 0.5);
+        c.extend(tone(440.0, 3.5, r, 0.05));
+        c.extend(tone(1200.0, 8.0, r, 0.5));
+        let hits = splice_scan(&c, r);
+        assert!(hits.iter().any(|h| h.kind == "corte"), "{hits:?}");
         // Pista limpia: nada.
         let clean = tone(440.0, 48.0, r, 0.5);
         assert!(splice_scan(&clean, r).is_empty());
+    }
+
+    /// 3.2.33: ventanas reales (500 ms, dB bajo el pico, 1 car = 1 dB) de las
+    /// 9 canciones de DIF-29: E = originales empalmados (Cuarentena_MP3),
+    /// L = las mismas bajadas limpias. Fixture estatico: no reabre audio.
+    fn fixture() -> Vec<(String, Vec<f32>)> {
+        include_str!("../../test/fixtures/splice_frames_3233.txt")
+            .lines()
+            .filter_map(|l| l.split_once('\t'))
+            .map(|(k, v)| {
+                (
+                    k.to_string(),
+                    v.bytes().map(|b| -((b - 33) as f32)).collect(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn anti_splice_3233_fixture_clean_songs_pass() {
+        let f = fixture();
+        assert_eq!(f.len(), 18);
+        for (k, db) in f.iter().filter(|(k, _)| k.starts_with('L')) {
+            let hits = scan_frames(db, &[]);
+            assert!(hits.is_empty(), "{k}: {hits:?}");
+        }
+    }
+
+    #[test]
+    fn anti_splice_3233_fixture_spliced_originals() {
+        // Los empalmes reales de DIF-29 no los separa el volumen (la otra
+        // cancion entra a nivel parecido): los atrapa la duracion contra la
+        // fuente (check_part). El detector no debe inventar marcas aqui.
+        for (k, db) in fixture().iter().filter(|(k, _)| k.starts_with('E')) {
+            let hits = scan_frames(db, &[]);
+            assert!(hits.is_empty(), "{k}: {hits:?}");
+        }
+        assert!(splice_retryable("Empalme evitado: detector corte"));
+        assert!(!splice_retryable("Empalme evitado: x, sin reintento"));
+        assert!(!splice_retryable("Cancelado"));
     }
 }

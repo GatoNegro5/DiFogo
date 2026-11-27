@@ -153,3 +153,20 @@ fn dif29_arnes_reemplazo() {
         .unwrap();
     }
 }
+/// 3.2.33 (DIF-30): ventanas del detector para fixtures (solo a mano).
+#[test]
+#[ignore]
+fn dif30_frames_dump() {
+    let list = std::fs::read_to_string(std::env::var("GMX_DIF30_LIST").unwrap()).unwrap();
+    let out = std::env::var("GMX_DIF30_OUT").unwrap();
+    let mut f = std::fs::File::create(&out).unwrap();
+    for line in list.lines().filter(|l| !l.trim().is_empty()) {
+        let c: Vec<&str> = line.split('\t').collect();
+        let (db, zc) = splice_frames_of(c[1]).unwrap();
+        let d: Vec<String> = db.iter().map(|v| format!("{v:.1}")).collect();
+        let z: Vec<String> = zc.iter().map(|v| format!("{v:.3}")).collect();
+        writeln!(f, "{}\t{}\t{}", c[0], d.join(","), z.join(",")).unwrap();
+        let hits = crate::anti_splice::scan_frames(&db, &zc);
+        println!("DIF30 {} hits={hits:?}", c[0]);
+    }
+}

@@ -1,6 +1,7 @@
-// 3.2.32 (DIF-29): detector barato de empalmes (pedazo de otra cancion
-// pegado). Mismo criterio que `rust/src/anti_splice.rs::splice_scan`:
-// ventanas de 250 ms con RMS (dB) y cruces por cero (brillo).
+// 3.2.32 (DIF-29) / 3.2.33 (DIF-30): detector barato de empalmes (pedazo de
+// otra cancion pegado). Mismo criterio que `rust/src/anti_splice.rs`
+// (`scan_frames`): ventanas de 500 ms con RMS (dB). El "escalon" de brillo
+// de 3.2.32 se quito (falsos positivos en musica limpia y en las _K).
 import 'dart:math' as math;
 import 'dart:typed_data';
 
@@ -21,44 +22,48 @@ String fmtSpliceMs(int ms) {
   return '${s ~/ 60}:${(s % 60).toString().padLeft(2, '0')}';
 }
 
-const int _winMs = 250;
+const int spliceWinMs = 500;
+const int _side = 6; // 3 s
+const int _gapMin = 3; // 1,5 s
+const double _quietDb = 35;
+const double _loudDb = 20;
+const double _dipDb = 18;
+const double _jumpDb = 12;
 
 double _mean(List<double> v) =>
     v.isEmpty ? 0 : v.reduce((double a, double b) => a + b) / v.length;
 
-double _ratio(double a, double b) {
-  final double x = math.max(a, 1e-4);
-  final double y = math.max(b, 1e-4);
-  return x > y ? x / y : y / x;
-}
-
-/// - "reinicio" (despues del primer 10 %): hueco >= 1,5 s por debajo de
-///   (pico - 35 dB) y luego >= 3 s fuertes (>= pico - 20 dB).
-/// - "escalon" (ultimo 45 %): salto brusco entre dos ventanas (>= 6 dB o
-///   brillo x1,6) sostenido 3 s a cada lado (>= 9 dB o brillo x1,8).
-List<SpliceHit> spliceScan(List<double> mono, int rate) {
-  final int n = math.max(1, rate * _winMs ~/ 1000);
+/// RMS (dB) por ventana de 500 ms.
+List<double> spliceFrames(List<double> mono, int rate) {
+  final int n = math.max(1, rate * spliceWinMs ~/ 1000);
   final List<double> db = <double>[];
-  final List<double> zc = <double>[];
-  for (int o = 0; o + n ~/ 2 <= mono.length && o < mono.length; o += n) {
+  for (int o = 0; o < mono.length; o += n) {
     final int end = math.min(o + n, mono.length);
     if (end - o < n ~/ 2) break;
     double e = 0;
-    int c = 0;
     for (int i = o; i < end; i++) {
       e += mono[i] * mono[i];
-      if (i > o && (mono[i] >= 0) != (mono[i - 1] >= 0)) c++;
     }
-    final int len = end - o;
-    db.add(10 * math.log(e / len + 1e-12) / math.ln10);
-    zc.add(c / len);
+    db.add(10 * math.log(e / (end - o) + 1e-12) / math.ln10);
   }
+  return db;
+}
+
+List<SpliceHit> spliceScan(List<double> mono, int rate) =>
+    spliceScanFrames(spliceFrames(mono, rate));
+
+/// - "reinicio" (despues del 10 %): hueco >= 1,5 s por debajo de
+///   (pico - 35 dB) y luego >= 3 s fuertes (>= pico - 20 dB).
+/// - "corte" (despues del 50 %): 3 s con media <= pico - 18 dB y salto de
+///   >= 12 dB en una ventana a >= 3 s fuertes.
+List<SpliceHit> spliceScanFrames(List<double> db) {
   final List<SpliceHit> hits = <SpliceHit>[];
-  if (db.length < 40) return hits;
+  if (db.length < 20) return hits;
   final double peak = db.reduce(math.max);
-  final double quiet = peak - 35;
-  final double loud = peak - 20;
-  const int side = 12;
+  final double quiet = peak - _quietDb;
+  final double loud = peak - _loudDb;
+  bool strong(List<double> v) =>
+      v.where((double d) => d >= loud).length >= _side * 3 ~/ 4;
   int i = db.length ~/ 10;
   while (i < db.length) {
     if (db[i] < quiet) {
@@ -66,14 +71,14 @@ List<SpliceHit> spliceScan(List<double> mono, int rate) {
       while (j < db.length && db[j] < quiet) {
         j++;
       }
-      if (j - i >= 6 && j + side <= db.length) {
-        final List<double> after = db.sublist(j, j + side);
-        if (after.where((double d) => d >= loud).length >= side * 3 ~/ 4) {
+      if (j - i >= _gapMin && j + _side <= db.length) {
+        final List<double> after = db.sublist(j, j + _side);
+        if (strong(after)) {
           hits.add(
             SpliceHit(
-              j * _winMs,
+              j * spliceWinMs,
               'reinicio',
-              'hueco de ${(j - i) * _winMs} ms y luego '
+              'hueco de ${(j - i) * spliceWinMs} ms y luego '
                   '${(_mean(after) - peak).toStringAsFixed(1)} dB',
             ),
           );
@@ -84,28 +89,27 @@ List<SpliceHit> spliceScan(List<double> mono, int rate) {
       i++;
     }
   }
-  int k = math.max(db.length * 55 ~/ 100, side);
-  while (k + side <= db.length) {
-    final List<double> bDb = db.sublist(k - side, k);
-    final List<double> aDb = db.sublist(k, k + side);
-    final List<double> bZc = zc.sublist(k - side, k);
-    final List<double> aZc = zc.sublist(k, k + side);
-    final bool audible = _mean(bDb) > quiet + 10 && _mean(aDb) > quiet + 10;
-    final bool sharp =
-        (db[k] - db[k - 1]).abs() >= 6 || _ratio(zc[k], zc[k - 1]) >= 1.6;
-    final bool held =
-        (_mean(aDb) - _mean(bDb)).abs() >= 9 ||
-        _ratio(_mean(aZc), _mean(bZc)) >= 1.8;
-    if (audible && sharp && held) {
+  int k = math.max(db.length ~/ 2, _side);
+  while (k + _side <= db.length) {
+    final double before = _mean(db.sublist(k - _side, k));
+    final double jump = db[k] - db[k - 1];
+    final int at = k * spliceWinMs;
+    final bool near = hits.any(
+      (SpliceHit h) => (h.atMs - at).abs() <= _side * spliceWinMs,
+    );
+    if (!near &&
+        before <= peak - _dipDb &&
+        jump >= _jumpDb &&
+        strong(db.sublist(k, k + _side))) {
       hits.add(
         SpliceHit(
-          k * _winMs,
-          'escalon',
-          '${(_mean(aDb) - _mean(bDb)).toStringAsFixed(1)} dB, brillo '
-              'x${_ratio(_mean(aZc), _mean(bZc)).toStringAsFixed(2)}',
+          at,
+          'corte',
+          'final a ${(before - peak).toStringAsFixed(1)} dB y salto de '
+              '+${jump.toStringAsFixed(1)} dB',
         ),
       );
-      k += side;
+      k += _side;
     } else {
       k++;
     }

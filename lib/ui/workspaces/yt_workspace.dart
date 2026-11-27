@@ -16,6 +16,7 @@ import '../../core/gatomix_store.dart';
 import '../../core/lyric_match.dart';
 import '../../core/lrc_timeline.dart';
 import '../../core/net/safe_download.dart';
+import '../../core/splice_retry.dart';
 import '../../core/track_name_clean.dart';
 
 import 'package:difogo/core/pipeline_controller.dart';
@@ -588,139 +589,146 @@ class _YoutubeSearchAndDownloadWorkspaceState
       final tempMp3Path = '${tempDir.path}$sep$trackStem.${videoId.value}.mp3';
       final tempLrcPath = '${tempDir.path}$sep$trackStem.lrc';
 
-      if (File(tempRawPath).existsSync()) File(tempRawPath).deleteSync();
-      if (File(tempM4aPath).existsSync()) File(tempM4aPath).deleteSync();
-
-      setState(
-        () => _statusText = "Descargando stream crudo de máxima calidad...",
-      );
-
-      var sourceKbps = 0;
-      if (Platform.isAndroid) {
-        await ytNewPipeDownload(
-          videoId: videoId.value,
-          destPath: tempRawPath,
-          onProgress: (done, t) {
-            if (!mounted) return;
-            setState(
-              () => _statusText =
-                  "Descargando audio... ${(done * 100 / t).floor()}% "
-                  "(${(done / 1048576).toStringAsFixed(1)} de "
-                  "${(t / 1048576).toStringAsFixed(1)} MB)",
-            );
-          },
-        );
-        if (!File(tempRawPath).existsSync() ||
-            File(tempRawPath).lengthSync() == 0) {
-          throw Exception("Fallo al bajar el audio (archivo vacío).");
-        }
-        sourceKbps = npKbps;
-      } else if (Platform.isIOS) {
-        // iOS: no se pueden ejecutar binarios (yt-dlp → "permission
-        // denied"). Se baja el AAC/M4A con youtube_explode_dart.
-        final manifest = await _yt.videos.streamsClient.getManifest(videoId);
-        final m4a = manifest.audioOnly
-            .where((s) => s.container == StreamContainer.mp4)
-            .toList();
-        if (m4a.isEmpty) {
-          throw Exception("Sin stream AAC/M4A disponible para este video.");
-        }
-        m4a.sort((a, b) => b.bitrate.compareTo(a.bitrate));
-        sourceKbps = (m4a.first.bitrate.bitsPerSecond / 1000).round();
-        // 1.0.14: por trozos en paralelo (como yt-dlp) con timeout y
-        // reintentos; la petición única de youtube_explode la estrangula
-        // YouTube y en Android tardaba >10 min sin progreso.
-        final best = m4a.first;
-        final total = best.size.totalBytes;
-        // 3.1.0 no tiene `YoutubeApiClient.web`: el cliente WEB es `safari`.
-        // Orden de reintento tras un 403 a mitad: androidVr, ios, tv.
-        // Tope: 3 clientes. El trozo ya bajado no se vuelve a pedir.
-        // `ios` no es constante: no puede ir en un `const`.
-        final List<List<YoutubeApiClient>> resumeClients =
-            <List<YoutubeApiClient>>[
-              <YoutubeApiClient>[YoutubeApiClient.androidVr],
-              <YoutubeApiClient>[YoutubeApiClient.ios],
-              <YoutubeApiClient>[YoutubeApiClient.tv],
-            ];
-        await ytChunkedDownload(
-          url: best.url,
-          deadline: const Duration(minutes: 3),
-          totalBytes: total,
-          outPath: tempRawPath,
-          chunkSize: 1024 * 1024,
-          maxRefreshes: resumeClients.length,
-          resumeHeldRanges: true,
-          refreshUrl: () async {
-            if (_ytRefresh >= resumeClients.length) return null;
-            final List<YoutubeApiClient> plan = resumeClients[_ytRefresh++];
-            try {
-              final fresh = await _yt.videos.streamsClient.getManifest(
-                videoId,
-                ytClients: plan,
-              );
-              for (final s in fresh.audioOnly) {
-                if (s.tag == best.tag &&
-                    (s.size.totalBytes == total || s.size.totalBytes <= 0)) {
-                  return s.url;
-                }
-              }
-              for (final s in fresh.audioOnly) {
-                if (s.container == StreamContainer.mp4 &&
-                    s.size.totalBytes == total) {
-                  return s.url;
-                }
-              }
-            } catch (_) {}
-            return null;
-          },
-          onProgress: (done, t) {
-            if (!mounted) return;
-            setState(
-              () => _statusText =
-                  "Descargando audio... ${(done * 100 / t).floor()}% "
-                  "(${(done / 1048576).toStringAsFixed(1)} de "
-                  "${(t / 1048576).toStringAsFixed(1)} MB)",
-            );
-          },
-        );
-        if (!File(tempRawPath).existsSync() ||
-            File(tempRawPath).lengthSync() == 0) {
-          throw Exception("Fallo al bajar el audio (archivo vacío).");
-        }
-      } else {
-        final process = await Process.start(
-          ytdlpPath,
-          ytDlpAbrDownloadArgs(output: tempRawPath, url: targetUrl),
-        );
-
-        String errorTrace = "";
-        String abrOut = "";
-        process.stdout.listen((bytes) {
-          abrOut += String.fromCharCodes(bytes);
-        });
-        process.stderr.listen((bytes) {
-          errorTrace += String.fromCharCodes(bytes);
-        });
-
-        final exitCode = await process.exitCode;
-
-        if (exitCode != 0 || !File(tempRawPath).existsSync()) {
-          throw Exception("Fallo CLI Extractor. Traza: $errorTrace");
-        }
-        final List<String> abrLines = abrOut
-            .split(RegExp(r'\s+'))
-            .map((String s) => s.trim())
-            .where((String s) => s.isNotEmpty)
-            .toList();
-        if (abrLines.isNotEmpty) {
-          sourceKbps = double.tryParse(abrLines.last)?.round() ?? 0;
-        }
-      }
-
-      if (tempRawPath != tempM4aPath) {
+      // 3.2.33: bajar la fuente es reutilizable: si el MP3 sale empalmado se
+      // borra todo y se vuelve a bajar (retryOnSplice), sin avisos.
+      Future<int> fetchRaw() async {
+        if (File(tempRawPath).existsSync()) File(tempRawPath).deleteSync();
         if (File(tempM4aPath).existsSync()) File(tempM4aPath).deleteSync();
-        moveFile(tempRawPath, tempM4aPath);
+
+        setState(
+          () => _statusText = "Descargando stream crudo de máxima calidad...",
+        );
+
+        int sourceKbps = 0;
+        if (Platform.isAndroid) {
+          await ytNewPipeDownload(
+            videoId: videoId.value,
+            destPath: tempRawPath,
+            onProgress: (done, t) {
+              if (!mounted) return;
+              setState(
+                () => _statusText =
+                    "Descargando audio... ${(done * 100 / t).floor()}% "
+                    "(${(done / 1048576).toStringAsFixed(1)} de "
+                    "${(t / 1048576).toStringAsFixed(1)} MB)",
+              );
+            },
+          );
+          if (!File(tempRawPath).existsSync() ||
+              File(tempRawPath).lengthSync() == 0) {
+            throw Exception("Fallo al bajar el audio (archivo vacío).");
+          }
+          sourceKbps = npKbps;
+        } else if (Platform.isIOS) {
+          // iOS: no se pueden ejecutar binarios (yt-dlp → "permission
+          // denied"). Se baja el AAC/M4A con youtube_explode_dart.
+          final manifest = await _yt.videos.streamsClient.getManifest(videoId);
+          final m4a = manifest.audioOnly
+              .where((s) => s.container == StreamContainer.mp4)
+              .toList();
+          if (m4a.isEmpty) {
+            throw Exception("Sin stream AAC/M4A disponible para este video.");
+          }
+          m4a.sort((a, b) => b.bitrate.compareTo(a.bitrate));
+          sourceKbps = (m4a.first.bitrate.bitsPerSecond / 1000).round();
+          // 1.0.14: por trozos en paralelo (como yt-dlp) con timeout y
+          // reintentos; la petición única de youtube_explode la estrangula
+          // YouTube y en Android tardaba >10 min sin progreso.
+          final best = m4a.first;
+          final total = best.size.totalBytes;
+          // 3.1.0 no tiene `YoutubeApiClient.web`: el cliente WEB es `safari`.
+          // Orden de reintento tras un 403 a mitad: androidVr, ios, tv.
+          // Tope: 3 clientes. El trozo ya bajado no se vuelve a pedir.
+          // `ios` no es constante: no puede ir en un `const`.
+          final List<List<YoutubeApiClient>> resumeClients =
+              <List<YoutubeApiClient>>[
+                <YoutubeApiClient>[YoutubeApiClient.androidVr],
+                <YoutubeApiClient>[YoutubeApiClient.ios],
+                <YoutubeApiClient>[YoutubeApiClient.tv],
+              ];
+          await ytChunkedDownload(
+            url: best.url,
+            deadline: const Duration(minutes: 3),
+            totalBytes: total,
+            outPath: tempRawPath,
+            chunkSize: 1024 * 1024,
+            maxRefreshes: resumeClients.length,
+            resumeHeldRanges: true,
+            refreshUrl: () async {
+              if (_ytRefresh >= resumeClients.length) return null;
+              final List<YoutubeApiClient> plan = resumeClients[_ytRefresh++];
+              try {
+                final fresh = await _yt.videos.streamsClient.getManifest(
+                  videoId,
+                  ytClients: plan,
+                );
+                for (final s in fresh.audioOnly) {
+                  if (s.tag == best.tag &&
+                      (s.size.totalBytes == total || s.size.totalBytes <= 0)) {
+                    return s.url;
+                  }
+                }
+                for (final s in fresh.audioOnly) {
+                  if (s.container == StreamContainer.mp4 &&
+                      s.size.totalBytes == total) {
+                    return s.url;
+                  }
+                }
+              } catch (_) {}
+              return null;
+            },
+            onProgress: (done, t) {
+              if (!mounted) return;
+              setState(
+                () => _statusText =
+                    "Descargando audio... ${(done * 100 / t).floor()}% "
+                    "(${(done / 1048576).toStringAsFixed(1)} de "
+                    "${(t / 1048576).toStringAsFixed(1)} MB)",
+              );
+            },
+          );
+          if (!File(tempRawPath).existsSync() ||
+              File(tempRawPath).lengthSync() == 0) {
+            throw Exception("Fallo al bajar el audio (archivo vacío).");
+          }
+        } else {
+          final process = await Process.start(
+            ytdlpPath,
+            ytDlpAbrDownloadArgs(output: tempRawPath, url: targetUrl),
+          );
+
+          String errorTrace = "";
+          String abrOut = "";
+          process.stdout.listen((bytes) {
+            abrOut += String.fromCharCodes(bytes);
+          });
+          process.stderr.listen((bytes) {
+            errorTrace += String.fromCharCodes(bytes);
+          });
+
+          final exitCode = await process.exitCode;
+
+          if (exitCode != 0 || !File(tempRawPath).existsSync()) {
+            throw Exception("Fallo CLI Extractor. Traza: $errorTrace");
+          }
+          final List<String> abrLines = abrOut
+              .split(RegExp(r'\s+'))
+              .map((String s) => s.trim())
+              .where((String s) => s.isNotEmpty)
+              .toList();
+          if (abrLines.isNotEmpty) {
+            sourceKbps = double.tryParse(abrLines.last)?.round() ?? 0;
+          }
+        }
+
+        if (tempRawPath != tempM4aPath) {
+          if (File(tempM4aPath).existsSync()) File(tempM4aPath).deleteSync();
+          moveFile(tempRawPath, tempM4aPath);
+        }
+        return sourceKbps;
       }
+
+      int sourceKbps = await fetchRaw();
 
       // 3.1.94: sin LRCLIB ni subtitulos de YouTube: letra local (Whisper,
       // escritorio) solo si no hay .lrc. En movil no hay letra automatica.
@@ -757,19 +765,46 @@ class _YoutubeSearchAndDownloadWorkspaceState
         return;
       }
 
-      final int kbps = mp3KbpsForSource(sourceKbps);
       setState(
-        () => _statusText = "Codificando a MP3 ${kbps}k (motor Rust/LAME)...",
+        () => _statusText =
+            "Codificando a MP3 ${mp3KbpsForSource(sourceKbps)}k (motor Rust/LAME)...",
       );
+      // 3.2.33: el motor rechaza un MP3 empalmado (duracion o detector); se
+      // borra, se baja de nuevo y se recodifica (max. 2 veces), sin avisos.
       try {
-        await rust_dsp.encodeToMp3(
-          inputPath: tempM4aPath,
-          outputPath: tempMp3Path,
-          bitrateKbps: kbps,
-          master: _autoMasterize,
+        await retryOnSplice<void>(
+          run: () => rust_dsp.encodeToMp3(
+            inputPath: tempM4aPath,
+            outputPath: tempMp3Path,
+            bitrateKbps: mp3KbpsForSource(sourceKbps),
+            master: _autoMasterize,
+          ),
+          redo: (int attempt) async {
+            debugPrint('[EMPALME] reintento $attempt: ${videoId.value}');
+            for (final String p in <String>[tempMp3Path, tempM4aPath]) {
+              try {
+                if (File(p).existsSync()) File(p).deleteSync();
+              } catch (_) {}
+            }
+            sourceKbps = await fetchRaw();
+          },
         );
       } catch (e) {
-        throw Exception("Fallo en el codificador MP3: $e");
+        if (!isSpliceError(e)) throw Exception("Fallo en el codificador MP3: $e");
+        // Agotado: no se instala nada; una linea discreta y el registro.
+        logSpliceEvent('YT ${videoId.value} $trackStem', e);
+        for (final String p in <String>[tempMp3Path, tempM4aPath, tempLrcPath]) {
+          try {
+            if (File(p).existsSync()) File(p).deleteSync();
+          } catch (_) {}
+        }
+        if (mounted) {
+          setState(
+            () => _statusText =
+                "No instalada: $trackStem (empalme persistente, ver difogo_empalmes.log)",
+          );
+        }
+        return;
       }
       try {
         if (File(tempM4aPath).existsSync()) File(tempM4aPath).deleteSync();

@@ -10,6 +10,7 @@ import 'package:difogo/src/rust/api/whisper_lrc.dart' as rust_whisper;
 
 import '../core/gatomix_store.dart' show saveWhisperLang;
 import '../core/library_guard.dart';
+import '../core/splice_retry.dart';
 import '../core/lyric_ai_align.dart' show parseTimedWordsJson;
 import '../core/lyric_match.dart' show lyricMayDownload;
 import '../providers/pipeline_provider.dart' show HeavyWorkGate;
@@ -461,7 +462,13 @@ class KaraokeEngine {
           }
         } catch (e) {
           debugPrint('🔴 [KARAOKE] $name: $e');
-          onStatus?.call('Falló: $label');
+          // 3.2.33: la _K solo nace de un mp3 que pasa el detector.
+          if (isSpliceError(e)) {
+            logSpliceEvent('K $src', e);
+            onStatus?.call('Sin _K (empalme en el mp3): $label');
+          } else {
+            onStatus?.call('Falló: $label');
+          }
         } finally {
           timer.cancel();
         }

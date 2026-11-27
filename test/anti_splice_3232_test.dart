@@ -27,9 +27,10 @@ void main() {
     expect(hits.first.atMs, inInclusiveRange(41000, 42000));
   });
 
-  test('detector: pegado sin hueco con otro brillo (escalon)', () {
+  // 3.2.33: el "escalon" de brillo ya no marca (falsos positivos).
+  test('detector: solo cambio de brillo ya no marca', () {
     final List<double> s = <double>[..._tone(300, 40, r), ..._tone(1500, 8, r)];
-    expect(spliceScan(s, r).any((SpliceHit h) => h.kind == 'escalon'), isTrue);
+    expect(spliceScan(s, r), isEmpty);
   });
 
   test('detector: pista limpia y pista corta sin marcas', () {
