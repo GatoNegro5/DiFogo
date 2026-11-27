@@ -72,9 +72,9 @@ void main() {
         expect(find.textContaining('_K'), findsNothing);
         expect(find.text(folderName), findsOneWidget);
         expect(find.text('1 canciones'), findsOneWidget);
-        expect(find.text('Mezclar todo'), findsOneWidget);
+        expect(find.text('Poner este set (8) a continuación'), findsOneWidget);
 
-        await tester.tap(find.text('Mezclar todo'));
+        await tester.tap(find.text('Poner este set (8) a continuación'));
         await tester.pump();
         expect(mixed, hasLength(1));
         expect(tester.takeException(), isNull);

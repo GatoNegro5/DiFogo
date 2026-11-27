@@ -216,7 +216,10 @@ void main() {
       // 3.1.38: Mezclar todo vive en el crate activo de la cinta.
       await tester.tap(find.text('Salsa'));
       await _settle(tester);
-      final Finder salsaMix = find.widgetWithText(TextButton, 'Mezclar todo');
+      final Finder salsaMix = find.widgetWithText(
+        TextButton,
+        'Poner este set (8) a continuación',
+      );
       expect(salsaMix, findsOneWidget);
       expect(tester.getSize(salsaMix).height, greaterThanOrEqualTo(48.0));
 

@@ -59,7 +59,7 @@ void main() {
       expect(find.text('Earth, Wind & Fire, Indeep'), findsWidgets);
       expect(find.text('September'), findsWidgets);
       expect(find.text('112'), findsNothing);
-      expect(find.text('Cargar Carpeta'), findsNothing);
+      expect(find.text('Poner set (8)'), findsNothing);
       expect(find.text('COLA (2)'), findsOneWidget);
       expect(find.text('Dj Bobo'), findsOneWidget);
       expect(find.text('Chihuahua'), findsOneWidget);

@@ -81,7 +81,8 @@ void main() {
     final String load = _body(
       lw,
       'onPressed:folderFiles.isEmpty',
-      '"CargarCarpeta"',
+      // 3.2.29: el boton ahora dice lo que hace.
+      '"Ponerset(8)"',
     );
     expect(load.contains('.playFolderList(dirState.currentPath,'), isTrue);
     expect(load.contains('addAllTracks('), isFalse);

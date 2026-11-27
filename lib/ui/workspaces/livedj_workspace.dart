@@ -274,8 +274,9 @@ class LiveDjFolderPanel extends ConsumerWidget {
                             );
                       },
                 icon: Icon(Icons.playlist_add_check, size: isMobile ? 14 : 16),
+                // 3.2.29: Sets por carpeta: no corta lo que suena.
                 label: Text(
-                  "Cargar Carpeta",
+                  "Poner set (8)",
                   style: TextStyle(fontSize: isMobile ? 10 : 11),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -1100,6 +1101,9 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                 // 3.2.9: Radio junto a Modo DJ (antes en la cabecera de la
                 // cola); Spotify Pro es la vista unica: sin conmutador.
                 const RadioDiscoveryButton(compact: true),
+                const SizedBox(width: 6),
+                // 3.2.29: Modo Fiesta (sets de 8 por genero).
+                const FiestaModeButton(compact: true),
                 const SizedBox(width: 6),
                 const LiveDjModeDjButton(),
               ],

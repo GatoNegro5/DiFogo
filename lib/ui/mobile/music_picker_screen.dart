@@ -361,6 +361,11 @@ List<String> musicPickerCrates({
   return out;
 }
 
+/// 3.2.29: boton de carpeta (antes "+ Mezclar todo"): la cancion que suena
+/// termina con su mezcla y siguen las proximas 8 de la carpeta (Sets por
+/// carpeta); parado, arranca la carpeta.
+const String kFolderSetLabel = 'Poner este set (8) a continuación';
+
 /// 3.1.38: biblioteca limpia para el crate "Musica" (total y Mezclar todo):
 /// sin pistas dentro de Descargas, DjPlaylists ni LAB.
 List<File> musicPickerCleanLibrary(List<File> all, String root) {
@@ -928,28 +933,49 @@ class _MusicPickerScreenState extends State<MusicPickerScreen> {
     );
   }
 
-  /// 3.1.50: "+ Mezclar todo" en pastilla de alto contraste (48 px; toma el
-  /// toque aunque este resolviendo, sin doble toque).
+  /// 3.1.50: pastilla de alto contraste (48 px; toma el toque aunque este
+  /// resolviendo, sin doble toque). 3.2.29: [kFolderSetLabel] (antes
+  /// "+ Mezclar todo"): pone el set de la carpeta a continuacion sin cortar.
   Widget _mixPill() {
     final bool mixing = _mixing.contains(_current);
     final String path = _current;
+    // 3.2.29: etiqueta larga en 2 lineas dentro de un ancho fijo (sin
+    // desbordar la barra en 360 px).
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 150),
+      child: _mixPillButton(mixing, path),
+    );
+  }
+
+  Widget _mixPillButton(bool mixing, String path) {
     return TextButton(
       style: TextButton.styleFrom(
         backgroundColor: mixing ? _activeBg : _neon,
         foregroundColor: mixing ? _muted : Colors.black,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         minimumSize: const Size(48, 48),
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
         shape: const StadiumBorder(),
-        textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+        textStyle: const TextStyle(
+          fontSize: 12,
+          height: 1.1,
+          fontWeight: FontWeight.w700,
+        ),
       ),
       onPressed: () => _mix(path),
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Icon(Icons.add, size: 18),
+          Icon(Icons.queue_music, size: 18),
           SizedBox(width: 4),
-          Text('Mezclar todo', maxLines: 1),
+          Flexible(
+            child: Text(
+              kFolderSetLabel,
+              maxLines: 2,
+              softWrap: true,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );

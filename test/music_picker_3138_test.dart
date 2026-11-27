@@ -151,7 +151,7 @@ void main() {
     expect(tester.getRect(find.text('M\u00fasica')).left, lessThan(regenial));
     expect(find.text('Alfa'), findsOneWidget);
     expect(find.text('Render'), findsNothing);
-    await tester.tap(find.text('Mezclar todo'));
+    await tester.tap(find.text('Poner este set (8) a continuación'));
     await tester.pump();
     expect(mixed, <int>[3]);
 

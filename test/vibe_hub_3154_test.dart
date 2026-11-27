@@ -83,12 +83,12 @@ void main() {
     expect(find.byType(LibraryTreePanel), findsNothing);
     // 3.1.62: Salsa y Merengue van dentro de la estacion Tropical.
     expect(find.text('Tropical'), findsOneWidget);
-    expect(find.text('Cargar Carpeta'), findsNothing);
+    expect(find.text('Poner set (8)'), findsNothing);
     expect(find.byType(LiveDjCartridgePanel), findsNothing);
     await tester.tap(find.byKey(const Key('livedj-view-toggle')));
     await tester.pump();
     expect(find.byType(VibeHubView), findsNothing);
-    expect(find.text('Cargar Carpeta'), findsOneWidget);
+    expect(find.text('Poner set (8)'), findsOneWidget);
     expect(find.byType(LibraryTreePanel), findsOneWidget);
     await tester.tap(find.byKey(const Key('livedj-view-toggle')));
     await tester.pump();

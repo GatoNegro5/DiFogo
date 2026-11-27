@@ -266,6 +266,14 @@ class _VibeHubViewState extends ConsumerState<VibeHubView> {
                 ),
               ),
             ),
+          // 3.2.29: interruptor Modo Fiesta de la estacion.
+          const Padding(
+            padding: EdgeInsets.fromLTRB(8, 4, 8, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FiestaModeButton(compact: false),
+            ),
+          ),
           Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
             child: SizedBox(
@@ -878,6 +886,76 @@ class RadioDiscoveryButton extends ConsumerWidget {
                   const SizedBox(width: 3),
                   Text(
                     kRadioDiscoveryLabel,
+                    style: TextStyle(
+                      color: on ? color : Colors.white54,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 11,
+                    ),
+                    maxLines: 1,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 3.2.29 Modo Fiesta: etiqueta y ayuda del interruptor.
+const String kFiestaModeLabel = 'Modo Fiesta';
+
+String fiestaModeTooltip(bool on) => on
+    ? 'MODO FIESTA ENCENDIDO: la estación suena en sets de 8 canciones de un '
+          'género (Salsa, Merengue, Cumbia...) y rota sola al siguiente. Cada '
+          'género sigue donde quedó, sin repetir. No corta la canción que suena. '
+          'Toca para apagar.'
+    : 'MODO FIESTA APAGADO: la estación mezcla sus géneros como siempre. Toca '
+          'para que suene por sets de 8 de cada género con rotación automática.';
+
+/// 3.2.29: interruptor Modo Fiesta (mismo estilo que Radio Descubrimiento).
+class FiestaModeButton extends ConsumerWidget {
+  const FiestaModeButton({super.key, required this.compact});
+
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final bool on = ref.watch(
+      vibeHubProvider.select((VibeHubState s) => s.fiestaMode),
+    );
+    const Color color = GatoMixTheme.fire;
+    return Tooltip(
+      message: fiestaModeTooltip(on),
+      child: GestureDetector(
+        key: const Key('fiesta-mode-toggle'),
+        onTap: () => ref.read(vibeHubProvider.notifier).toggleFiestaMode(),
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 8 : 10,
+            vertical: compact ? 3 : 4,
+          ),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: on ? 0.14 : 0.05),
+            border: Border.all(color: on ? color : Colors.white24),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: compact ? 100 : 160),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: <Widget>[
+                  Icon(
+                    on ? Icons.celebration : Icons.celebration_outlined,
+                    size: 14,
+                    color: on ? color : Colors.white54,
+                  ),
+                  const SizedBox(width: 3),
+                  Text(
+                    on ? '$kFiestaModeLabel: ON' : '$kFiestaModeLabel: OFF',
                     style: TextStyle(
                       color: on ? color : Colors.white54,
                       fontWeight: FontWeight.bold,

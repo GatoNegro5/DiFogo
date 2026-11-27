@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/discovery_dedup_controller.dart';
+import '../core/folder_sets.dart';
 import '../core/gatomix_radio.dart' show warmHarmonicDna, kDnaWarmWait;
 import '../core/genre_stations.dart';
 import '../core/livedj_order.dart' show camelotFromPath, harmonicDnaOf;
@@ -107,9 +108,16 @@ class VibeHubState {
     this.busy = false,
     this.message,
     this.discoveryOn = false,
+    this.fiestaMode = false,
   });
 
   final List<VibeGenre> genres;
+
+  /// 3.2.29 Modo Fiesta: una estacion con 2 o mas generos (Bailables,
+  /// Tropical...) suena por sets de [kFolderSetSize] de un genero y rota
+  /// sola al siguiente, cada genero con su cursor persistente sin repetir.
+  /// Se guarda en el estado del modo (`vibeHub.fiesta`).
+  final bool fiestaMode;
 
   /// 3.1.72: 🔥 RADIO DESCUBRIMIENTO (AUTO-NUEVAS). Apagada: solo la
   /// biblioteca local. Encendida: intercala en la cola de la estacion activa
@@ -139,6 +147,7 @@ class VibeHubState {
     String? message,
     bool clearMessage = false,
     bool? discoveryOn,
+    bool? fiestaMode,
   }) => VibeHubState(
     genres: genres ?? this.genres,
     stations: stations ?? this.stations,
@@ -148,6 +157,7 @@ class VibeHubState {
     busy: busy ?? this.busy,
     message: clearMessage ? null : (message ?? this.message),
     discoveryOn: discoveryOn ?? this.discoveryOn,
+    fiestaMode: fiestaMode ?? this.fiestaMode,
   );
 }
 
@@ -160,8 +170,10 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
   @override
   VibeHubState build() {
     final Set<String> checked = <String>{};
+    bool fiesta = false;
     try {
       final Object? v = readModeDoc(_path())['vibeHub'];
+      if (v is Map && v['fiesta'] == true) fiesta = true;
       if (v is Map && v['checked'] is List) {
         for (final Object? g in v['checked'] as List) {
           if (g is String && g.isNotEmpty) checked.add(g);
@@ -172,7 +184,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       final String? a = ref.read(vibeProvider).active;
       if (a != null && a.isNotEmpty) checked.add(a);
     }
-    return VibeHubState(checked: checked);
+    return VibeHubState(checked: checked, fiestaMode: fiesta);
   }
 
   /// 3.1.67: canciones de carpetas genericas clasificadas una a una.
@@ -302,6 +314,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       await patchModeDoc(_path(), <String, dynamic>{
         'vibeHub': <String, dynamic>{
           'checked': (state.checked.toList()..sort()),
+          'fiesta': state.fiestaMode,
         },
       });
     } catch (_) {}
@@ -576,6 +589,20 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
         _autoStartFromCurator(key, subGenres, epoch);
         return 0;
       }
+      // 3.2.29 Modo Fiesta: 2 o mas generos -> sets de 8 por genero.
+      if (state.fiestaMode && debugStationPlay == null) {
+        final Map<String, List<String>> groups = fiestaGroups(all);
+        if (groups.length >= 2 && await _playFiesta(key, groups)) {
+          await frozen;
+          state = state.copyWith(
+            activeStation: key,
+            message:
+                'Modo Fiesta: ${stationTitleOf(key)} en sets de '
+                '$kFolderSetSize por genero',
+          );
+          return all.length;
+        }
+      }
       final GenreSessionDoc d = _stationsDoc;
       // 3.2.28: BPM y ADN de una ventana de la estacion antes del orden,
       // con tope de espera; lo que no llegue ordena por la cache en memoria.
@@ -624,6 +651,59 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
       ]).timeout(kDnaWarmWait, onTimeout: () => const <void>[]);
     } catch (_) {}
   }
+
+  /// 3.2.29: genero del set del Modo Fiesta que suena (para rotar).
+  String? _fiestaSub;
+
+  /// 3.2.29 Modo Fiesta: set de un genero de [key] en Live DJ (sin cortar
+  /// si ya suena musica) y, al acabarse, el del siguiente genero. Cada
+  /// genero usa su lista persistente `fiesta:<estacion>/<genero>`.
+  Future<bool> _playFiesta(String key, Map<String, List<String>> groups) async {
+    final LiveDjNotifier dj = ref.read(liveDjProvider.notifier);
+    final PersistentLists lists = dj.setLists;
+    await lists.store.load();
+    Future<TrackSet> next(List<String> exclude) async {
+      final TrackSet s = await fiestaSetFor(
+        lists,
+        key,
+        groups,
+        current: _fiestaSub,
+        exclude: exclude,
+      );
+      if (!s.isEmpty) _fiestaSub = fiestaSubOfKey(s.owner);
+      lists.saveSoon();
+      return s;
+    }
+
+    final LiveDjState live = ref.read(liveDjProvider);
+    final TrackSet first = await next(<String>[
+      if (live.isPlaying && live.currentTrackPath != null)
+        live.currentTrackPath!,
+    ]);
+    if (first.isEmpty) return false;
+    return dj.playSet(first, next: next, activeKey: persistentGenreKey(key));
+  }
+
+  /// 3.2.29: enciende o apaga el Modo Fiesta (se guarda). Con una estacion
+  /// sonando se aplica ya, sin cortar la pista actual.
+  Future<void> setFiestaMode(bool on) async {
+    if (state.fiestaMode == on) return;
+    state = state.copyWith(
+      fiestaMode: on,
+      message: on
+          ? 'Modo Fiesta: sets de $kFolderSetSize por genero, rotacion sola'
+          : 'Modo Fiesta apagado: estacion mezclada como siempre',
+    );
+    await _save();
+    final String? st = state.activeStation;
+    if (st == null || debugStationPlay != null) return;
+    final List<String> subs =
+        _stationsDoc.stations[st]?.subGenresChecked ?? const <String>[];
+    if (subs.isEmpty || !ref.read(liveDjProvider).isPlaying) return;
+    unawaited(playStation(st, subs).catchError((Object _) => 0));
+  }
+
+  Future<void> toggleFiestaMode() => setFiestaMode(!state.fiestaMode);
 
   /// Arma la sesion de [key] con [plan] y la hace sonar en Live DJ ya.
   Future<void> _startPlan(

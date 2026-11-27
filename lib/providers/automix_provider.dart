@@ -32,6 +32,7 @@ import '../core/bpm_backfill_worker.dart';
 import '../core/livedj_order.dart';
 import '../core/mode_session.dart';
 import '../core/persistent_lists.dart';
+import '../core/folder_sets.dart';
 import '../core/queue_bpm.dart';
 import 'directory_provider.dart';
 import '../core/stored_grid.dart';
@@ -317,6 +318,8 @@ class AutomixNotifier extends Notifier<AutomixState> {
   /// La cola se vació: la sesión no vuelve a escribir la lista ni la posición
   /// viejas hasta que entre una cola nueva.
   void dropPersistedQueue() {
+    // 3.2.29: vaciar o cambiar de lista termina los sets.
+    _endSets();
     _queueHold = true;
     _queueRestart = true;
     _shuffleKnown.clear();
@@ -583,6 +586,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
     try {
       _kickBackfill();
       _syncActiveList();
+      _setTick();
       final String filePath = _getSessionFilePath();
       if (_queueHold) {
         clearModeQueueSync(filePath, playbackList: true);
@@ -1034,28 +1038,147 @@ class AutomixNotifier extends Notifier<AutomixState> {
     play: play,
   );
 
-  /// 3.2.7: cambia a la lista [key] con Automix sonando o en pausa. Sonando
-  /// aparca los decks (la saliente queda anotada en su segundo) y la nueva
-  /// suena en su pista y segundo. Cruce o preRoll comprometido: false sin
-  /// tocar nada (se respeta el candado del preRoll).
+  /// 3.2.7: cambia a la lista [key] con Automix en pausa o parado: la nueva
+  /// queda en su pista y segundo y [play] la hace sonar. 3.2.29: con Automix
+  /// SONANDO no corta ni aparca decks: la actual termina con su mezcla
+  /// normal y la siguen las proximas [kFolderSetSize] de [key] (ver
+  /// [_switchToSetLive]). Parado con cruce o preRoll comprometido: false.
   Future<bool> _switchPersistentQueue(
     String key,
     List<String> paths, {
     String? signature,
     bool play = false,
   }) async {
-    if (paths.isEmpty || _isCrossfading || _drift.preRollActive) return false;
-    final bool wasPlaying = state.isPlaying;
-    if (wasPlaying) await parkIdleDecks(force: true);
+    if (paths.isEmpty) return false;
+    if (state.isPlaying && state.currentTrackPath != null) {
+      return _switchToSetLive(key, paths, signature: signature);
+    }
+    if (_isCrossfading || _drift.preRollActive) return false;
     await _loadPersistentQueue(key, paths, signature: signature);
     final bool ok = _activeListKey == key;
-    if (ok &&
-        (play || wasPlaying) &&
-        state.currentTrackPath != null &&
-        !state.isPlaying) {
+    if (ok && play && state.currentTrackPath != null && !state.isPlaying) {
       await togglePlayPause();
     }
     return ok;
+  }
+
+  // ---- 3.2.29 Sets por carpeta (solo cola, sin decks) ----
+
+  /// Fuente del siguiente set; null fuera de sets.
+  Future<TrackSet> Function(List<String> exclude)? _nextSet;
+  bool _setTopUp = false;
+  int _setEpoch = 0;
+
+  /// 3.2.29: true mientras la cola avanza por sets.
+  bool get setModeActive => _nextSet != null;
+
+  void _endSets() {
+    _nextSet = null;
+    _setEpoch++;
+  }
+
+  /// 3.2.29: espera a que termine el cruce en curso (tope 30 s).
+  Future<bool> _whenNoCrossfade() async {
+    for (var i = 0; i < 300 && _isCrossfading; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    return !_isCrossfading;
+  }
+
+  /// 3.2.29: carpeta elegida con Automix sonando. La que suena sigue y queda
+  /// como sonada en su lista (al volver no se repite); la cola pasa a ser
+  /// [la que suena, fijada por el preRoll si la hay, set nuevo] y las
+  /// pendientes del set anterior salen. Nunca a mitad de un cruce.
+  Future<bool> _switchToSetLive(
+    String key,
+    List<String> paths, {
+    String? signature,
+  }) async {
+    if (!await _whenNoCrossfade()) return false;
+    final String? cur = state.currentTrackPath;
+    if (cur == null) return false;
+    final PersistentLists lists = await _persistentLists();
+    _syncActiveList();
+    final String? oldKey = _activeListKey;
+    if (oldKey != null && oldKey != key && lists.markPlayed(oldKey, cur)) {
+      lists.saveSoon();
+    }
+    final List<String> all = dedupeAudioPaths(
+      paths.where((String p) => !isKaraokeAudioPath(p)).toList(),
+    );
+    final TrackSet set = await folderSetFor(
+      lists,
+      key,
+      all,
+      exclude: <String>[cur],
+    );
+    if (set.isEmpty || !await _whenNoCrossfade()) return false;
+    final String? now = state.currentTrackPath;
+    if (now == null) return false;
+    final String? pin = nextTrackLocked ? state.nextTrackPath : null;
+    final List<String> playlist = <String>[
+      now,
+      ...folderSetQueue(set: set.paths, current: now, pinned: <String>[?pin]),
+    ];
+    _endSets();
+    _activeListKey = key;
+    lists.activeKey = key;
+    _genreSignature = signature;
+    _nextSet = (List<String> exclude) =>
+        folderSetFor(lists, key, all, exclude: exclude);
+    try {
+      ref.read(automixQueueProvider.notifier).restoreQueue(playlist);
+    } catch (_) {}
+    _lastSyncInput = null;
+    state = state.copyWith(playlist: playlist, currentIndex: 0);
+    _scheduleSnapshot();
+    _recalculateMixWindow();
+    lists.saveSoon();
+    return true;
+  }
+
+  /// 3.2.29: con la ultima del set sonando entran las proximas de la misma
+  /// carpeta (despues del cruce si hay uno en curso).
+  void _setTick() {
+    if (_nextSet == null || _setTopUp) return;
+    final List<String> pl = state.playlist;
+    final int idx = state.currentIndex;
+    if (state.currentTrackPath == null || idx < 0 || idx < pl.length - 1) {
+      return;
+    }
+    unawaited(_topUpSet());
+  }
+
+  Future<void> _topUpSet() async {
+    final Future<TrackSet> Function(List<String>)? next = _nextSet;
+    if (next == null) return;
+    _setTopUp = true;
+    final int epoch = _setEpoch;
+    try {
+      if (!await _whenNoCrossfade()) return;
+      final String? cur = state.currentTrackPath;
+      if (epoch != _setEpoch || cur == null) return;
+      final TrackSet set = await next(<String>[cur]);
+      if (set.isEmpty || epoch != _setEpoch || _isCrossfading) return;
+      final String? now = state.currentTrackPath;
+      if (now == null || state.currentIndex < state.playlist.length - 1) {
+        return;
+      }
+      final List<String> playlist = <String>[
+        now,
+        ...folderSetQueue(set: set.paths, current: now),
+      ];
+      try {
+        ref.read(automixQueueProvider.notifier).restoreQueue(playlist);
+      } catch (_) {}
+      _lastSyncInput = null;
+      state = state.copyWith(playlist: playlist, currentIndex: 0);
+      _scheduleSnapshot();
+      _recalculateMixWindow();
+    } catch (_) {
+    } finally {
+      _setTopUp = false;
+    }
   }
 
   Future<void> _loadPersistentQueue(
@@ -1425,7 +1548,9 @@ class AutomixNotifier extends Notifier<AutomixState> {
     if (identical(pinned, state.playlist)) return;
     final int cur = state.currentTrackPath == null
         ? -1
-        : pinned.indexWhere((String p) => sameAudioPath(p, state.currentTrackPath));
+        : pinned.indexWhere(
+            (String p) => sameAudioPath(p, state.currentTrackPath),
+          );
     state = state.copyWith(
       playlist: pinned,
       currentIndex: cur >= 0 ? cur : state.currentIndex,
@@ -1844,10 +1969,10 @@ class AutomixNotifier extends Notifier<AutomixState> {
       final fadingBpm = _extractBpm(state.currentTrackPath);
       final incomingBpm = _extractBpm(nextTrack);
       final double incomingRate = _midpointRate(
-      fadingBpm,
-      incomingBpm,
-      fadingPlayer,
-    );
+        fadingBpm,
+        incomingBpm,
+        fadingPlayer,
+      );
 
       try {
         await incomingPlayer.setRate(incomingRate);

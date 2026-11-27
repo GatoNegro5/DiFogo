@@ -19,7 +19,7 @@ import '../core/gatomix_store.dart';
 import '../core/hal/platform_strategy.dart';
 import '../core/mode_session.dart';
 import '../core/persistent_lists.dart';
-import '../core/genre_stations.dart' show stationSmartShuffle;
+import '../core/folder_sets.dart';
 import '../core/livedj_next.dart';
 import '../core/bpm_backfill_worker.dart';
 import '../core/livedj_order.dart';
@@ -953,6 +953,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       _kickBackfill();
       final path = _sessionFilePath();
       _syncFolderList(path);
+      _setTick();
       if (_queueHold && state.queue.isNotEmpty) {
         _queueHold = false;
       }
@@ -1034,36 +1035,189 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     if (changed) lists.saveSoon();
   }
 
-  /// 3.2.6: carpeta como lista persistente completa: retoma en la siguiente
-  /// pendiente (pista y segundo) o arma el 100 % en Smart Shuffle si no
-  /// existe o ya sono entera. Devuelve las pistas en cola (0 si no sono).
+  /// 3.2.6: carpeta como lista persistente completa (`folder:<ruta>`).
+  /// 3.2.29 Sets por carpeta: suena por sets de [kFolderSetSize] desde la
+  /// siguiente pendiente (sin repetir hasta agotar; luego ciclo nuevo). Con
+  /// musica sonando NO corta: la actual termina con su mezcla normal, las
+  /// pendientes del set anterior salen de la cola y entra el set nuevo. Al
+  /// acabarse el set siguen las proximas [kFolderSetSize] de la misma
+  /// carpeta. Parado: arranca como antes (pista retomada y su segundo).
+  /// Devuelve las pistas del set en cola (0 si no sono).
   Future<int> playFolderList(String folderPath, List<File> files) async {
-    if (_isCrossfading) return 0;
     final List<String> all = <String>[
       for (final File f in files)
         if (!isKaraokeAudioPath(f.path)) f.path,
     ];
     if (all.isEmpty) return 0;
+    if (_isCrossfading && !state.isPlaying) return 0;
     final PersistentLists lists = _lists;
     await lists.store.load();
     final String key = persistentFolderKey(folderPath);
-    final PersistentPlan plan = lists.planOrResume(
+    final bool live = state.isPlaying && state.currentTrackPath != null;
+    final String? cur = live ? state.currentTrackPath : null;
+    final PersistentList? saved = lists.get(key);
+    final TrackSet first = await folderSetFor(
+      lists,
       key,
       all,
-      (List<String> xs) => stationSmartShuffle(xs, Random()),
+      exclude: <String>[?cur],
+      keepHead: !live,
     );
+    if (first.isEmpty) return 0;
+    // Parado: la retomada sigue en su segundo.
+    int pos = 0;
+    final String? sc = saved?.currentPath;
+    if (!live &&
+        sc != null &&
+        persistentPathKey(sc) == persistentPathKey(first.paths.first)) {
+      pos = saved!.positionMs;
+    }
     // 3.2.7: la carpeta pasa a activa ANTES de cargar: el cambio de pista de
     // loadStation no se anota en la estacion que sonaba.
     final String? before = lists.activeKey;
-    lists.activeKey = key;
-    final bool ok = await loadStation(
-      currentPath: plan.current,
-      positionMs: plan.positionMs,
-      queue: <File>[for (final String p in plan.queue) File(p)],
+    final bool ok = await playSet(
+      first,
+      activeKey: key,
+      positionMs: pos,
+      next: (List<String> exclude) =>
+          folderSetFor(lists, key, all, exclude: exclude),
     );
     if (!ok) lists.activeKey = before;
     await lists.flush();
-    return ok ? plan.queue.length : 0;
+    return ok ? first.paths.length : 0;
+  }
+
+  // ---- 3.2.29 Sets por carpeta / Modo Fiesta (solo cola, sin decks) ----
+
+  /// Fuente del siguiente set (carpeta o Modo Fiesta); null fuera de sets.
+  Future<TrackSet> Function(List<String> exclude)? _nextSet;
+
+  /// Clave de ruta -> lista persistente que la anota como sonada.
+  final Map<String, String> _setOwner = <String, String>{};
+  String? _setNotedCurrent;
+  bool _setTopUp = false;
+  int _setEpoch = 0;
+
+  /// 3.2.29: lista persistente de Live DJ (el Hub la usa en Modo Fiesta).
+  PersistentLists get setLists => _lists;
+
+  /// 3.2.29: true mientras la cola avanza por sets.
+  bool get setModeActive => _nextSet != null;
+
+  void _clearSetMode() {
+    _nextSet = null;
+    _setEpoch++;
+  }
+
+  void _registerSet(TrackSet set) {
+    for (final String p in set.paths) {
+      _setOwner[audioPathKey(p)] = set.owner;
+    }
+  }
+
+  /// 3.2.29: espera a que termine el cruce en curso (tope 30 s); la cola no
+  /// se cambia a mitad de un cruce. True si quedo libre.
+  Future<bool> _whenNoCrossfade() async {
+    for (var i = 0; i < 300 && _isCrossfading; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    return !_isCrossfading;
+  }
+
+  /// 3.2.29: pone [set] a continuacion de la que suena (sin cortar; ver
+  /// [loadStation]) o lo arranca si no suena nada. [next] da el siguiente
+  /// set cuando este se acaba. [activeKey] pasa a ser la lista activa.
+  Future<bool> playSet(
+    TrackSet set, {
+    required Future<TrackSet> Function(List<String> exclude) next,
+    String? activeKey,
+    int positionMs = 0,
+  }) async {
+    if (set.isEmpty) return false;
+    final PersistentLists lists = _lists;
+    final String? cur = state.isPlaying ? state.currentTrackPath : null;
+    final String? prevKey = lists.activeKey;
+    if (cur != null && prevKey != null && prevKey.startsWith('folder:')) {
+      // La que suena queda sonada en su carpeta al terminar: al volver no
+      // se repite.
+      _setOwner.putIfAbsent(audioPathKey(cur), () => prevKey);
+    }
+    if (activeKey != null) lists.activeKey = activeKey;
+    final bool ok = await loadStation(
+      currentPath: cur == null ? set.paths.first : null,
+      positionMs: cur == null ? positionMs : 0,
+      queue: <File>[for (final String p in set.paths) File(p)],
+    );
+    if (!ok) return false;
+    _registerSet(set);
+    _nextSet = next;
+    _setNotedCurrent ??= state.currentTrackPath;
+    return true;
+  }
+
+  /// 3.2.29: anota como sonada la anterior en su lista (sets de carpeta que
+  /// ya no es la activa y Modo Fiesta) y, si el set se acabo, pide el
+  /// siguiente.
+  void _setTick() {
+    final String? cur = state.currentTrackPath;
+    if (cur != _setNotedCurrent) {
+      final String? prev = _setNotedCurrent;
+      _setNotedCurrent = cur;
+      if (prev != null) {
+        final String? owner = _setOwner.remove(audioPathKey(prev));
+        final PersistentLists lists = _lists;
+        if (owner != null &&
+            lists.store.isLoaded &&
+            owner != lists.activeKey &&
+            lists.markPlayed(owner, prev)) {
+          lists.saveSoon();
+        }
+      }
+    }
+    if (_nextSet != null &&
+        !_setTopUp &&
+        cur != null &&
+        state.queue.isEmpty &&
+        !state.radioOn) {
+      unawaited(_topUpSet());
+    }
+  }
+
+  /// 3.2.29: set acabado sin otra eleccion del DJ: entran las proximas de
+  /// la misma fuente (despues del cruce si hay uno en curso).
+  Future<void> _topUpSet() async {
+    final Future<TrackSet> Function(List<String>)? next = _nextSet;
+    if (next == null) return;
+    _setTopUp = true;
+    final int epoch = _setEpoch;
+    try {
+      if (!await _whenNoCrossfade()) return;
+      final String? cur = state.currentTrackPath;
+      if (epoch != _setEpoch || cur == null || state.queue.isNotEmpty) return;
+      final TrackSet set = await next(<String>[cur]);
+      if (set.isEmpty ||
+          epoch != _setEpoch ||
+          state.queue.isNotEmpty ||
+          _isCrossfading) {
+        return;
+      }
+      _registerSet(set);
+      state = state.copyWith(
+        queue: <File>[
+          for (final String p in folderSetQueue(
+            set: set.paths,
+            current: state.currentTrackPath,
+          ))
+            File(p),
+        ],
+      );
+      _backfillEpoch = state.queue;
+      _rememberDriftNext();
+      unawaited(_saveSnapshot());
+    } catch (_) {
+    } finally {
+      _setTopUp = false;
+    }
   }
 
   /// 3.2.6: reinicio intencional de la lista activa (boton en 3.2.7). Una
@@ -1594,7 +1748,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       keyOf: harmonicKeyOf,
       lockedPrefix: _liveLockedPrefix(),
       playing: state.currentTrackPath,
-      pinned: _standbyArmedPath ?? (_drift.preRollActive ? _driftNextPath : null),
+      pinned:
+          _standbyArmedPath ?? (_drift.preRollActive ? _driftNextPath : null),
     );
     final Map<String, File> byKey = <String, File>{
       for (final File f in <File>[...state.queue, ...fresh])
@@ -1677,6 +1832,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   }
 
   void clearQueue() {
+    // 3.2.29: vaciar la cola termina los sets (no se rellena sola).
+    _clearSetMode();
     _addEpoch++;
     _backfill?.cancel();
     _backfillEpoch = null;
@@ -1707,13 +1864,22 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   /// (ya viene barajada con Smart Shuffle). 3.2.28: _backfillEpoch queda en
   /// la cola cargada, asi el reorden armonico de la ventana (BPM medido y
   /// ADN) tambien actua en estaciones; Phrase 8 conserva su regla.
-  /// Devuelve false si hay un cruce en curso.
+  /// 3.2.29: con musica sonando NO corta (ver [_loadStationLive]): la
+  /// actual sigue y termina con su mezcla normal. Parado: arranca como
+  /// antes. Devuelve false si un cruce no termina a tiempo.
   Future<bool> loadStation({
     String? currentPath,
     int positionMs = 0,
     required List<File> queue,
     bool autoPlay = true,
   }) async {
+    _clearSetMode();
+    if (state.isPlaying && state.currentTrackPath != null) {
+      if (!await _whenNoCrossfade()) return false;
+      if (state.isPlaying && state.currentTrackPath != null) {
+        return _loadStationLive(currentPath: currentPath, queue: queue);
+      }
+    }
     if (_isCrossfading) return false;
     if (state.radioOn) _turnRadioOff();
     await _stopWhenNoNext();
@@ -1759,6 +1925,56 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     _lastSavedPositionMs = pos;
     await _saveSnapshot();
     if (autoPlay && cur != null) await togglePlayPause();
+    return true;
+  }
+
+  /// 3.2.29: cola nueva con musica sonando, sin tocar decks: la que suena
+  /// sigue; se quitan las pendientes anteriores y entran [currentPath] (si
+  /// la hay) y [queue]. Con el preRoll comprometido la siguiente fijada
+  /// queda primera (como [dropTracksLive]). Nunca durante un cruce.
+  Future<bool> _loadStationLive({
+    String? currentPath,
+    required List<File> queue,
+  }) async {
+    if (_isCrossfading) return false;
+    final String? cur = state.currentTrackPath;
+    if (cur == null) return false;
+    if (state.radioOn) _turnRadioOff();
+    final List<String> incoming = <String>[
+      ?currentPath,
+      for (final File f in queue)
+        if (!isKaraokeAudioPath(f.path)) f.path,
+    ];
+    final bool busy = _drift.preRollActive;
+    final String? pin = busy ? (_standbyArmedPath ?? _driftNextPath) : null;
+    final List<String> q = folderSetQueue(
+      set: dedupeAudioPaths(incoming),
+      current: cur,
+      pinned: <String>[?pin],
+    );
+    _addEpoch++;
+    _backfill?.cancel();
+    _queueAddPending.clear();
+    _queueAddChain = Future<void>.value();
+    _queueHold = false;
+    _queueRestart = false;
+    _radioFreeze = null;
+    final String? armed = _standbyArmedPath;
+    if (!busy &&
+        armed != null &&
+        !q.any((String p) => sameAudioPath(p, armed))) {
+      _isStandbyArmed = false;
+      _standbyArmedPath = null;
+      _driftNextPath = null;
+    }
+    state = state.copyWith(
+      queue: <File>[for (final String p in q) File(p)],
+      mixStrategy: LiveDjMixStrategy.random,
+      sortMode: LiveDjSortMode.manual,
+    );
+    _backfillEpoch = state.queue;
+    if (!busy) _rememberDriftNext();
+    await _saveSnapshot();
     return true;
   }
 

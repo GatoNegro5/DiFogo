@@ -475,8 +475,9 @@ class FolderContentPanel extends ConsumerWidget {
                         onLoaded?.call();
                       },
                 icon: Icon(Icons.playlist_add, size: isMobile ? 14 : 16),
+                // 3.2.29: sonando no corta: la carpeta entra en sets de 8.
                 label: Text(
-                  "Cargar Todo",
+                  "Cargar carpeta (sin cortar)",
                   style: TextStyle(fontSize: isMobile ? 10 : 11),
                 ),
                 style: ElevatedButton.styleFrom(
