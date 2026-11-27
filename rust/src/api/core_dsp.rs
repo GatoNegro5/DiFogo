@@ -5604,6 +5604,14 @@ pub fn master_cancel() {
     master_cancel_flag().store(true, std::sync::atomic::Ordering::Release);
 }
 
+/// 3.2.34: las pruebas que masterizan y la de la X comparten este candado:
+/// la X es global y cortaba en paralelo a otra prueba ("Cancelado").
+#[cfg(test)]
+pub(crate) fn master_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    static L: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    L.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Limpia la X antes de un lote nuevo.
 pub fn master_arm() {
     master_cancel_flag().store(false, std::sync::atomic::Ordering::Release);
@@ -7538,8 +7546,7 @@ mod master_guard_tests {
     }
 
     fn guard_master() -> std::sync::MutexGuard<'static, ()> {
-        static L: std::sync::Mutex<()> = std::sync::Mutex::new(());
-        L.lock().unwrap_or_else(|e| e.into_inner())
+        master_test_lock()
     }
 
     #[test]
@@ -8901,6 +8908,7 @@ mod master_probe {
     #[test]
     #[ignore]
     fn master_dir() {
+        let _lock = master_test_lock();
         let Ok(dir) = std::env::var("GMX_MASTER_DIR") else {
             return;
         };
@@ -9221,6 +9229,7 @@ mod master_3112_tests {
         fh: i32,
         ft: i32,
     ) {
+        let _lock = master_test_lock();
         let d = tmp_dir(name);
         let _g = DirGuard(d.clone());
         let src = d.join("src.mp3").to_string_lossy().to_string();
@@ -9278,6 +9287,7 @@ mod master_3112_tests {
     /// referencias en RAM, y LookLim+K por paquetes contra pcm_lufs.
     #[test]
     fn nucleo_3112_rejilla_y_lufs_por_paquetes() {
+        let _lock = master_test_lock();
         let d = tmp_dir("nucleo");
         let _g = DirGuard(d.clone());
         for stereo in [true, false] {
@@ -9494,6 +9504,7 @@ mod master_3112_tests {
     /// encode_mastered_mp3 en streaming vs referencia en RAM (sinteticos en %TEMP%).
     #[test]
     fn encode_mastered_mp3_streaming_3113() {
+        let _lock = master_test_lock();
         let d = tmp_dir("encm");
         let _g = DirGuard(d.clone());
         let src = d.join("src.mp3").to_string_lossy().to_string();
@@ -9609,6 +9620,7 @@ mod master_3112_tests {
     #[cfg(windows)]
     #[test]
     fn mix62_master_streaming_3113() {
+        let _lock = master_test_lock();
         let Some(p) = std::env::var_os("GMX_MIX62") else {
             return;
         };
@@ -9643,6 +9655,7 @@ mod master_3112_tests {
     #[test]
     #[ignore = "LAME del mix de 62 min (~446 s); paridad cubierta con sinteticos"]
     fn mix62_master_forzado_corte_3112() {
+        let _lock = master_test_lock();
         let Some(p) = std::env::var_os("GMX_MIX62") else {
             return;
         };
@@ -10442,6 +10455,7 @@ mod anti_splice_3232_scenario {
 
     #[test]
     fn anti_splice_3232_huerfano_no_pega_otra_pista() {
+        let _lock = master_test_lock();
         let d = dir("orphan");
         let a = d.join("A_larga_440Hz.mp3");
         let b = d.join("B_corta_1000Hz.mp3");
@@ -10475,6 +10489,7 @@ mod anti_splice_3232_scenario {
     /// limpia pasa el detector.
     #[test]
     fn anti_splice_3233_gate_k_solo_de_mp3_limpio() {
+        let _lock = master_test_lock();
         let d = dir("gate3233");
         let rate = 44100u32;
         let tone = |hz: f32, secs: f32, amp: f32| -> Vec<f32> {
@@ -10508,6 +10523,7 @@ mod anti_splice_3232_scenario {
 
     #[test]
     fn anti_splice_3232_misma_pista_dos_trabajos_uno_ocupado() {
+        let _lock = master_test_lock();
         let d = dir("busy");
         let a = d.join("A.mp3");
         write_track(&a, 440.0, 90.0);
@@ -10534,6 +10550,7 @@ mod anti_splice_3232_scenario {
 
     #[test]
     fn anti_splice_3232_temporal_empalmado_no_toca_el_original() {
+        let _lock = master_test_lock();
         let d = dir("verify");
         let a = d.join("A.mp3");
         let b = d.join("B.mp3");
@@ -10564,6 +10581,7 @@ mod anti_splice_3232_scenario {
 
     #[test]
     fn anti_splice_3232_encode_to_mp3_verifica() {
+        let _lock = master_test_lock();
         let d = dir("enc");
         let a = d.join("fuente.mp3");
         write_track(&a, 660.0, 40.0);
