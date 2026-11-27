@@ -17,6 +17,8 @@ import '../../core/lyric_match.dart';
 import '../../core/lrc_timeline.dart';
 import '../../core/net/safe_download.dart';
 import '../../core/splice_retry.dart';
+import '../../core/folder_router.dart';
+import '../../services/smart_discovery_service.dart' show discoveryFreePath;
 import '../../core/track_name_clean.dart';
 
 import 'package:difogo/core/pipeline_controller.dart';
@@ -157,6 +159,11 @@ class _YoutubeSearchAndDownloadWorkspaceState
   String _selectedFolderPath = '';
   bool _autoMasterize = true;
 
+  // 3.2.34: destino "Automatico" (ReGenial por artista/genero) por defecto;
+  // la carpeta a mano se recuerda. Descargas queda como bandeja de trabajo.
+  bool _autoDest = true;
+  String _stagingPath = '';
+
   // 🛠️ INYECCIÓN: Motor de Streaming para Preview
   final Player _previewPlayer = Player();
   String? _previewingVideoId;
@@ -212,10 +219,45 @@ class _YoutubeSearchAndDownloadWorkspaceState
       }
     }
 
+    final YtDestination saved = loadYtDestination();
     setState(() {
-      _selectedFolderPath = baseDir.path;
+      _stagingPath = baseDir.path;
+      _autoDest = saved.auto || saved.folder.isEmpty;
+      _selectedFolderPath = !_autoDest && Directory(saved.folder).existsSync()
+          ? saved.folder
+          : baseDir.path;
+      if (!_autoDest && _selectedFolderPath == baseDir.path) _autoDest = true;
       _statusText = status;
     });
+  }
+
+  /// 3.2.34: Automatico o una carpeta a mano (se recuerda).
+  Future<void> _chooseDestination() async {
+    final String? pick = await showDialog<String>(
+      context: context,
+      builder: (BuildContext ctx) => SimpleDialog(
+        title: const Text('Destino de las descargas'),
+        children: <Widget>[
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, 'auto'),
+            child: const Text('Automático (carpeta de ReGenial)'),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, 'manual'),
+            child: const Text('Elegir carpeta...'),
+          ),
+        ],
+      ),
+    );
+    if (pick == 'auto') {
+      setState(() {
+        _autoDest = true;
+        _selectedFolderPath = _stagingPath;
+      });
+      saveYtDestination(const YtDestination(true, ''));
+    } else if (pick == 'manual') {
+      await _showFolderSelectionDialog();
+    }
   }
 
   Future<void> _showFolderSelectionDialog() async {
@@ -227,7 +269,9 @@ class _YoutubeSearchAndDownloadWorkspaceState
       if (selectedDirectory != null) {
         setState(() {
           _selectedFolderPath = selectedDirectory;
+          _autoDest = false;
         });
+        saveYtDestination(YtDestination(false, selectedDirectory));
       }
     } catch (e) {
       debugPrint("🔴 Error invocando el explorador nativo: $e");
@@ -816,10 +860,16 @@ class _YoutubeSearchAndDownloadWorkspaceState
           .trim();
       final finalLrcContent = result['lrcContent']!;
 
-      final finalMp3Path =
-          '$downloadPath${Platform.pathSeparator}$cleanName.mp3';
-      final finalLrcPath =
-          '$downloadPath${Platform.pathSeparator}$cleanName.lrc';
+      // 3.2.34: nunca pisa un archivo existente (antes se sobrescribia).
+      final bool routeAfter = _autoDest;
+      final String workDir = routeAfter && _stagingPath.isNotEmpty
+          ? _stagingPath
+          : downloadPath;
+      final finalMp3Path = discoveryFreePath(workDir, cleanName);
+      final finalLrcPath = finalMp3Path.replaceAll(
+        RegExp(r'\.mp3$', caseSensitive: false),
+        '.lrc',
+      );
 
       moveFile(tempMp3Path, finalMp3Path);
       String lrcNote = '';
@@ -845,12 +895,13 @@ class _YoutubeSearchAndDownloadWorkspaceState
       _searchController.clear();
 
       if (_autoMasterize) {
-        await _runSingleTrackPipeline(finalMp3Path);
+        await _runSingleTrackPipeline(finalMp3Path, route: routeAfter);
       } else {
         setState(
           () => _statusText =
               "✅ ¡Extracción Completada! MP3 ($cleanName) guardado.",
         );
+        if (routeAfter) await _routeFinished(finalMp3Path);
       }
       if (lrcNote.isNotEmpty && mounted) {
         setState(() => _statusText = lrcNote);
@@ -881,7 +932,41 @@ class _YoutubeSearchAndDownloadWorkspaceState
     }
   }
 
-  Future<void> _runSingleTrackPipeline(String initialPath) async {
+  /// 3.2.34: coloca la pista terminada (mp3, .lrc, palabras y _K) en su
+  /// carpeta de ReGenial; con confianza baja va a Por clasificar con una
+  /// sugerencia de un toque. Sin ReGenial queda donde esta.
+  Future<void> _routeFinished(String path, {int? retryTrimMs}) async {
+    final DatabaseService db = ref.read(dbServiceProvider);
+    final LyricRetryQueue retry = ref.read(lyricRetryQueueProvider);
+    String fin = path;
+    try {
+      final out = await routeIntoRegenial(
+        path,
+        retarget: db.retargetTrackMetadata,
+      );
+      if (out != null) {
+        fin = out.$1.path;
+        if (mounted) {
+          setState(
+            () => _statusText = out.$2.confident
+                ? "✅ Guardada en ReGenial › ${out.$2.rel}"
+                : "✅ Guardada en ReGenial › $kPorClasificar",
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('[DESTINO] $path: $e');
+      if (mounted) setState(() => _statusText = "Quedó en Descargas: $e");
+    }
+    if (retryTrimMs != null) {
+      await retry.enqueue(mp3Path: fin, trimmedMs: retryTrimMs);
+    }
+  }
+
+  Future<void> _runSingleTrackPipeline(
+    String initialPath, {
+    bool route = false,
+  }) async {
     String currentPath = initialPath;
 
     try {
@@ -1029,6 +1114,31 @@ class _YoutubeSearchAndDownloadWorkspaceState
       await ref.read(dspWorkerProvider).generateStaticBpmCache(parentDir);
 
       // 🛠️ INYECCIÓN KRAEOKE FIRE-AND-FORGET POST-MASTERIZACIÓN (BYPASS APLICADO)
+      final bool lyricRetry =
+          outcome.lyric == LyricStatus.retry && marks.lyr == 'RETRY';
+      if (route) {
+        // 3.2.34: la _K se hace aqui (fuera de ReGenial) y luego el grupo
+        // entero va a su carpeta.
+        final int? retryMs = lyricRetry ? outcome.trimHeadMs : null;
+        if (!isHeavyMix && MasterProfile.current().allowKaraoke) {
+          setState(
+            () => _statusText =
+                "✅ Automix listo. 🤖 Karaoke en 2do plano; luego a ReGenial...",
+          );
+          final String done = currentPath;
+          unawaited(
+            KaraokeEngine.run(
+              done,
+              onStatus: (s) => debugPrint("🔵 [KARAOKE]: $s"),
+            ).catchError((Object _) => 0).whenComplete(
+              () => _routeFinished(done, retryTrimMs: retryMs),
+            ),
+          );
+        } else {
+          await _routeFinished(currentPath, retryTrimMs: retryMs);
+        }
+        return;
+      }
       if (!isHeavyMix && MasterProfile.current().allowKaraoke) {
         setState(
           () => _statusText =
@@ -1045,7 +1155,7 @@ class _YoutubeSearchAndDownloadWorkspaceState
           () => _statusText = "✅ Automix listo. (Karaoke IA omitido por peso)",
         );
       }
-      if (outcome.lyric == LyricStatus.retry && marks.lyr == 'RETRY') {
+      if (lyricRetry) {
         await ref
             .read(lyricRetryQueueProvider)
             .enqueue(mp3Path: currentPath, trimmedMs: outcome.trimHeadMs);
@@ -1059,6 +1169,25 @@ class _YoutubeSearchAndDownloadWorkspaceState
       );
     }
   }
+
+  /// 3.2.34: texto de estado (antes en linea en build).
+  Widget _statusTextWidget() => Text(
+            _statusText,
+            style: TextStyle(
+              color: _statusText == kLyricServerBusyNotice
+                  ? Colors.amber
+                  : _statusText.contains("ERROR") ||
+                        _statusText.startsWith(
+                          'No se pudo cargar la vista previa:',
+                        )
+                  ? Colors.redAccent
+                  : const Color(0xFF39FF14),
+              fontFamily: 'Consolas',
+              fontSize: 13,
+            ),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+          );
 
   @override
   Widget build(BuildContext context) {
@@ -1092,7 +1221,7 @@ class _YoutubeSearchAndDownloadWorkspaceState
               const SizedBox(width: 15),
               Expanded(
                 child: InkWell(
-                  onTap: _isProcessing ? null : _showFolderSelectionDialog,
+                  onTap: _isProcessing ? null : _chooseDestination,
                   borderRadius: BorderRadius.circular(4),
                   child: Container(
                     padding: const EdgeInsets.symmetric(
@@ -1108,7 +1237,9 @@ class _YoutubeSearchAndDownloadWorkspaceState
                       children: [
                         Expanded(
                           child: Text(
-                            _selectedFolderPath.isEmpty
+                            _autoDest
+                                ? "Automático (ReGenial por artista y género)"
+                                : _selectedFolderPath.isEmpty
                                 ? "Seleccionar carpeta..."
                                 : _selectedFolderPath,
                             style: const TextStyle(
@@ -1208,22 +1339,36 @@ class _YoutubeSearchAndDownloadWorkspaceState
             border: Border.all(color: const Color(0xFF333333)),
             borderRadius: BorderRadius.circular(4),
           ),
-          child: Text(
-            _statusText,
-            style: TextStyle(
-              color: _statusText == kLyricServerBusyNotice
-                  ? Colors.amber
-                  : _statusText.contains("ERROR") ||
-                        _statusText.startsWith(
-                          'No se pudo cargar la vista previa:',
-                        )
-                  ? Colors.redAccent
-                  : const Color(0xFF39FF14),
-              fontFamily: 'Consolas',
-              fontSize: 13,
-            ),
-            maxLines: 3,
-            overflow: TextOverflow.ellipsis,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              _statusTextWidget(),
+              // 3.2.34: sugerencia discreta de carpeta (un toque mueve).
+              ValueListenableBuilder<RouteSuggestion?>(
+                valueListenable: folderRouteSuggestion,
+                builder: (BuildContext c, RouteSuggestion? s, Widget? _) =>
+                    s == null
+                    ? const SizedBox.shrink()
+                    : Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: ActionChip(
+                          visualDensity: VisualDensity.compact,
+                          label: Text(
+                            'Sugerencia: ${s.rel} · Mover',
+                            style: const TextStyle(fontSize: 11),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onPressed: () => acceptRouteSuggestion(
+                            s,
+                            retarget: ref
+                                .read(dbServiceProvider)
+                                .retargetTrackMetadata,
+                          ),
+                        ),
+                      ),
+              ),
+            ],
           ),
         );
 
