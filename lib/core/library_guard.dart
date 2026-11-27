@@ -16,6 +16,13 @@ import 'dart:io';
 /// Musica: DjPlaylists (sesiones), DiFogo_LAB / GatoMix_LAB y DiFogo_Inbox /
 /// GatoMix_Inbox (3.1.75: nombres nuevos y heredados). 3.2.10: DESCUBRE
 /// (canciones nuevas de la Radio, fuera de ReGenial).
+///
+/// 3.2.34 (DIF-32): unica excepcion de escritura en ReGenial:
+/// `folder_router.dart::placeTrackGroup` (canciones nuevas de Descargas YT y
+/// DESCUBRE a su carpeta). Escribe en un temporal unico, verifica tamano y
+/// duracion, nunca pisa un nombre (o manda antes el original a
+/// `Laboratorio/Cuarentena_MP3/<carpeta>`) y mueve el grupo con vuelta atras.
+/// Tags, `.lrc`, Masterizar y _K siguen bloqueados aqui.
 
 /// Solo pruebas: raices de biblioteca falsas (p. ej. en %TEMP%).
 List<String>? debugLibraryRoots;

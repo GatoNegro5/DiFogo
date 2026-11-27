@@ -166,7 +166,8 @@ void main() {
     expect(plans.first.currentTrackPath, radio);
   });
 
-  test('Prueba 3: Guardar en 1 clic (carpeta del genero fuera de ReGenial + '
+  test('Prueba 3: Guardar en 1 clic (3.2.34: ReGenial/Por clasificar si no '
+      'hay carpeta real; sin pisar nada) + '
       '.lrc en 2do plano) y Descartar en 1 clic (borra, avanza, bloquea)', () async {
     final String a = '$inbox${_sep}Grupo Niche - Cali Pachanguero.mp3';
     final String b = '$inbox${_sep}Joe Arroyo - La Rebelion.mp3';
@@ -223,14 +224,19 @@ void main() {
 
     final String? saved = await cur.saveFromRadio('a');
     expect(saved, isNotNull);
-    // Nunca en ReGenial (biblioteca protegida): Musica/Descargas/<Estacion>/<Sub>.
-    expect(isLibraryPath(saved!), isFalse);
+    // 3.2.34: ReGenial sin carpeta de Salsa: Por clasificar (colocacion
+    // segura, solo agrega). El temporal sigue (el deck lo usa).
+    expect(isLibraryPath(saved!), isTrue);
     expect(
-      saved.startsWith('$music${_sep}Descargas$_sep${stationCanonicalRel('tropical', 'Salsa').replaceAll('/', _sep)}'),
-      isTrue,
+      saved,
+      '$root${_sep}Por clasificar${_sep}Grupo Niche - Cali Pachanguero.mp3',
     );
     expect(File(saved).readAsBytesSync(), <int>[1, 2, 3]);
-    expect(_snap(root), regenialBefore);
+    expect(File(a).existsSync(), isTrue);
+    final Map<String, String> regenialAfter = _snap(root);
+    for (final MapEntry<String, String> e in regenialBefore.entries) {
+      expect(regenialAfter[e.key], e.value);
+    }
     // La letra va en 2do plano: se lanzo y termina sola junto al audio.
     for (int i = 0; i < 50; i++) {
       if (File(saved.replaceAll(RegExp(r'\.mp3$'), '.lrc')).existsSync()) break;

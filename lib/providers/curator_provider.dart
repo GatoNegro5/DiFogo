@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/discovery_dedup_controller.dart';
+import '../core/folder_router.dart' show routeIntoRegenial;
 import '../core/genre_stations.dart'
     show isStationSub, registerSavedTrack, stationSaveDir, stationSubOf;
 import '../core/library_guard.dart' show libraryWriteBlocked;
@@ -333,15 +334,20 @@ class CuratorNotifier extends Notifier<CuratorState> {
   Future<String?> accept(String id) async {
     final CuratorEntry? e = _find(id);
     if (e == null || !File(e.file).existsSync()) return null;
-    final String dir = radioSaveDir(
-      libraryDir: _destOf(e),
-      fallbackDir: _fallbackOf(e),
-    );
-    if (libraryWriteBlocked(dir, what: 'ACEPTAR')) return null;
-    Directory(dir).createSync(recursive: true);
-    final String dst = discoveryFreePath(dir, discoverySafeName(e.title));
-    if (libraryWriteBlocked(dst, what: 'ACEPTAR')) return null;
-    moveFile(e.file, dst);
+    // 3.2.34: a su carpeta real de ReGenial (colocacion segura); sin
+    // ReGenial, el respaldo de siempre (Musica/Descargas/<Estacion>/<Sub>).
+    String? dst = await _placeInRegenial(e, keepSource: false);
+    if (dst == null) {
+      final String dir = radioSaveDir(
+        libraryDir: _destOf(e),
+        fallbackDir: _fallbackOf(e),
+      );
+      if (libraryWriteBlocked(dir, what: 'ACEPTAR')) return null;
+      Directory(dir).createSync(recursive: true);
+      dst = discoveryFreePath(dir, discoverySafeName(e.title));
+      if (libraryWriteBlocked(dst, what: 'ACEPTAR')) return null;
+      moveFile(e.file, dst);
+    }
     // 3.1.88: igual que Guardar en 1 clic: huella al anti-duplicados y
     // letra `.lrc` en 2do plano (sin esperar).
     ref.read(discoveryDedupProvider).addLibraryPath(dst);
@@ -376,6 +382,29 @@ class CuratorNotifier extends Notifier<CuratorState> {
     ref.read(automixQueueProvider.notifier).addTrack(File(dst));
     _replace(e.copyWith(status: CuratorStatus.accepted, finalPath: dst));
     return dst;
+  }
+
+  /// 3.2.34: coloca el tema en ReGenial con [routeIntoRegenial] (estacion y
+  /// sub de DESCUBRE, indice de artistas). null = sin ReGenial o fallo: el
+  /// que llama usa el respaldo de siempre.
+  Future<String?> _placeInRegenial(
+    CuratorEntry e, {
+    required bool keepSource,
+  }) async {
+    try {
+      final out = await routeIntoRegenial(
+        e.file,
+        stationId: e.stationId,
+        subGenreId: e.subGenreId,
+        genreHint: e.genre,
+        keepSource: keepSource,
+        name: discoverySafeName(e.title),
+      );
+      return out?.$1.path;
+    } catch (err) {
+      debugPrint('[CURATOR] ReGenial: $err');
+      return null;
+    }
   }
 
   /// 3.2.10: carpeta de respaldo fuera de ReGenial (`Musica/Descargas`):
@@ -506,16 +535,23 @@ class CuratorNotifier extends Notifier<CuratorState> {
   Future<String?> saveFromRadio(String id) async {
     final CuratorEntry? e = _find(id);
     if (e == null || !File(e.file).existsSync()) return null;
-    final String dir = radioSaveDir(
-      libraryDir: _destOf(e),
-      fallbackDir: _fallbackOf(e),
-    );
-    final RadioSaveResult r = await radioSaveTrack(
-      tempPath: e.file,
-      targetDir: dir,
-      stem: discoverySafeName(e.title),
-      fetchLyrics: _lyricJob,
-    );
+    // 3.2.34: copia (el deck sigue en el temporal) a su carpeta de ReGenial.
+    final String? placed = await _placeInRegenial(e, keepSource: true);
+    final RadioSaveResult r;
+    if (placed != null) {
+      r = RadioSaveResult(placed, radioStartLyrics(placed, _lyricJob));
+    } else {
+      final String dir = radioSaveDir(
+        libraryDir: _destOf(e),
+        fallbackDir: _fallbackOf(e),
+      );
+      r = await radioSaveTrack(
+        tempPath: e.file,
+        targetDir: dir,
+        stem: discoverySafeName(e.title),
+        fetchLyrics: _lyricJob,
+      );
+    }
     ref.read(discoveryDedupProvider).addLibraryPath(r.path);
     try {
       final Future<void> Function(String, String)? reg = debugCuratorRegister;

@@ -548,13 +548,14 @@ Future<PlaceResult> placeTrackGroup({
   bool keepSource = false,
   String? replace,
   String? quarantineDir,
+  String? name,
   Future<void> Function(String oldPath, String newPath)? retarget,
 }) async {
   final String sep = Platform.pathSeparator;
   if (!File(src).existsSync()) throw StateError('No existe: $src');
   await Directory(destDir).create(recursive: true);
   final List<String> group = trackGroupOf(src);
-  String stem = _stemOf(src);
+  String stem = name ?? _stemOf(src);
   final Map<String, String> moved = <String, String>{};
   final List<String> made = <String>[];
   if (replace != null && File(replace).existsSync()) {
@@ -646,13 +647,14 @@ Future<(PlaceResult, RouteDecision)?> routeIntoRegenial(
   String? subGenreId,
   String? genreHint,
   bool keepSource = false,
+  String? name,
   Future<void> Function(String oldPath, String newPath)? retarget,
 }) async {
   final String? root = regenialRoot();
   if (root == null) return null;
   final LibraryIndex index = await libraryIndexFor(root);
   final RouteDecision d = await decideFolder(
-    nameOrPath: src,
+    nameOrPath: name ?? src,
     index: index,
     stationId: stationId,
     subGenreId: subGenreId,
@@ -663,6 +665,7 @@ Future<(PlaceResult, RouteDecision)?> routeIntoRegenial(
     src: src,
     destDir: '$root$sep${d.rel}',
     keepSource: keepSource,
+    name: name,
     retarget: retarget,
   );
   if (!d.confident && d.suggestion != null) {

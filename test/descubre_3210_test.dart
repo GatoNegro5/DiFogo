@@ -150,8 +150,9 @@ void main() {
   );
 
   test(
-    '3210 Aceptar nunca escribe en ReGenial: va a Musica/Descargas, sale '
-    'de DESCUBRE y lanza la letra; con destino protegido no mueve nada',
+    '3234 Aceptar coloca en la carpeta real de ReGenial (sin pisar nada), '
+    'sale de DESCUBRE y lanza la letra; sin ReGenial y con respaldo '
+    'protegido no mueve nada',
     () async {
       found = const <DiscoveryCandidate>[
         DiscoveryCandidate(id: 'v1', title: 'Tema Uno', duration: _four),
@@ -169,24 +170,32 @@ void main() {
       final Map<String, String> before = _snap(root);
 
       final String? dst = await cur.accept('v1');
-      expect(dst, '$music${_sep}Descargas${_sep}Salsa${_sep}Tema Uno.mp3');
-      expect(isLibraryPath(dst!), isFalse);
+      expect(dst, '$root${_sep}Salsa${_sep}Tema Uno.mp3');
+      expect(isLibraryPath(dst!), isTrue);
       expect(File(dst).readAsStringSync(), 'mp3:v1');
       expect(File(pend.first.file).existsSync(), isFalse);
-      expect(_snap(root), before);
+      // Lo que ya estaba en ReGenial sigue igual (solo se agrega).
+      final Map<String, String> after = _snap(root);
+      for (final MapEntry<String, String> e in before.entries) {
+        expect(after[e.key], e.value, reason: e.key);
+      }
+      expect(after.length, before.length + 1);
+      final Map<String, String> placed = _snap(root);
       await cur.lastAcceptLyrics;
       expect(lyricJobs, <String>[dst]);
       expect(c.read(automixQueueProvider).map((File f) => f.path), <String>[
         dst,
       ]);
 
-      // Respaldo tambien dentro de ReGenial: libraryWriteBlocked lo frena.
+      // Sin ReGenial y respaldo dentro de la biblioteca: libraryWriteBlocked
+      // lo frena.
+      debugVibeRootOverride = '$music${_sep}NoHay';
       debugRadioFallbackRoot = '$root${_sep}Otra';
       final int blocked = libraryGuardBlocked;
       expect(await cur.accept('v2'), isNull);
       expect(libraryGuardBlocked, blocked + 1);
       expect(File(pend[1].file).existsSync(), isTrue);
-      expect(_snap(root), before);
+      expect(_snap(root), placed);
       expect(Directory('$root${_sep}Otra').existsSync(), isFalse);
     },
   );
@@ -308,9 +317,10 @@ void main() {
     final String? acc = await cur.accept('s2');
     expect(saved, isNotNull);
     expect(acc, isNotNull);
+    // 3.2.34: a la carpeta real de ReGenial (Salsa).
     for (final String p in <String>[saved!, acc!]) {
-      expect(p.startsWith('$music${_sep}Descargas$_sep'), isTrue, reason: p);
-      expect(isLibraryPath(p), isFalse);
+      expect(p.startsWith('$root${_sep}Salsa$_sep'), isTrue, reason: p);
+      expect(isLibraryPath(p), isTrue);
     }
 
     final PersistentList live = store.get(
@@ -340,7 +350,7 @@ void main() {
             persistentFolderKey('$music${_sep}Descargas'),
           )!
           .order,
-      <String>[y, saved, acc],
+      <String>[y],
     );
     expect(
       store.get(kPersistentSpaceLiveDj, persistentFolderKey(inbox))!.order,
