@@ -144,6 +144,10 @@ class DjUiNotifier extends Notifier<DjUiState> {
 
   bool _applying = false;
 
+  /// 3.2.36: un toque mas nuevo invalida los pasos pendientes del anterior
+  /// (Radio espera pumpDiscovery y, al terminar, no debe deshacer Fiesta).
+  int _modeEpoch = 0;
+
   @override
   DjUiState build() {
     final DjUiState saved = readDjUi(djUiPath());
@@ -222,7 +226,11 @@ class DjUiNotifier extends Notifier<DjUiState> {
   void persist() => _write();
 
   /// Cambia de modo sin cortar: nunca stop, pausa ni arranque en frio.
+  /// 3.2.36: si llega otro toque mientras este espera (p. ej. Radio
+  /// en pumpDiscovery), se abandonan los pasos que quedan y no se
+  /// pisa el modo elegido despues.
   Future<void> setMode(DjMode mode) async {
+    final int epoch = ++_modeEpoch;
     final String? station = ref.read(vibeHubProvider).activeStation;
     state = state.copyWith(
       mode: mode,
@@ -233,24 +241,29 @@ class DjUiNotifier extends Notifier<DjUiState> {
     try {
       final VibeHubNotifier hub = ref.read(vibeHubProvider.notifier);
       final LiveDjNotifier dj = ref.read(liveDjProvider.notifier);
+      if (epoch != _modeEpoch) return;
       if (mode != DjMode.fiesta && ref.read(vibeHubProvider).fiestaMode) {
         await hub.setFiestaMode(false);
       }
+      if (epoch != _modeEpoch) return;
       if (mode != DjMode.radio && ref.read(vibeHubProvider).discoveryOn) {
         await hub.setDiscovery(false);
       }
+      if (epoch != _modeEpoch) return;
       if (mode != DjMode.radio && ref.read(liveDjProvider).radioOn) {
         // Apagar la radio de Live DJ no toca el deck que suena.
         await dj.toggleRadio();
       }
+      if (epoch != _modeEpoch) return;
       if (mode == DjMode.radio && !ref.read(vibeHubProvider).discoveryOn) {
         await hub.setDiscovery(true);
       }
+      if (epoch != _modeEpoch) return;
       if (mode == DjMode.fiesta && !ref.read(vibeHubProvider).fiestaMode) {
         await hub.setFiestaMode(true);
       }
     } finally {
-      _applying = false;
+      if (epoch == _modeEpoch) _applying = false;
     }
   }
 

@@ -214,7 +214,7 @@ class _DjLyricsWheel extends ConsumerWidget {
     return TheaterLyricsView(
       lines: <String>[for (final DjLyricLine l in lines) l.text],
       activeIndex: idx,
-      compact: true,
+      compact: compact,
     );
   }
 }

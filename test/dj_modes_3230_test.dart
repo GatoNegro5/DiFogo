@@ -25,9 +25,10 @@ String _src(String rel) =>
     File(rel).readAsStringSync().replaceAll('\r\n', '\n');
 
 class _Hub extends VibeHubNotifier {
-  _Hub(this.calls, {this.fiesta = false});
+  _Hub(this.calls, {this.fiesta = false, this.discoveryDelay});
   final List<String> calls;
   final bool fiesta;
+  final Duration? discoveryDelay;
   @override
   VibeHubState build() => VibeHubState(fiestaMode: fiesta);
   @override
@@ -40,6 +41,8 @@ class _Hub extends VibeHubNotifier {
   Future<int> setDiscovery(bool on) async {
     calls.add('discovery:$on');
     state = state.copyWith(discoveryOn: on);
+    final Duration? d = discoveryDelay;
+    if (on && d != null) await Future<void>.delayed(d);
     return 0;
   }
 }
@@ -86,10 +89,17 @@ void main() {
     List<String> liveCalls, {
     LiveDjState? live,
     bool fiesta = false,
+    Duration? discoveryDelay,
   }) {
     final ProviderContainer c = ProviderContainer(
       overrides: [
-        vibeHubProvider.overrideWith(() => _Hub(hubCalls, fiesta: fiesta)),
+        vibeHubProvider.overrideWith(
+          () => _Hub(
+            hubCalls,
+            fiesta: fiesta,
+            discoveryDelay: discoveryDelay,
+          ),
+        ),
         liveDjProvider.overrideWith(
           () => _Live(live ?? LiveDjState(), liveCalls),
         ),
@@ -212,6 +222,37 @@ void main() {
     expect(h().discoveryOn, isFalse);
     expect(c.read(liveDjProvider).radioOn, isFalse);
     expect(c.read(djUiProvider).mode, DjMode.automix);
+  });
+
+  test('3236 Fiesta-Radio-Fiesta y Automix: un Radio lento no deshace '
+      'el toque siguiente', () async {
+    Future<void> round(DjMode back) async {
+      final List<String> hub = <String>[];
+      final ProviderContainer c = make(
+        hub,
+        <String>[],
+        discoveryDelay: const Duration(milliseconds: 80),
+      );
+      final DjUiNotifier n = c.read(djUiProvider.notifier);
+      VibeHubState h() => c.read(vibeHubProvider);
+
+      await n.setMode(DjMode.fiesta);
+      expect(h().fiestaMode, isTrue);
+      expect(c.read(djUiProvider).mode, DjMode.fiesta);
+
+      final Future<void> radio = n.setMode(DjMode.radio);
+      await Future<void>.delayed(Duration.zero);
+      expect(c.read(djUiProvider).mode, DjMode.radio);
+
+      await n.setMode(back);
+      await radio;
+      expect(c.read(djUiProvider).mode, back, reason: back.name);
+      expect(h().fiestaMode, back == DjMode.fiesta, reason: back.name);
+      expect(h().discoveryOn, isFalse, reason: back.name);
+    }
+
+    await round(DjMode.fiesta);
+    await round(DjMode.automix);
   });
 
   test(

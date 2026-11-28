@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 
+/// 3.2.36: alto de fila del cilindro TheaterLyricsView (antes 64; compacto 56).
+/// Cabe la fuente activa (24 / 20, height 1.15) con un margen corto.
+const double kLyricWheelRow = 36.0;
+const double kLyricWheelRowCompact = 32.0;
+
 /// Alto de fila del cilindro de letras: siempre caben 3 lineas
 /// (anterior, activa y siguiente) en la caja disponible.
 double lyricWheelExtent(double height, {double max = 20.0}) {
@@ -40,7 +45,8 @@ class TheaterLyricsViewState extends State<TheaterLyricsView> {
   final ScrollController controller = ScrollController();
   DateTime _userUntil = DateTime.fromMillisecondsSinceEpoch(0);
 
-  double get extent => widget.compact ? 56.0 : 64.0;
+  double get extent =>
+      widget.compact ? kLyricWheelRowCompact : kLyricWheelRow;
 
   @override
   void initState() {
