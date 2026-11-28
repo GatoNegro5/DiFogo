@@ -10,10 +10,14 @@ import 'package:difogo/src/rust/frb_generated.dart';
 /// Escribe unicamente en el espejo folder_cache. Nunca en ReGenial.
 
 String _rustLib() {
-  const String dir = 'rust/target/release';
-  if (Platform.isWindows) return '$dir/rust_lib_gatomix_player.dll';
-  if (Platform.isMacOS) return '$dir/librust_lib_gatomix_player.dylib';
-  return '$dir/librust_lib_gatomix_player.so';
+  final String name = Platform.isWindows
+      ? 'rust_lib_gatomix_player.dll'
+      : (Platform.isMacOS
+            ? 'librust_lib_gatomix_player.dylib'
+            : 'librust_lib_gatomix_player.so');
+  final File release = File('rust/target/release/$name');
+  if (release.existsSync()) return release.path;
+  return 'rust/target/debug/$name';
 }
 
 void main() {

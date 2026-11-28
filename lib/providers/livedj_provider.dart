@@ -1056,12 +1056,14 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     final bool live = state.isPlaying && state.currentTrackPath != null;
     final String? cur = live ? state.currentTrackPath : null;
     final PersistentList? saved = lists.get(key);
+    final bool energyOrder = state.mixStrategy == LiveDjMixStrategy.random;
     final TrackSet first = await folderSetFor(
       lists,
       key,
       all,
       exclude: <String>[?cur],
       keepHead: !live,
+      energyOrder: energyOrder,
     );
     if (first.isEmpty) return 0;
     // Parado: la retomada sigue en su segundo.
@@ -1079,8 +1081,13 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       first,
       activeKey: key,
       positionMs: pos,
-      next: (List<String> exclude) =>
-          folderSetFor(lists, key, all, exclude: exclude),
+      next: (List<String> exclude) => folderSetFor(
+        lists,
+        key,
+        all,
+        exclude: exclude,
+        energyOrder: energyOrder,
+      ),
     );
     if (!ok) lists.activeKey = before;
     await lists.flush();

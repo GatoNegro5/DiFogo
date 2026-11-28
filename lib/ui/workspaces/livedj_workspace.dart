@@ -26,6 +26,9 @@ import '../curator_inbox_dialog.dart';
 import '../vibe_hub_view.dart';
 import '../../providers/dj_ui_provider.dart';
 import 'dj_mode_bar.dart';
+import 'livedj_folder_picker.dart';
+import 'livedj_layout.dart';
+import '../../core/folder_cards.dart';
 import '../../providers/vibe_hub_provider.dart';
 import '../widgets/radio_track_actions.dart';
 
@@ -105,11 +108,9 @@ class LiveDjWorkspace extends ConsumerWidget {
               // 3.1.54: Smart Vibe (Hub) por defecto; el modo clasico vuelve
               // al arbol de carpetas.
               child: classic
-                  ? Material(
+                  ? const Material(
                       color: GatoMixTheme.bgPanel,
-                      child: LibraryTreePanel(
-                        provider: liveDjDirectoryProvider,
-                      ),
+                      child: LiveDjFolderPicker(),
                     )
                   : const VibeHubView(),
             ),
@@ -119,12 +120,16 @@ class LiveDjWorkspace extends ConsumerWidget {
             flex: compact ? 1 : (classic ? 19 : 18),
             child: Column(
               children: [
-                // 3.1.85: Lista en telefono: el reproductor sin alto fijo.
+                // 3.2.38: en escritorio el reproductor tiene alto fijo en
+                // los 3 modos (no se encoje al abrir Carpetas). En telefono
+                // sin Spotify el alto sigue al contenido, igual en los 3.
                 if (compact && !spotify)
                   const LiveDjPlayerPanel()
                 else
-                  Expanded(
-                    flex: compact ? (spotify ? 7 : 5) : 5,
+                  SizedBox(
+                    height: compact
+                        ? kLiveDjPlayerHeightSpotify
+                        : kLiveDjPlayerHeight,
                     child: const LiveDjPlayerPanel(),
                   ),
                 const Divider(height: 1, color: Colors.white10),
@@ -133,19 +138,9 @@ class LiveDjWorkspace extends ConsumerWidget {
                 if (compact || classic || hasQueue)
                   Expanded(
                     flex: compact ? (spotify ? 5 : 6) : 5,
-                    child: !compact && !classic
-                        ? const LiveDjCartridgePanel()
-                        : compact
-                        // 3.0.48: en móvil (acostado o parado) no va la columna
-                        // de carpeta; se agrega con "+ Agregar canciones".
-                        ? const LiveDjCartridgePanel()
-                        : const Row(
-                            children: [
-                              Expanded(flex: 4, child: LiveDjFolderPanel()),
-                              VerticalDivider(width: 1, color: Colors.white10),
-                              Expanded(flex: 5, child: LiveDjCartridgePanel()),
-                            ],
-                          ),
+                    // 3.2.38: las carpetas viven en las cards de la izquierda;
+                    // aqui solo la cola (sin columna "Carpeta vacia o sin MP3").
+                    child: const LiveDjCartridgePanel(),
                   ),
               ],
             ),
@@ -404,6 +399,12 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
 
     final isShuffle = state.mixStrategy == LiveDjMixStrategy.random;
     final compact = widget.compactOverride ?? liveDjIsMobile();
+    final bool showMix = showFolderMixSelector(
+      classicFolders: ref.watch(liveDjClassicFolderViewProvider),
+      radio:
+          ref.watch(djUiProvider.select((DjUiState s) => s.mode)) ==
+          DjMode.radio,
+    );
     final bool playlistOn = ref.watch(liveDjPlaylistViewProvider);
     final bool menuOpen = compact ? ref.watch(mobileNavOpenProvider) : false;
     final gap = compact ? 4.0 : 10.0;
@@ -572,58 +573,62 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                 ),
               ),
               Expanded(
-                child: SliderTheme(
-                  data: const SliderThemeData(
-                    trackHeight: 3,
-                    thumbShape: RoundSliderThumbShape(enabledThumbRadius: 5),
-                    overlayShape: RoundSliderOverlayShape(overlayRadius: 8),
-                    activeTrackColor: GatoMixTheme.syncActive,
-                    inactiveTrackColor: Colors.white10,
-                    thumbColor: Colors.white,
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Slider(
-                        value:
-                            _dragPosition ??
-                            (dur.inMilliseconds > 0
-                                ? pos.inMilliseconds.toDouble().clamp(
-                                    0.0,
-                                    dur.inMilliseconds.toDouble(),
-                                  )
-                                : 0.0),
-                        min: 0.0,
-                        max: dur.inMilliseconds > 0
-                            ? dur.inMilliseconds.toDouble()
-                            : 1.0,
-                        onChangeStart: (val) {
-                          setState(() {
-                            _dragPosition = val;
-                          });
-                        },
-                        onChanged: (val) {
-                          setState(() {
-                            _dragPosition = val;
-                          });
-                        },
-                        onChangeEnd: (val) {
-                          if (dur.inMilliseconds > 0) {
-                            ref
-                                .read(liveDjProvider.notifier)
-                                .seek(Duration(milliseconds: val.toInt()));
-                          }
-                          setState(() {
-                            _dragPosition = null;
-                          });
-                        },
-                      ),
-                      liveDjMixMarker(
-                        8,
-                        state.customMixOutMs,
-                        dur.inMilliseconds,
-                      ),
-                    ],
+                child: SizedBox(
+                  key: const Key('livedj-progress-slider'),
+                  height: kLiveDjProgressHeight,
+                  child: SliderTheme(
+                    data: const SliderThemeData(
+                      trackHeight: 3,
+                      thumbShape: RoundSliderThumbShape(enabledThumbRadius: 6),
+                      overlayShape: RoundSliderOverlayShape(overlayRadius: 12),
+                      activeTrackColor: GatoMixTheme.syncActive,
+                      inactiveTrackColor: Colors.white10,
+                      thumbColor: Colors.white,
+                    ),
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Slider(
+                          value:
+                              _dragPosition ??
+                              (dur.inMilliseconds > 0
+                                  ? pos.inMilliseconds.toDouble().clamp(
+                                      0.0,
+                                      dur.inMilliseconds.toDouble(),
+                                    )
+                                  : 0.0),
+                          min: 0.0,
+                          max: dur.inMilliseconds > 0
+                              ? dur.inMilliseconds.toDouble()
+                              : 1.0,
+                          onChangeStart: (val) {
+                            setState(() {
+                              _dragPosition = val;
+                            });
+                          },
+                          onChanged: (val) {
+                            setState(() {
+                              _dragPosition = val;
+                            });
+                          },
+                          onChangeEnd: (val) {
+                            if (dur.inMilliseconds > 0) {
+                              ref
+                                  .read(liveDjProvider.notifier)
+                                  .seek(Duration(milliseconds: val.toInt()));
+                            }
+                            setState(() {
+                              _dragPosition = null;
+                            });
+                          },
+                        ),
+                        liveDjMixMarker(
+                          8,
+                          state.customMixOutMs,
+                          dur.inMilliseconds,
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -635,52 +640,54 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                   fontSize: 11,
                 ),
               ),
-              const SizedBox(width: 6),
-              IconButton(
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                style: IconButton.styleFrom(
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                constraints: const BoxConstraints.tightFor(
-                  width: 32,
-                  height: 32,
-                ),
-                tooltip: isShuffle
-                    ? 'Modo: Aleatorio (Shuffle)'
-                    : 'Modo: Secuencial',
-                onPressed: () {
-                  ref.read(liveDjProvider.notifier).toggleMixStrategy();
-                },
-                icon: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color:
-                        (isShuffle
-                                ? const Color(0xFFFF007F)
-                                : const Color(0xFF00FFFF))
-                            .withValues(alpha: 0.18),
-                    border: Border.all(
+              if (showMix) ...<Widget>[
+                const SizedBox(width: 6),
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  style: IconButton.styleFrom(
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  constraints: const BoxConstraints.tightFor(
+                    width: 32,
+                    height: 32,
+                  ),
+                  tooltip: isShuffle
+                      ? 'Modo: Aleatorio (Shuffle)'
+                      : 'Modo: Secuencial',
+                  onPressed: () {
+                    ref.read(liveDjProvider.notifier).toggleMixStrategy();
+                  },
+                  icon: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color:
+                          (isShuffle
+                                  ? const Color(0xFFFF007F)
+                                  : const Color(0xFF00FFFF))
+                              .withValues(alpha: 0.18),
+                      border: Border.all(
+                        color: isShuffle
+                            ? const Color(0xFFFF007F)
+                            : const Color(0xFF00FFFF),
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(
+                      isShuffle
+                          ? Icons.shuffle_rounded
+                          : Icons.format_list_numbered,
+                      size: 16,
                       color: isShuffle
                           ? const Color(0xFFFF007F)
                           : const Color(0xFF00FFFF),
-                      width: 2,
                     ),
                   ),
-                  child: Icon(
-                    isShuffle
-                        ? Icons.shuffle_rounded
-                        : Icons.format_list_numbered,
-                    size: 16,
-                    color: isShuffle
-                        ? const Color(0xFFFF007F)
-                        : const Color(0xFF00FFFF),
-                  ),
                 ),
-              ),
-              LiveDjSortButton(size: 16),
+                LiveDjSortButton(size: 16),
+              ],
               const SizedBox(width: 12),
               IconButton(
                 padding: EdgeInsets.zero,
@@ -743,7 +750,8 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
           ),
           const SizedBox(height: 10),
           SizedBox(
-            height: 15,
+            key: const Key('livedj-progress-slider'),
+            height: kLiveDjProgressHeight,
             child: SliderTheme(
               data: const SliderThemeData(
                 trackHeight: 3,
@@ -799,51 +807,53 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              IconButton(
-                padding: EdgeInsets.zero,
-                visualDensity: VisualDensity.compact,
-                style: IconButton.styleFrom(
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                ),
-                constraints: const BoxConstraints.tightFor(
-                  width: 52,
-                  height: 52,
-                ),
-                tooltip: isShuffle
-                    ? 'Modo: Aleatorio (Shuffle)'
-                    : 'Modo: Secuencial',
-                onPressed: () {
-                  ref.read(liveDjProvider.notifier).toggleMixStrategy();
-                },
-                icon: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color:
-                        (isShuffle
-                                ? const Color(0xFFFF007F)
-                                : const Color(0xFF00FFFF))
-                            .withValues(alpha: 0.18),
-                    border: Border.all(
+              if (showMix) ...<Widget>[
+                IconButton(
+                  padding: EdgeInsets.zero,
+                  visualDensity: VisualDensity.compact,
+                  style: IconButton.styleFrom(
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  constraints: const BoxConstraints.tightFor(
+                    width: 52,
+                    height: 52,
+                  ),
+                  tooltip: isShuffle
+                      ? 'Modo: Aleatorio (Shuffle)'
+                      : 'Modo: Secuencial',
+                  onPressed: () {
+                    ref.read(liveDjProvider.notifier).toggleMixStrategy();
+                  },
+                  icon: Container(
+                    width: 48,
+                    height: 48,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color:
+                          (isShuffle
+                                  ? const Color(0xFFFF007F)
+                                  : const Color(0xFF00FFFF))
+                              .withValues(alpha: 0.18),
+                      border: Border.all(
+                        color: isShuffle
+                            ? const Color(0xFFFF007F)
+                            : const Color(0xFF00FFFF),
+                        width: 2,
+                      ),
+                    ),
+                    child: Icon(
+                      isShuffle
+                          ? Icons.shuffle_rounded
+                          : Icons.format_list_numbered,
+                      size: 26,
                       color: isShuffle
                           ? const Color(0xFFFF007F)
                           : const Color(0xFF00FFFF),
-                      width: 2,
                     ),
                   ),
-                  child: Icon(
-                    isShuffle
-                        ? Icons.shuffle_rounded
-                        : Icons.format_list_numbered,
-                    size: 26,
-                    color: isShuffle
-                        ? const Color(0xFFFF007F)
-                        : const Color(0xFF00FFFF),
-                  ),
                 ),
-              ),
-              LiveDjSortButton(size: 24),
+                LiveDjSortButton(size: 24),
+              ],
               const SizedBox(width: 12),
               IconButton(
                 padding: EdgeInsets.zero,
@@ -974,10 +984,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                     return FittedBox(
                       fit: BoxFit.scaleDown,
                       alignment: Alignment.centerLeft,
-                      child: SizedBox(
-                        width: c.maxWidth,
-                        child: nowPlayingBody,
-                      ),
+                      child: SizedBox(width: c.maxWidth, child: nowPlayingBody),
                     );
                   },
                 ),
@@ -989,11 +996,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                       : 'Vista de la carpeta',
                   child: GestureDetector(
                     onTap: () {
-                      ref
-                              .read(
-                                liveDjPlaylistViewProvider.notifier,
-                              )
-                              .state =
+                      ref.read(liveDjPlaylistViewProvider.notifier).state =
                           !playlistOn;
                     },
                     child: Padding(
@@ -1114,10 +1117,7 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
                 // los chips Radio y Modo Fiesta), Letras y Modo DJ.
                 const Flexible(
                   flex: 5,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: DjModeBar(),
-                  ),
+                  child: FittedBox(fit: BoxFit.scaleDown, child: DjModeBar()),
                 ),
                 const SizedBox(width: 6),
                 const DjLyricsButton(),
@@ -1144,12 +1144,12 @@ class _LiveDjPlayerPanelState extends ConsumerState<LiveDjPlayerPanel> {
           compactListCard
         else
           Expanded(
-          child: spotify
-              ? LiveDjSpotifyPanel(compact: compact)
-              : compact
-              ? compactListCard
-              : SingleChildScrollView(child: songCard),
-        ),
+            child: spotify
+                ? LiveDjSpotifyPanel(compact: compact)
+                : compact
+                ? compactListCard
+                : SingleChildScrollView(child: songCard),
+          ),
         if (lyricsOn) DjLyricsPanel(compact: compact),
         // 3.1.84: sin franja con el nombre de archivo de la siguiente (la
         // cola ya la muestra en primer lugar).

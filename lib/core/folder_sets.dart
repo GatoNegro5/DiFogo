@@ -240,6 +240,7 @@ Future<TrackSet> folderSetFor(
   List<String> exclude = const <String>[],
   bool keepHead = false,
   bool warm = true,
+  bool energyOrder = true,
   PersistentBuildOrder buildOrder = folderSetBuildOrder,
 }) async {
   final List<String> raw = nextListSet(
@@ -250,6 +251,7 @@ Future<TrackSet> folderSetFor(
     exclude: exclude,
   );
   if (raw.isEmpty) return TrackSet(key, const <String>[]);
+  if (!energyOrder) return TrackSet(key, raw);
   if (warm) await warmFolderSet(raw);
   final String? after = exclude.isEmpty ? null : exclude.first;
   final List<String> ordered = keepHead
@@ -270,6 +272,7 @@ Future<TrackSet> fiestaSetFor(
   String? current,
   List<String> exclude = const <String>[],
   bool warm = true,
+  bool energyOrder = true,
   PersistentBuildOrder buildOrder = folderSetBuildOrder,
 }) async {
   final TrackSet raw = fiestaNextSet(
@@ -281,6 +284,7 @@ Future<TrackSet> fiestaSetFor(
     exclude: exclude,
   );
   if (raw.isEmpty) return raw;
+  if (!energyOrder) return raw;
   if (warm) await warmFolderSet(raw.paths);
   return TrackSet(
     raw.owner,

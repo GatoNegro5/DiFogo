@@ -12,6 +12,7 @@ import '../../providers/livedj_provider.dart';
 import '../../providers/mix_formula.dart';
 import '../../providers/theme_provider.dart';
 import 'livedj_mix_marker.dart';
+import 'livedj_layout.dart';
 import '../../providers/vibe_hub_provider.dart';
 import '../widgets/radio_track_actions.dart';
 
@@ -248,36 +249,40 @@ class _LiveDjSpotifyPanelState extends ConsumerState<LiveDjSpotifyPanel> {
           // 3.1.84 Consumer Clean Mode: sin chips de mezcla ni FX bajo el
           // titulo (viven en la hoja Modo DJ de la cabecera).
           const SizedBox(height: 10),
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              activeTrackColor: GatoMixTheme.syncActive,
-              inactiveTrackColor: Colors.white12,
-              thumbColor: Colors.white,
-              overlayShape: SliderComponentShape.noOverlay,
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-            ),
-            // 3.1.83: la misma linea roja del punto de mezcla que la consola
-            // clasica y la vista de la carpeta (customMixOutMs).
-            child: Stack(
-              alignment: Alignment.center,
-              children: <Widget>[
-                Slider(
-                  key: const Key('spotify-progress'),
-                  value: value,
-                  min: 0.0,
-                  max: maxMs,
-                  onChangeStart: (double v) => setState(() => _drag = v),
-                  onChanged: (double v) => setState(() => _drag = v),
-                  onChangeEnd: (double v) {
-                    if (dur.inMilliseconds > 0) {
-                      dj.seek(Duration(milliseconds: v.round()));
-                    }
-                    setState(() => _drag = null);
-                  },
-                ),
-                liveDjMixMarker(6, s.customMixOutMs, dur.inMilliseconds),
-              ],
+          SizedBox(
+            key: const Key('livedj-progress-slider'),
+            height: kLiveDjProgressHeight,
+            child: SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: 3,
+                activeTrackColor: GatoMixTheme.syncActive,
+                inactiveTrackColor: Colors.white12,
+                thumbColor: Colors.white,
+                overlayShape: SliderComponentShape.noOverlay,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              ),
+              // 3.1.83: la misma linea roja del punto de mezcla que la consola
+              // clasica y la vista de la carpeta (customMixOutMs).
+              child: Stack(
+                alignment: Alignment.center,
+                children: <Widget>[
+                  Slider(
+                    key: const Key('spotify-progress'),
+                    value: value,
+                    min: 0.0,
+                    max: maxMs,
+                    onChangeStart: (double v) => setState(() => _drag = v),
+                    onChanged: (double v) => setState(() => _drag = v),
+                    onChangeEnd: (double v) {
+                      if (dur.inMilliseconds > 0) {
+                        dj.seek(Duration(milliseconds: v.round()));
+                      }
+                      setState(() => _drag = null);
+                    },
+                  ),
+                  liveDjMixMarker(6, s.customMixOutMs, dur.inMilliseconds),
+                ],
+              ),
             ),
           ),
           Row(
