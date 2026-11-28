@@ -94,6 +94,6 @@ void main() {
     expect(ld.contains('final String? dnaOutExtra = !djFx'), isTrue);
     expect(ld.contains('djFx && dnaKind == DnaKind.filterSweep'), isTrue);
     expect(ld.contains('if (djFx) dnaHighShelfCut,'), isTrue);
-    expect(ld.contains('djFx: genrePlan.locked,'), isTrue);
+    expect(ld.contains('djFx: _isFiestaMix() || genrePlan.locked,'), isTrue);
   });
 }

@@ -40,6 +40,7 @@ import '../core/audio/tempo_drift.dart';
 import '../core/dj_trace.dart';
 import '../core/exact_mix.dart';
 import '../core/genre_mix_fx.dart';
+import '../core/fiesta_set_mix.dart';
 import '../core/post_mix_tempo_recovery.dart';
 import '../services/adaptive_eq.dart' show AdaptiveEq;
 import '../services/audio_interruption.dart' show OutputFix, ensureDeckOutput;
@@ -455,6 +456,13 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       return 0;
     }
     if (_isMixTrack(durMs)) return 0;
+    if (_isFiestaMix()) {
+      final int tailMs = TrackTags.peek(path)?.tailMs ?? 0;
+      final int eff = (tailMs > 0 && tailMs < durMs ~/ 3)
+          ? durMs - tailMs
+          : durMs;
+      return _fiestaWindow(eff, path).cueInMs;
+    }
     if (ref.read(mixFormulaProvider) == MixFormula.stealthGap) {
       return stealthCueInMs(durMs, const []);
     }
@@ -513,6 +521,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       key =
           '$key|${PhraseGridMemory.stamp(path)}|${PhraseGridMemory.stamp(peer)}|$peer';
     }
+    if (_isFiestaMix()) {
+      key =
+          '$key|fiesta|${PhraseGridMemory.stamp(path)}|${path == null ? null : peekTrackDna(path)?.energyLevel}';
+    }
     if (key == _mixOutCacheKey) return _mixOutCacheVal;
     final int v = _calculateRadioMixOutRaw(durationMs, path);
     _mixOutCacheKey = key;
@@ -535,6 +547,13 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         mixOutMs: mixEff - 30000,
         fadeMs: 4000,
       );
+    }
+    if (_isFiestaMix()) {
+      final int tailMs = TrackTags.peek(path)?.tailMs ?? 0;
+      final int eff = (tailMs > 0 && tailMs < durationMs ~/ 3)
+          ? durationMs - tailMs
+          : durationMs;
+      return _fiestaWindow(eff, path).mixOutMs;
     }
 
     // 3.2.22: base unica 60 % para todos (antes tropical 80, resto 75 y
@@ -2185,7 +2204,10 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           _driftNextPath ?? _standbyArmedPath,
         );
         // 3.2.0: precarga a mas tardar cuando se compromete la rampa previa.
-        final int armLeadMs = _drift.preRollArmLeadMs(driftNextBpm);
+        final int armLeadMs = _drift.preRollArmLeadMs(
+          driftNextBpm,
+          floorMs: _isFiestaMix() ? kFiestaPreRollFloorMs : 10000,
+        );
         if (!_isCrossfading && !_mix.paused && !_postMix.running) {
           final double curRate = player.state.rate;
           final String? blocked = _drift.takeBlockedReport();
@@ -3912,11 +3934,18 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     int? phraseFadeOverride;
     if (!isManualSkip &&
         nextMode != LiveDjMixMode.longBypass &&
-        ref.read(mixFormulaProvider) == MixFormula.phraseGrid) {
+        (ref.read(mixFormulaProvider) == MixFormula.phraseGrid ||
+            _isFiestaMix())) {
       // 3.1.73: Equal-Power de 12-16 s alineado a 32 golpes (antes 6-8 s).
-      phraseFadeOverride = phrase8WindowMs(
-        phraseSoundingBpm(incomingBpm: incomingBpm, incomingRate: incomingRate),
-      );
+      // 3.2.39: Fiesta usa el mismo fundido de Phrase 8 (8-18 s).
+      phraseFadeOverride = _isFiestaMix()
+          ? fiestaFadeMs(incomingBpm, durationMs: trackDur.inMilliseconds)
+          : phrase8WindowMs(
+              phraseSoundingBpm(
+                incomingBpm: incomingBpm,
+                incomingRate: incomingRate,
+              ),
+            );
     }
     final GenreMixPlan genrePlan = _genrePlanFor(fadingPath, nextTrack);
     // 3.1.74: Stealth publica la misma ventana de 10-12 s que usa el motor
@@ -3971,7 +4000,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
           ? GenreMixFx.none
           : genrePlan.fx,
       outgoingBpm: _extractBpm(fadingPath),
-      djFx: genrePlan.locked,
+      djFx: _isFiestaMix() || genrePlan.locked,
     );
     _applyAutoCurve();
   }
@@ -3984,15 +4013,46 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
     }
   }
 
+  /// 3.2.39: solo Modo Fiesta (Automix y Radio no entran).
+  bool _isFiestaMix() {
+    try {
+      return ref.read(vibeHubProvider).fiestaMode;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  FiestaPlayWindow _fiestaWindow(int durationMs, String? path) {
+    final double bpm = _extractBpm(path);
+    return planFiestaWindow(
+      durationMs: durationMs,
+      bpm: bpm,
+      track: path == null ? null : PhraseGridMemory.peek(path),
+      energyLevel: path == null ? null : peekTrackDna(path)?.energyLevel,
+    );
+  }
+
   /// 3.1.73: plan (curva + FX) del cruce [outPath] -> [inPath].
-  GenreMixPlan _genrePlanFor(String? outPath, String? inPath) =>
-      genrePlanForPaths(
+  /// 3.2.39: en Fiesta el FX va completo (no pasa por cleanGenreFx).
+  GenreMixPlan _genrePlanFor(String? outPath, String? inPath) {
+    if (_isFiestaMix()) {
+      return fiestaMixPlan(
         current: ref.read(mixFormulaProvider),
-        stationKey: _activeStationKey(),
-        outPath: outPath,
-        inPath: inPath,
-        locked: ref.read(mixFormulaLockedProvider),
+        outBpm: _extractBpm(outPath),
+        inBpm: _extractBpm(inPath),
+        outEnergy: outPath == null ? null : peekTrackDna(outPath)?.energyLevel,
+        inEnergy: inPath == null ? null : peekTrackDna(inPath)?.energyLevel,
+        subgenreChange: fiestaSubgenreChanged(outPath, inPath),
       );
+    }
+    return genrePlanForPaths(
+      current: ref.read(mixFormulaProvider),
+      stationKey: _activeStationKey(),
+      outPath: outPath,
+      inPath: inPath,
+      locked: ref.read(mixFormulaLockedProvider),
+    );
+  }
 
   /// 3.1.73: terminado el cruce, el selector deja lista la curva del
   /// proximo (si el usuario no la fijo) y recalcula el punto de mezcla de
@@ -4000,6 +4060,8 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
   void _applyAutoCurve() {
     try {
       if (ref.read(mixFormulaLockedProvider)) return;
+      // 3.2.39: Fiesta no reescribe la curva global ni el mixOut corto.
+      if (_isFiestaMix()) return;
       final String? cur = state.currentTrackPath;
       final String? next = state.radioOn ? _driftNextPath : _queueHeadPath();
       if (cur == null || next == null || _isCrossfading) return;
