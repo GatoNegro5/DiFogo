@@ -55,7 +55,12 @@ void main() {
   });
 
   test('3200 (a) Automix: la siguiente fijada no se mueve', () {
-    const List<String> q = <String>['cur.mp3', 'nueva.mp3', 'next.mp3', 'y.mp3'];
+    const List<String> q = <String>[
+      'cur.mp3',
+      'nueva.mp3',
+      'next.mp3',
+      'y.mp3',
+    ];
     final List<String> out = pinNextTrack(
       q,
       current: 'cur.mp3',
@@ -64,27 +69,52 @@ void main() {
     expect(out, <String>['cur.mp3', 'next.mp3', 'nueva.mp3', 'y.mp3']);
     // Ya en su lugar, quitada por el usuario o igual a la actual: misma lista.
     final List<String> ok = <String>['cur.mp3', 'next.mp3', 'y.mp3'];
-    expect(identical(pinNextTrack(ok, current: 'cur.mp3', pinned: 'next.mp3'), ok), isTrue);
-    final List<String> gone = <String>['cur.mp3', 'y.mp3'];
-    expect(identical(pinNextTrack(gone, current: 'cur.mp3', pinned: 'next.mp3'), gone), isTrue);
-    expect(identical(pinNextTrack(ok, current: 'cur.mp3', pinned: 'cur.mp3'), ok), isTrue);
-    final String am = _read('lib/providers/automix_provider.dart');
     expect(
-      am.contains('bool get nextTrackLocked => _isCrossfading || _drift.preRollActive;'),
+      identical(pinNextTrack(ok, current: 'cur.mp3', pinned: 'next.mp3'), ok),
       isTrue,
     );
-    expect(am.contains('if (nextTrackLocked && state.nextTrackPath != null) {'), isTrue);
-    expect(am.contains('pinned: nextTrackLocked ? state.nextTrackPath : null,'), isTrue);
-    expect(am.contains('    _pinLockedNext();\n    final nextIdx = _calculateNextIndex();'), isTrue);
-    expect(am.contains('await _stopAbortedIncoming(incomingPlayer, nextTrack);'), isTrue);
+    final List<String> gone = <String>['cur.mp3', 'y.mp3'];
+    expect(
+      identical(
+        pinNextTrack(gone, current: 'cur.mp3', pinned: 'next.mp3'),
+        gone,
+      ),
+      isTrue,
+    );
+    expect(
+      identical(pinNextTrack(ok, current: 'cur.mp3', pinned: 'cur.mp3'), ok),
+      isTrue,
+    );
+    final String am = _read('lib/providers/automix_provider.dart');
+    expect(
+      am.contains(
+        'bool get nextTrackLocked => _isCrossfading || _drift.preRollActive;',
+      ),
+      isTrue,
+    );
+    expect(
+      am.contains('if (nextTrackLocked && state.nextTrackPath != null) {'),
+      isTrue,
+    );
+    expect(
+      am.contains('pinned: nextTrackLocked ? state.nextTrackPath : null,'),
+      isTrue,
+    );
+    expect(
+      am.contains(
+        '    _pinLockedNext();\n    final nextIdx = _calculateNextIndex();',
+      ),
+      isTrue,
+    );
+    expect(
+      am.contains('await _stopAbortedIncoming(incomingPlayer, nextTrack);'),
+      isTrue,
+    );
   });
 
   test('3200 (a) Live DJ: cabeza protegida y precargada en el disparo', () {
     final List<File> q = _q(<String>['next.mp3', 'b.mp3', 'c.mp3']);
-    expect(
-      liveDjLockedPrefix(queue: q, crossfading: false, preRoll: false),
-      0,
-    );
+    expect(liveDjLockedPrefix(queue: q, crossfading: false, preRoll: false), 0);
     expect(
       liveDjLockedPrefix(queue: q, crossfading: false, preRoll: true),
       1,
@@ -100,7 +130,12 @@ void main() {
       2,
     );
     expect(
-      liveDjLockedPrefix(queue: q, crossfading: false, preRoll: false, armed: 'c.mp3'),
+      liveDjLockedPrefix(
+        queue: q,
+        crossfading: false,
+        preRoll: false,
+        armed: 'c.mp3',
+      ),
       3,
     );
     expect(liveDjLockedPrefix(queue: q, crossfading: true, preRoll: false), 1);
@@ -121,15 +156,30 @@ void main() {
       2,
     );
     expect(
-      liveDjTriggerIndex(queue: moved, current: 'cur.mp3', armed: 'quitada.mp3'),
+      liveDjTriggerIndex(
+        queue: moved,
+        current: 'cur.mp3',
+        armed: 'quitada.mp3',
+      ),
       0,
     );
     final String ld = _read('lib/providers/livedj_provider.dart');
     expect(ld.contains('preRoll: _drift.preRollActive,'), isTrue);
     expect(ld.contains('posMs >= (barMixOut - armLeadMs) &&'), isTrue);
-    expect(ld.contains('_drift.preRollArmLeadMs(driftNextBpm)'), isTrue);
-    expect(ld.contains('liveDjTriggerIndex(\n            queue: state.queue,'), isTrue);
-    expect(ld.contains('await _stopAbortedIncoming(incomingPlayer, nextTrack);'), isTrue);
+    // 3.2.39: Fiesta pasa floorMs; Automix/Radio siguen en 10000.
+    expect(ld.contains('_drift.preRollArmLeadMs('), isTrue);
+    expect(
+      ld.contains('floorMs: _isFiestaMix() ? kFiestaPreRollFloorMs : 10000'),
+      isTrue,
+    );
+    expect(
+      ld.contains('liveDjTriggerIndex(\n            queue: state.queue,'),
+      isTrue,
+    );
+    expect(
+      ld.contains('await _stopAbortedIncoming(incomingPlayer, nextTrack);'),
+      isTrue,
+    );
     expect(ld.contains('posMs >= (barMixOut - 10000)'), isFalse);
   });
 
@@ -200,10 +250,22 @@ void main() {
     expect(f.midpointBlocked, isTrue);
     // Comprometida sin moverse y pareja sin plan: solo se suelta.
     final TempoDrift c = TempoDrift()..begin(120, 1.0);
-    c.tick(posMs: 180000 - 9133, durMs: 240000, mixOutMs: 180000, rate: 1.0, nextBpm: 128);
+    c.tick(
+      posMs: 180000 - 9133,
+      durMs: 240000,
+      mixOutMs: 180000,
+      rate: 1.0,
+      nextBpm: 128,
+    );
     expect(c.preRollActive, isTrue);
     expect(
-      c.tick(posMs: 171000, durMs: 240000, mixOutMs: 180000, rate: 1.0, nextBpm: 121),
+      c.tick(
+        posMs: 171000,
+        durMs: 240000,
+        mixOutMs: 180000,
+        rate: 1.0,
+        nextBpm: 121,
+      ),
       isNull,
     );
     expect(c.preRollActive, isFalse);

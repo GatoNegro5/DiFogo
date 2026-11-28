@@ -987,3 +987,10 @@ Plataformas (Win | Mac | Android | iPhone): .
   Se mueve/compacta: `energyLevel` pasa a ser derivado de `energyRaw` + escala de biblioteca (el lineal queda de respaldo). En Fiesta, cue/mixOut/preRoll/FX se calculan con `fiesta_set_mix.dart` (no reescribe la curva global).
   Se elimina: nada.
   Riesgo: bajo. Karaokes `_K` no entran al backfill (diseno). Si no hay perfil de frases, Fiesta usa 16 compases o la marca de letra. El beatmatch reutiliza el lock de tempo ya existente.
+
+- 3.2.40 (pubspec `3.2.40+30240`): Pedido: Gabriel (t318u, t320u) corregir el CI de v3.2.39 y publicar. Causa: el tag v3.2.39 fallo en "Flutter tests" (912 ok, 3 fallos): pines de fuente de 3.2.0/3.1.73 no cubrian el floor/FX de Fiesta, y el test del conmutador clasico buscaba `LibraryTreePanel` ya reemplazado por cards en 3.2.38. Cambio: se actualizan los pines de `preRollArmLeadMs` y `phrase8WindowMs` (Automix/Radio siguen igual; Fiesta usa floor y fade propios) y el conmutador clasico espera `LiveDjFolderPicker`. Prueba: preroll 3200, ventanas 3173 y vibe_hub 3154 en verde. Plataformas (Win | Mac | Android | iPhone): Win si (tests Dart) | Mac si | Android si | iPhone si; el CI de release valida las cuatro.
+  Se conserva: motor de Fiesta 3.2.39, cruce AUTO de Automix/Radio, FRB, escala de energia.
+  Se mueve/compacta: nada de logica de mezcla; solo tests guardianes y el conmutador de vista.
+  Se elimina: la expectativa de `LibraryTreePanel` en el modo clasico.
+  Riesgo: bajo. Misma logica que 3.2.39; el CI vuelve a correr flutter test + cargo test y los 5 assets.
+

@@ -66,13 +66,7 @@ void main() {
     expect(mixFormulaMayReorderQueue(MixFormula.stealthGap), isTrue);
     // Phrase 8 toma la cabeza de la cola del Shuffle tal cual.
     final List<String> shuffled = <String>['c.mp3', 'a.mp3', 'b.mp3'];
-    expect(
-      offAirNextIndex(
-        paths: shuffled,
-        currentPath: 'x.mp3',
-      ),
-      0,
-    );
+    expect(offAirNextIndex(paths: shuffled, currentPath: 'x.mp3'), 0);
     final String ld = _read('lib/providers/livedj_provider.dart');
     final String reorder = _slice(
       ld,
@@ -160,7 +154,10 @@ void main() {
     // Fuentes: Phrase 8 / Stealth con su ventana larga y la curva cubica en
     // toda la rampa; DAWN de Active Beatmatching sin cambio.
     final String ld = _read('lib/providers/livedj_provider.dart');
-    expect(ld.contains('phraseFadeOverride = phrase8WindowMs('), isTrue);
+    // 3.2.39: Fiesta usa fiestaFadeMs; Phrase 8 de Automix/Radio sigue igual.
+    expect(ld.contains('phrase8WindowMs('), isTrue);
+    expect(ld.contains('_isFiestaMix()'), isTrue);
+    expect(ld.contains('fiestaFadeMs('), isTrue);
     expect(ld.contains('? stealthWindowMs('), isTrue);
     expect(ld.contains('wantedFadeMs: fadeOutDurationMs,'), isTrue);
     expect(ld.contains('equalPowerFadeMs(fadeOutDurationMs)'), isFalse);
@@ -309,9 +306,7 @@ void main() {
     await t.pumpWidget(
       UncontrolledProviderScope(
         container: c,
-        child: const MaterialApp(
-          home: Scaffold(body: LiveDjModeDjPanel()),
-        ),
+        child: const MaterialApp(home: Scaffold(body: LiveDjModeDjPanel())),
       ),
     );
     await t.pump();

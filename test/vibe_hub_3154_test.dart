@@ -9,7 +9,7 @@ import 'package:difogo/providers/livedj_provider.dart';
 import 'package:difogo/providers/session_provider.dart';
 import 'package:difogo/providers/vibe_hub_provider.dart';
 import 'package:difogo/ui/vibe_hub_view.dart';
-import 'package:difogo/ui/workspaces/automix_workspace.dart';
+import 'package:difogo/ui/workspaces/livedj_folder_picker.dart';
 import 'package:difogo/ui/workspaces/livedj_workspace.dart';
 
 class _FakeLiveDj extends LiveDjNotifier {
@@ -80,7 +80,7 @@ void main() {
     debugLiveDjForceMobile = false;
     await pumpWs(tester, const Size(1400, 900));
     expect(find.byType(VibeHubView), findsOneWidget);
-    expect(find.byType(LibraryTreePanel), findsNothing);
+    expect(find.byType(LiveDjFolderPicker), findsNothing);
     // 3.1.62: Salsa y Merengue van dentro de la estacion Tropical.
     expect(find.text('Tropical'), findsOneWidget);
     expect(find.text('Poner set (8)'), findsNothing);
@@ -89,7 +89,7 @@ void main() {
     await tester.pump();
     expect(find.byType(VibeHubView), findsNothing);
     expect(find.text('Poner set (8)'), findsOneWidget);
-    expect(find.byType(LibraryTreePanel), findsOneWidget);
+    expect(find.byType(LiveDjFolderPicker), findsOneWidget);
     await tester.tap(find.byKey(const Key('livedj-view-toggle')));
     await tester.pump();
     await tester.pump();
