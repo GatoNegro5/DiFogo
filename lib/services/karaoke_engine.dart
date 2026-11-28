@@ -187,7 +187,7 @@ class KaraokeEngine {
   /// Voz temporal: siempre en la carpeta temporal del sistema.
   static String vocalsTempPath({String? tempDir}) {
     final String dir = tempDir ?? Directory.systemTemp.path;
-    return '$dir${Platform.pathSeparator}difogo_${pid}_'
+    return '$dir${Platform.pathSeparator}gatomix_${pid}_'
         '${DateTime.now().microsecondsSinceEpoch}.vocals.wav';
   }
 

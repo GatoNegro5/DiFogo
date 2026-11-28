@@ -845,7 +845,7 @@ class _YoutubeSearchAndDownloadWorkspaceState
         if (mounted) {
           setState(
             () => _statusText =
-                "No instalada: $trackStem (empalme persistente, ver difogo_empalmes.log)",
+                "No instalada: $trackStem (empalme persistente, ver gatomix_empalmes.log)",
           );
         }
         return;

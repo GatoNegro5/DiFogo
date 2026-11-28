@@ -167,7 +167,7 @@ Future<String?> generateLocalLyricsOfflineWith(
         if (ms <= 0 || ms > kLocalLyricsMaxMs) return null;
         final String dir = deps.tempDir ?? Directory.systemTemp.path;
         temp =
-            '$dir${Platform.pathSeparator}difogo_lyr_${pid}_'
+            '$dir${Platform.pathSeparator}gatomix_lyr_${pid}_'
             '${DateTime.now().microsecondsSinceEpoch}.wav';
         final Uint8List pcm = await deps.decode(audioPath, ms ~/ 1000 + 1);
         final int even = pcm.length & ~1;

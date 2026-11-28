@@ -254,7 +254,7 @@ jobs:
       - name: Deploy to GitHub Releases
         uses: softprops/action-gh-release@v2
         with:
-          name: DiFogo ${{ github.ref_name }}
+          name: GatoMix ${{ github.ref_name }}
           files: |
             artifacts/app-release.apk
             artifacts/GatoMix-Installer.exe
@@ -314,7 +314,7 @@ jobs:
       - name: Publish gatomix-tv.apk
         uses: softprops/action-gh-release@v2
         with:
-          name: DiFogo ${{ github.ref_name }}
+          name: GatoMix ${{ github.ref_name }}
           files: gatomix-tv.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -394,7 +394,7 @@ jobs:
       - name: Publish DjIphone.ipa
         uses: softprops/action-gh-release@v2
         with:
-          name: DiFogo ${{ github.ref_name }}
+          name: GatoMix ${{ github.ref_name }}
           files: DjIphone.ipa
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

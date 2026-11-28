@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/brand_paths.dart' show migrateBrandFile, kTrackGenreIndexName, kOldTrackGenreIndexName;
 import '../core/mode_session.dart';
 import '../ui/mobile/music_picker_screen.dart'
     show gatomixMusicRoot, musicPickerShowsFile, musicPickerTechFolder;
@@ -20,11 +21,12 @@ String? debugVibeStatePath;
 @visibleForTesting
 String? debugTrackGenreIndexPath;
 
-/// 3.1.67 `difogo_track_genre_index.json` en la carpeta de datos de la app
-/// (junto a `difogo_genre_sessions.json`), nunca en la biblioteca.
+/// 3.1.67 indice de generos por cancion en la carpeta de datos de la app
+/// (junto a las sesiones), nunca en la biblioteca. 3.2.35: nombre
+/// `gatomix_track_genre_index.json`; si solo esta el `difogo_*` se copia.
 String trackGenreIndexPath() =>
     debugTrackGenreIndexPath ??
-    '${sessionDir()}${Platform.pathSeparator}difogo_track_genre_index.json';
+    migrateBrandFile(sessionDir(), kOldTrackGenreIndexName, kTrackGenreIndexName);
 
 /// true si las pruebas apuntan el indice a %TEMP%.
 bool trackGenreIndexInTemp() => debugTrackGenreIndexPath != null;

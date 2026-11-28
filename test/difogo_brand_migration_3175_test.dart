@@ -241,9 +241,9 @@ void main() {
     final File newB = File('${originalDirIn(folder)}${_s}t.mp3')
       ..createSync(recursive: true);
     expect(originalBackupOf(mp3)!.path, newB.path);
-    // Bitacora del mezclador con el nombre nuevo.
+    // 3.2.35: bitacora con nombre nuevo; el viejo se sigue leyendo/copiando.
     final String trace = File('lib/core/dj_trace.dart').readAsStringSync();
-    expect(trace.contains("difogo_livedj_trace.txt'"), isTrue);
-    expect(trace.contains("gatomix_livedj_trace.txt'"), isFalse);
+    expect(trace.contains('gatomix_livedj_trace.txt'), isTrue);
+    expect(trace.contains('difogo_livedj_trace.txt'), isTrue);
   });
 }

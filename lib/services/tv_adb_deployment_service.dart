@@ -567,7 +567,7 @@ class TvAdbDeploymentService {
 
   /// APK de Karaoke TV ya compilado por el CI (release más reciente).
   static const String _tvApkUrl =
-      'https://github.com/GatoNegro5/DiFogo/releases/latest/download/gatomix-tv.apk';
+      'https://github.com/GatoNegro5/Gatomix/releases/latest/download/gatomix-tv.apk';
 
   /// 3.2.25: pasa por la cache unica `tv_cache` (la misma que sirve /apk):
   /// se reutiliza si es valida; si no, descarga atomica con validacion.

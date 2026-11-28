@@ -1,10 +1,12 @@
 // 3.2.33 (DIF-30): arreglo automatico de empalmes. Rust rechaza el temporal
 // con "Empalme evitado" (duracion contra la fuente o detector); aqui se
 // descarta, se rehace desde la fuente hasta 2 veces y, si sigue, no se
-// instala y queda una linea en <temp>/difogo_empalmes.log. Sin dialogos.
+// instala y queda una linea en <temp>/gatomix_empalmes.log. Sin dialogos.
 import 'dart:io';
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
+
+import 'brand_paths.dart' show migrateBrandFile, kEmpalmesLogName, kOldEmpalmesLogName;
 
 /// Reintentos ademas del primer intento (igual que Rust SPLICE_RETRIES).
 const int kSpliceRetries = 2;
@@ -19,7 +21,11 @@ String? spliceLogOverride;
 
 String spliceLogPath() =>
     spliceLogOverride ??
-    '${Directory.systemTemp.path}${Platform.pathSeparator}difogo_empalmes.log';
+    migrateBrandFile(
+      Directory.systemTemp.path,
+      kOldEmpalmesLogName,
+      kEmpalmesLogName,
+    );
 
 /// Una linea por caso agotado (se recorta sola al pasar 200 KB).
 void logSpliceEvent(String what, Object e) {

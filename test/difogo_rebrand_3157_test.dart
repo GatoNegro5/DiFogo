@@ -18,7 +18,6 @@ void main() {
     const List<String> allowed = <String>[
       'DiFogo TV Sync',
       'DiFogo REST Server',
-      'GatoNegro5/DiFogo/releases',
     ];
     for (final String f in files) {
       String src = _read(f);
@@ -64,13 +63,13 @@ void main() {
   });
 
   test('3.1.57 se conservan firewall, protocolo y URL del APK', () {
-    // 3.1.76: reglas DiFogo; las GatoMix quedan solo para borrarlas.
+    // 3.2.35: reglas GatoMix; las DiFogo quedan solo para borrarlas.
     final String kw = _read('lib/ui/workspaces/karaoke_workspace.dart');
+    expect(kw.contains("const ruleName = 'GatoMix TV Sync'"), isTrue);
     expect(kw.contains("'DiFogo TV Sync'"), isTrue);
-    expect(kw.contains("'GatoMix TV Sync'"), isTrue);
     final String lw = _read('lib/ui/workspaces/lan_sync_workspace.dart');
+    expect(lw.contains("const newRule = 'GatoMix REST Server'"), isTrue);
     expect(lw.contains("'DiFogo REST Server'"), isTrue);
-    expect(lw.contains("'GatoMix REST Server'"), isTrue);
     expect(
       _read('lib/services/tv_sync_server.dart').contains("'gatomix-karaoke'"),
       isTrue,
@@ -81,6 +80,18 @@ void main() {
       ).contains('download/gatomix-tv.apk'),
       isTrue,
     );
+    expect(
+      _read('lib/services/tv_apk_cache.dart').contains(
+        'GatoNegro5/Gatomix/releases',
+      ),
+      isTrue,
+    );
+    expect(
+      _read('lib/services/tv_adb_deployment_service.dart').contains(
+        'GatoNegro5/DiFogo/releases',
+      ),
+      isFalse,
+    );
   });
 
   test('3.2.18 nombres nativos visibles Win, Mac, Android e iPhone', () {
@@ -89,7 +100,7 @@ void main() {
     expect(rc.contains('VALUE "FileDescription", "GatoMix"'), isTrue);
     // 3.1.76: el exe de Windows sigue siendo difogo.exe.
     expect(rc.contains('VALUE "OriginalFilename", "difogo.exe"'), isTrue);
-    expect(rc.contains('VALUE "InternalName", "difogo"'), isTrue);
+    expect(rc.contains('VALUE "InternalName", "GatoMix"'), isTrue);
     expect(rc.contains('gatomix_player'), isFalse);
     expect(
       _read('windows/runner/main.cpp').contains('window.Create(L"GatoMix"'),

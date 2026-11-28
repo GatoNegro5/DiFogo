@@ -32,6 +32,21 @@ const String kDescubreName = 'DESCUBRE';
 const String kOriginalDirName = '.gatomix_original';
 const String kOldOriginalDirName = '.difogo_original';
 
+/// 3.2.35: archivos `difogo_*` pasan a `gatomix_*`. Si solo existe el
+/// nombre viejo se copia (el origen no se borra). Las lecturas miran
+/// los dos nombres. Las constantes `kOld*` de carpetas y `.difogo.json`
+/// no cambian.
+const String kGenreSessionsName = 'gatomix_genre_sessions.json';
+const String kOldGenreSessionsName = 'difogo_genre_sessions.json';
+const String kTrackGenreIndexName = 'gatomix_track_genre_index.json';
+const String kOldTrackGenreIndexName = 'difogo_track_genre_index.json';
+const String kDiscoveryDiscardsName = 'gatomix_discovery_discards.json';
+const String kOldDiscoveryDiscardsName = 'difogo_discovery_discards.json';
+const String kLivedjTraceName = 'gatomix_livedj_trace.txt';
+const String kOldLivedjTraceName = 'difogo_livedj_trace.txt';
+const String kEmpalmesLogName = 'gatomix_empalmes.log';
+const String kOldEmpalmesLogName = 'difogo_empalmes.log';
+
 /// Resultado de mover una carpeta de marca vieja a la nueva.
 enum BrandMove {
   /// No habia carpeta vieja: nada que hacer.
@@ -76,6 +91,30 @@ BrandMove migrateBrandFolder(String parent, String oldName, String newName) {
     }
   } catch (_) {
     return BrandMove.failed;
+  }
+}
+
+
+/// 3.2.35: si solo existe [oldName] en [dir], lo copia a [newName] (nunca
+/// borra el origen). Devuelve la ruta nueva si existe (tras la copia) o la
+/// vieja si la copia fallo; si no hay ninguna, la ruta nueva (para escribir).
+String migrateBrandFile(String dir, String oldName, String newName) {
+  final String sep = Platform.pathSeparator;
+  final String nextPath = '$dir$sep$newName';
+  try {
+    if (dir.isEmpty || newName.isEmpty) return nextPath;
+    final File next = File(nextPath);
+    if (next.existsSync()) return next.path;
+    if (oldName.isEmpty || oldName == newName) return next.path;
+    final File old = File('$dir$sep$oldName');
+    if (!old.existsSync()) return next.path;
+    try {
+      old.copySync(next.path);
+      if (next.existsSync()) return next.path;
+    } catch (_) {}
+    return old.path;
+  } catch (_) {
+    return nextPath;
   }
 }
 

@@ -380,15 +380,15 @@ class _LanSyncWorkspaceState extends ConsumerState<LanSyncWorkspace>
     if (Platform.isWindows) {
       try {
         setState(() => _currentLog = "⚙️ Auditando Windows Defender...");
-        // 3.1.76: regla DiFogo; las viejas (marca anterior y GatoMix) se
-        // borran. Es por puerto, no por exe: difogo.exe no la rompe.
+        // 3.2.35: regla GatoMix; las viejas (DiFogo y marca anterior) se
+        // borran si existen, sin duplicar. Es por puerto, no por exe.
         const oldRules = <String>[
           'DJ'
               'Studio'
               ' REST Server',
-          'GatoMix REST Server',
+          'DiFogo REST Server',
         ];
-        const newRule = 'DiFogo REST Server';
+        const newRule = 'GatoMix REST Server';
         final List<String> hadOld = <String>[];
         for (final String oldRule in oldRules) {
           final oldCmd = await Process.run('powershell', [

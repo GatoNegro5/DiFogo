@@ -232,15 +232,15 @@ class _KaraokeWorkspaceState extends ConsumerState<KaraokeWorkspace> {
   /// cubre :55055; sin esta, la Google TV no completa el upgrade WebSocket.
   Future<void> _ensureTvFirewallRule() async {
     if (!Platform.isWindows) return;
-    // 3.1.76: regla DiFogo; las viejas (marca anterior y GatoMix) se borran.
-    // La regla es por puerto, no por exe: el cambio a difogo.exe no la rompe.
+    // 3.2.35: regla GatoMix; las viejas (DiFogo y marca anterior) se borran
+    // si existen, sin duplicar. Es por puerto, no por exe.
     const oldRules = <String>[
       'DJ'
           'Studio'
           ' TV Sync',
-      'GatoMix TV Sync',
+      'DiFogo TV Sync',
     ];
-    const ruleName = 'DiFogo TV Sync';
+    const ruleName = 'GatoMix TV Sync';
     try {
       final List<String> hadOld = <String>[];
       for (final String oldRule in oldRules) {

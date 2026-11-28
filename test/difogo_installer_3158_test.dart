@@ -6,9 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 String _read(String p) => File(p).readAsStringSync();
 
 void main() {
-  // 3.2.18: AppName y accesos directos vuelven a GatoMix; carpeta y exe
-  // conservan DiFogo (CI y firmas). 3.2.21: instalador GatoMix-Installer.
-  test('3.2.21 windows_setup.iss GatoMix con AppId heredado', () {
+  // 3.2.35: carpeta {autopf}\GatoMix; AppId, exe y accesos a difogo.exe
+  // se conservan. 3.2.21: instalador GatoMix-Installer.
+  test('3.2.35 windows_setup.iss GatoMix con AppId heredado', () {
     final String iss = _read('windows_setup.iss');
     expect(
       RegExp(r'^AppId=GatoMix\s*$', multiLine: true).hasMatch(iss),
@@ -18,8 +18,14 @@ void main() {
       RegExp(r'^AppName=GatoMix\s*$', multiLine: true).hasMatch(iss),
       isTrue,
     );
-    expect(iss.contains(r'DefaultDirName={autopf}\DiFogo'), isTrue);
+    expect(iss.contains(r'DefaultDirName={autopf}\GatoMix'), isTrue);
     expect(iss.contains('DefaultGroupName=GatoMix'), isTrue);
+    expect(iss.contains('UsePreviousAppDir=yes'), isTrue);
+    expect(iss.contains('[Code]'), isTrue);
+    expect(iss.contains(r"{localappdata}\Programs\DiFogo"), isTrue);
+    expect(iss.contains('ForceGatoMixDir'), isTrue);
+    expect(iss.contains('DirIsOurOrphan'), isTrue);
+    expect(iss.contains('difogo.exe'), isTrue);
     expect(iss.contains('OutputBaseFilename=GatoMix-Installer'), isTrue);
     expect(iss.contains('[InstallDelete]'), isTrue);
     expect(iss.contains(r'Type: files; Name: "{group}\GatoMix.lnk"'), isTrue);
@@ -56,10 +62,10 @@ void main() {
     final String yml = _read('.github/workflows/release.yml');
     expect(yml.contains('DiFogo-Installer'), isFalse);
     expect(yml.contains('DiFogo-MacOS'), isFalse);
-    expect(yml.contains(r'name: GatoMix ${{'), isFalse);
     expect('GatoMix-Installer.exe'.allMatches(yml).length, 3);
     expect('GatoMix-MacOS.zip'.allMatches(yml).length, 4);
-    expect(r'name: DiFogo ${{ github.ref_name }}'.allMatches(yml).length, 3);
+    expect(r'name: GatoMix ${{ github.ref_name }}'.allMatches(yml).length, 3);
+    expect(r'name: DiFogo ${{ github.ref_name }}'.allMatches(yml).length, 0);
     expect(yml.contains('gatomix-tv.apk'), isTrue);
     // 3.1.77: keystore temporal difogo-release.jks; el apk de TV no cambia.
     expect(yml.contains('difogo-release.jks'), isTrue);

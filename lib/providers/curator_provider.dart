@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../core/brand_paths.dart' show migrateBrandFile, kDiscoveryDiscardsName, kOldDiscoveryDiscardsName;
 import '../core/discovery_dedup_controller.dart';
 import '../core/folder_router.dart' show routeIntoRegenial;
 import '../core/genre_stations.dart'
@@ -53,7 +54,7 @@ String? discoveryDiscardPath() {
   final String? o = debugDiscoveryDiscardPath;
   if (o != null) return o;
   if (_inTemp(vibeMusicRoot())) return null;
-  return '${sessionDir()}${Platform.pathSeparator}difogo_discovery_discards.json';
+  return migrateBrandFile(sessionDir(), kOldDiscoveryDiscardsName, kDiscoveryDiscardsName);
 }
 
 /// 3.1.87: anti-duplicados de la Radio Descubrimiento (biblioteca local +

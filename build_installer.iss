@@ -1,4 +1,5 @@
-; LEGADO (3.1.76): release.yml usa windows_setup.iss (AppId=GatoMix, DiFogo).
+; LEGADO: no usar. El instalador real es windows_setup.iss
+; (3.2.35: AppId=GatoMix, DefaultDirName={autopf}\GatoMix, exe=difogo.exe).
 ; Este script viejo (otro AppId, rutas C:\Python) no lo usa nada; solo se
 ; alinea el exe a difogo.exe para que sus accesos directos no queden rotos.
 #define MyAppName "GatoMix"

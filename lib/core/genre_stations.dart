@@ -4,6 +4,7 @@ import 'dart:math';
 import 'gatomix_store.dart' show peekTrackDna, warmTrackDnaFor, TrackDnaEntry;
 import 'livedj_order.dart' show buildHarmonicShuffle, HarmonicDna;
 import 'session_store.dart';
+export 'brand_paths.dart' show kTrackGenreIndexName, kOldTrackGenreIndexName;
 
 /// 3.1.61 Estaciones DiFogo (3.1.64: catalogo universal de 7 estaciones con
 /// sub-generos canonicos, sin nombres de carpeta), y la sesion persistente de cada
@@ -477,7 +478,7 @@ class GenreSession {
   }
 }
 
-/// Archivo `difogo_genre_sessions.json`: `{active, stations: {clave: sesion}}`.
+/// Archivo `gatomix_genre_sessions.json`: `{active, stations: {clave: sesion}}`.
 class GenreSessionDoc {
   GenreSessionDoc({this.active, Map<String, GenreSession>? stations})
     : stations = stations ?? <String, GenreSession>{};
@@ -967,7 +968,8 @@ String stationTrackTitle(String path) {
 // ---- 3.1.67 Clasificador por cancion para carpetas mezcladas ("shampoo") ----
 
 /// Nombre del indice rapido por cancion (`path + mtime`).
-const String kTrackGenreIndexName = 'difogo_track_genre_index.json';
+/// 3.2.35: `gatomix_track_genre_index.json` (constante en brand_paths.dart);
+/// el heredado `difogo_track_genre_index.json` se copia si el nuevo no existe.
 
 /// 3.1.70: version del clasificador guardada en cada entrada del indice.
 /// 3.2.1: 3 (normalizacion de dieresis: niveles 2-4 se recalculan una vez).
@@ -2372,7 +2374,7 @@ String? trackBlockKey(String path) {
   return key;
 }
 
-/// Indice rapido `difogo_track_genre_index.json`: clave = ruta normalizada,
+/// Indice rapido `gatomix_track_genre_index.json`: clave = ruta normalizada,
 /// valido mientras el `mtime` no cambie.
 class TrackGenreIndex {
   TrackGenreIndex(this.path, [Map<String, Map<String, Object?>>? tracks])

@@ -227,7 +227,7 @@ class MasterTrack {
             path: current,
             trimHeadMs: 0,
             lyric: null,
-            detail: 'Sin masterizar: empalme persistente (difogo_empalmes.log)',
+            detail: 'Sin masterizar: empalme persistente (gatomix_empalmes.log)',
             stopped: true,
           );
         }

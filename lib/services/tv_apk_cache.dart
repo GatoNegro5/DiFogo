@@ -14,7 +14,7 @@ const String kTvApkName = 'gatomix-tv.apk';
 
 /// APK compilado por el CI en el ultimo release.
 const String kTvApkUrl =
-    'https://github.com/GatoNegro5/DiFogo/releases/latest/download/$kTvApkName';
+    'https://github.com/GatoNegro5/Gatomix/releases/latest/download/$kTvApkName';
 
 /// Un APK valido pesa mas de 10 MB (el real ronda 90 MB).
 const int kTvApkMinBytes = 10 * 1024 * 1024;

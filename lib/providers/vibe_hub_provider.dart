@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/discovery_dedup_controller.dart';
+import '../core/brand_paths.dart' show migrateBrandFile, kGenreSessionsName, kOldGenreSessionsName;
 import '../core/dj_trace.dart' show djTrace;
 import '../core/folder_sets.dart';
 import '../core/gatomix_radio.dart' show warmHarmonicDna, kDnaWarmWait;
@@ -67,7 +68,7 @@ const int kDiscoveryEvery = 3;
 
 String genreSessionsPath() =>
     debugStationSessionsPath ??
-    '${sessionDir()}${Platform.pathSeparator}difogo_genre_sessions.json';
+    migrateBrandFile(sessionDir(), kOldGenreSessionsName, kGenreSessionsName);
 
 /// Lo que suena en Live DJ (pista, segundo y cola restante).
 class StationLive {
@@ -169,7 +170,7 @@ const int kStationSaveEverySec = 5;
 @visibleForTesting
 void Function(String msg)? debugStationTrace;
 
-/// 3.2.31: cada cambio de estacion queda en difogo_livedj_trace.txt con su
+/// 3.2.31: cada cambio de estacion queda en gatomix_livedj_trace.txt con su
 /// origen (quien llamo), para cazar cualquier cambio "fantasma".
 void _stationTrace(String msg) {
   final void Function(String)? h = debugStationTrace;
@@ -422,7 +423,7 @@ class VibeHubNotifier extends Notifier<VibeHubState> {
   bool _loading = false;
 
   // 3.2.6: el progreso de cada estacion vive en persistent_lists.json
-  // (genre:<estacion>, lista completa). difogo_genre_sessions.json queda
+  // (genre:<estacion>, lista completa). gatomix_genre_sessions.json queda
   // como puente: vistos y estacion elegida, espejo para versiones viejas y
   // migracion de lectura cuando la lista aun no existe.
   PersistentLists? _listsView;
