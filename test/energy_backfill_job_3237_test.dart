@@ -1,0 +1,68 @@
+import 'dart:io';
+
+import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:difogo/core/track_energy.dart';
+import 'package:difogo/src/rust/frb_generated.dart';
+
+/// Job de una sola pasada, no entra en la bateria de 30s.
+/// Corre solo con GMX_ENERGY_BACKFILL=1 (laptop, biblioteca real).
+/// Escribe unicamente en el espejo folder_cache. Nunca en ReGenial.
+
+String _rustLib() {
+  const String dir = 'rust/target/release';
+  if (Platform.isWindows) return '$dir/rust_lib_gatomix_player.dll';
+  if (Platform.isMacOS) return '$dir/librust_lib_gatomix_player.dylib';
+  return '$dir/librust_lib_gatomix_player.so';
+}
+
+void main() {
+  final bool run = Platform.environment['GMX_ENERGY_BACKFILL'] == '1';
+  final String lib = _rustLib();
+  final bool hasLib = File(lib).existsSync();
+
+  test(
+    'backfill energia y Camelot de ReGenial (espejo)',
+    () async {
+      if (!run) return;
+      if (!hasLib) {
+        fail('sin libreria Rust compilada: $lib');
+      }
+      if (!RustLib.instance.initialized) {
+        await RustLib.init(externalLibrary: ExternalLibrary.open(lib));
+      }
+      final String? up = Platform.environment['USERPROFILE'];
+      final String home = Platform.environment['HOME'] ?? '';
+      final String root = Platform.isWindows
+          ? '${up ?? 'C:\\\\Users'}\\Music\\ReGenial'
+          : '$home/Music/ReGenial';
+      if (!Directory(root).existsSync()) {
+        fail('no esta ReGenial en $root');
+      }
+      final File logFile = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}gmx_energy_backfill.log',
+      );
+      final IOSink sink = logFile.openWrite(mode: FileMode.write);
+      void log(String line) {
+        // ignore: avoid_print
+        print(line);
+        sink.writeln(line);
+      }
+
+      log('inicio ${DateTime.now().toIso8601String()} root=$root');
+      final EnergyBackfillReport r = await backfillLibraryEnergy(
+        root: root,
+        log: log,
+        blockSize: 25,
+      );
+      await sink.flush();
+      await sink.close();
+      expect(r.scanned, greaterThan(0));
+      // Al menos una parte de la biblioteca queda con nivel.
+      expect(r.withLevel, greaterThan(0));
+      log('reporte ${r.toString()}');
+    },
+    skip: run ? false : 'job: export GMX_ENERGY_BACKFILL=1',
+    timeout: const Timeout(Duration(minutes: 60)),
+  );
+}

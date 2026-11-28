@@ -1426,7 +1426,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       (List<String> tail, String? from) => buildHarmonicShuffle(
         tail,
         knownBpm,
-        keyOf: camelotFromPath,
+        keyOf: harmonicKeyOf,
         continueFrom: from,
         // 3.2.1: micro-bloques de sub-genero/idioma tambien en el reorden.
         subOf: harmonicBlockOf,
@@ -2988,7 +2988,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
         playing: state.currentTrackPath,
         previous: _radioPrevious,
         bpmOf: memoryBpm,
-        keyOf: camelotFromPath,
+        keyOf: harmonicKeyOf,
         rng: _radioRng,
         allowRebuild: false,
       );
@@ -3425,7 +3425,7 @@ class LiveDjNotifier extends Notifier<LiveDjState> {
       playing: state.currentTrackPath,
       previous: _radioPrevious,
       bpmOf: bpmOf ?? memoryBpm,
-      keyOf: camelotFromPath,
+      keyOf: harmonicKeyOf,
       rng: _radioRng,
       allowRebuild: false,
     );
@@ -4553,7 +4553,7 @@ Map<String, Object?> shuffleOffUi(Map<String, Object?> msg) {
   final HarmonicOrder order = buildHarmonicShuffle(
     paths,
     knownBpm,
-    keyOf: camelotFromPath,
+    keyOf: harmonicKeyOf,
     usedPairs: wave.pairs,
     recentAge: wave.age,
     playing: playing,

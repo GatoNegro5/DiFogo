@@ -756,7 +756,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
     final HarmonicOrder built = buildHarmonicShuffle(
       paths,
       _extractBpm,
-      keyOf: camelotFromPath,
+      keyOf: harmonicKeyOf,
       usedPairs: wave.pairs,
       recentAge: wave.age,
       playing: playing,
@@ -1492,7 +1492,7 @@ class AutomixNotifier extends Notifier<AutomixState> {
       (List<String> tail, String? from) => buildHarmonicShuffle(
         tail,
         _extractBpm,
-        keyOf: camelotFromPath,
+        keyOf: harmonicKeyOf,
         continueFrom: from,
         subOf: harmonicBlockOf,
         dnaOf: harmonicDnaOf,

@@ -523,7 +523,8 @@ String? radioQuickNext({
   return pickHarmonicNext(
     cands,
     bpm,
-    keyOf: keyOf ?? camelotFromPath,
+    keyOf: keyOf ?? harmonicKeyOf,
+    dnaOf: liveHarmonicDnaOf,
     anchor: anchor,
     anchorBpm: anchor == null ? 0 : bpm(anchor),
     rng: rng,
@@ -1199,7 +1200,14 @@ Map<String, List<Object?>> harmonicDnaPayload(Iterable<String> paths) {
   for (final String p in paths) {
     final HarmonicDna? d = harmonicDnaOf(p);
     if (d == null) continue;
-    out[p] = <Object?>[d.energy, d.brightness, d.beatDensity, d.lang];
+    out[p] = <Object?>[
+      d.energy,
+      d.brightness,
+      d.beatDensity,
+      d.lang,
+      d.energyLevel,
+      d.camelot,
+    ];
   }
   return out;
 }
@@ -1214,11 +1222,19 @@ void primeHarmonicDna(Object? payload) {
     final Object? v = e.value;
     if (k is! String || v is! List || v.length < 4) continue;
     final Object? lang = v[3];
+    final int? level = v.length >= 5 && v[4] is int && v[4] >= 1 && v[4] <= 10
+        ? v[4] as int
+        : (v.length >= 5 && v[4] is num
+              ? (v[4] as num).round().clamp(1, 10)
+              : null);
+    final Object? cam = v.length >= 6 ? v[5] : null;
     _offUiDna[audioPathKey(k)] = HarmonicDna(
       energy: num01(v[0]),
       brightness: num01(v[1]),
       beatDensity: num01(v[2]),
       lang: lang is String && lang.isNotEmpty ? lang : null,
+      energyLevel: level,
+      camelot: cam is String && cam.trim().isNotEmpty ? cam.trim() : null,
     );
   }
 }

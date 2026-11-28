@@ -3,7 +3,7 @@ import 'dart:math';
 import 'gatomix_radio.dart' show warmHarmonicDna, kDnaWarmWait;
 import 'genre_stations.dart'
     show stationPathKey, stationSmartShuffle, trackBlockKey;
-import 'livedj_order.dart' show HarmonicDna, camelotFromPath, harmonicDnaOf;
+import 'livedj_order.dart' show HarmonicDna, harmonicDnaOf, harmonicKeyOf;
 import 'persistent_lists.dart';
 import 'queue_bpm.dart' show memoryBpm, preloadQueueBpmAsync;
 
@@ -226,7 +226,7 @@ List<String> folderSetEnergyOrder(List<String> set, {String? after}) =>
       set,
       after: after,
       bpmOf: memoryBpm,
-      keyOf: camelotFromPath,
+      keyOf: harmonicKeyOf,
       dnaOf: harmonicDnaOf,
     );
 

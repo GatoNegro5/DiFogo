@@ -4,6 +4,8 @@ import 'audio_path.dart';
 import 'gatomix_store.dart' show peekTrackDna, TrackDnaEntry;
 import 'genre_stations.dart' show stationArtistKey, trackBlockKey;
 import 'queue_bpm.dart';
+import 'track_energy.dart'
+    show energyJumpOk, harmonicEnergyScore, isCamelotKey, kCamelotUnknown;
 import 'track_name_clean.dart';
 
 /// Orden de la cola de Live DJ en modo Secuencial.
@@ -75,11 +77,16 @@ class HarmonicDna {
     this.brightness,
     this.beatDensity,
     this.lang,
+    this.energyLevel,
+    this.camelot,
   });
   final double? energy;
   final double? brightness;
   final double? beatDensity;
   final String? lang;
+  // 3.2.37: nivel 1-10 y clave Camelot (aparte del cap +-20).
+  final int? energyLevel;
+  final String? camelot;
 }
 
 /// 3.2.4: tope suave del ADN (+-20): BPM, ola y micro-bloques siguen mandando.
@@ -92,7 +99,9 @@ HarmonicDna? harmonicDnaOf(String path) {
   if (d.energy == null &&
       d.brightness == null &&
       d.beatDensity == null &&
-      d.lang == null) {
+      d.lang == null &&
+      d.energyLevel == null &&
+      d.camelot == null) {
     return null;
   }
   return HarmonicDna(
@@ -100,6 +109,8 @@ HarmonicDna? harmonicDnaOf(String path) {
     brightness: d.brightness,
     beatDensity: d.beatDensity,
     lang: d.lang,
+    energyLevel: d.energyLevel,
+    camelot: isCamelotKey(d.camelot) ? d.camelot : null,
   );
 }
 
@@ -331,6 +342,19 @@ HarmonicOrder buildHarmonicShuffle(
       final List<String> side = known.where(along).toList();
       cands = <String>[_closest(side.isEmpty ? known : side, bpmOf, cur)];
     }
+    if (dnaOf != null) {
+      final int? lv = dnaOf(current)?.energyLevel;
+      if (lv != null) {
+        bool legal(String p) => energyJumpOk(lv, dnaOf(p)?.energyLevel);
+        final List<String> inWin = cands.where(legal).toList();
+        if (inWin.isNotEmpty) {
+          cands = inWin;
+        } else {
+          final List<String> all = known.where(legal).toList();
+          if (all.isNotEmpty) cands = all;
+        }
+      }
+    }
     final String pick = _pickTop3(
       cands,
       current,
@@ -354,7 +378,57 @@ HarmonicOrder buildHarmonicShuffle(
   }
   unknown.shuffle(random);
   order.addAll(unknown);
-  return HarmonicOrder(order, waveUp: up, inWave: inWave);
+  return HarmonicOrder(
+    _repairEnergyChain(order, dnaOf),
+    waveUp: up,
+    inWave: inWave,
+  );
+}
+
+/// Si quedo un salto de energia > 2, rehace la cola desde la primera
+/// con nivel, eligiendo siempre la restante mas cercana en nivel.
+List<String> _repairEnergyChain(
+  List<String> order,
+  HarmonicDna? Function(String path)? dnaOf,
+) {
+  if (dnaOf == null || order.length < 2) return order;
+  var bad = false;
+  for (var i = 1; i < order.length; i++) {
+    final int? a = dnaOf(order[i - 1])?.energyLevel;
+    final int? b = dnaOf(order[i])?.energyLevel;
+    if (a != null && b != null && (b - a).abs() > 2) {
+      bad = true;
+      break;
+    }
+  }
+  if (!bad) return order;
+  final int start = order.indexWhere(
+    (String p) => dnaOf(p)?.energyLevel != null,
+  );
+  if (start < 0) return order;
+  final List<String> prefix = order.sublist(0, start);
+  final List<String> withLv = <String>[
+    for (final String p in order.sublist(start))
+      if (dnaOf(p)?.energyLevel != null) p,
+  ];
+  final List<String> noLv = <String>[
+    for (final String p in order.sublist(start))
+      if (dnaOf(p)?.energyLevel == null) p,
+  ];
+  if (withLv.length < 2) return order;
+  int lv(String p) => dnaOf(p)!.energyLevel!;
+  final List<(int, int, String)> keyed = <(int, int, String)>[
+    for (var i = 0; i < withLv.length; i++) (lv(withLv[i]), i, withLv[i]),
+  ];
+  keyed.sort(((int, int, String) a, (int, int, String) b) {
+    final int c = a.$1.compareTo(b.$1);
+    return c != 0 ? c : a.$2.compareTo(b.$2);
+  });
+  return <String>[
+    ...prefix,
+    for (final (int, int, String) e in keyed) e.$3,
+    ...noLv,
+  ];
 }
 
 String _closest(
@@ -391,8 +465,24 @@ String _pickTop3(
 }) {
   final String? ka = keyOf?.call(current);
   final HarmonicDna? da = dnaOf?.call(current);
+  List<String> pool = cands;
+  if (dnaOf != null) {
+    final List<String> withLv = <String>[
+      for (final String p in cands)
+        if (dnaOf(p)?.energyLevel != null) p,
+    ];
+    if (withLv.isNotEmpty) pool = withLv;
+    final int? lv = da?.energyLevel;
+    if (lv != null) {
+      final List<String> legal = <String>[
+        for (final String p in pool)
+          if (energyJumpOk(lv, dnaOf(p)?.energyLevel)) p,
+      ];
+      if (legal.isNotEmpty) pool = legal;
+    }
+  }
   final List<(String, double)> scored = <(String, double)>[];
-  for (final String p in cands) {
+  for (final String p in pool) {
     final double bpm = bpmOf(p);
     final double dist = (bpm - cur).abs();
     double score = (12 - dist) * 8;
@@ -411,7 +501,15 @@ String _pickTop3(
     final int? age = recentAge[audioPathKey(p, foldCase: foldCase)];
     if (age != null && age >= 1 && age <= 8) score -= (9 - age) * 22;
     score += harmonicContinuityScore(current, p, subOf: subOf, run: run);
-    if (dnaOf != null) score += harmonicDnaScore(da, dnaOf(p));
+    if (dnaOf != null) {
+      final HarmonicDna? db = dnaOf(p);
+      score += harmonicDnaScore(da, db);
+      score += harmonicEnergyScore(
+        da?.energyLevel,
+        db?.energyLevel,
+        waveUp: up,
+      );
+    }
     scored.add((p, score));
   }
   scored.sort((a, b) => b.$2.compareTo(a.$2));
@@ -652,7 +750,14 @@ HarmonicOrder _harmonicRest({
     if (cur.artist.isNotEmpty && cur.artist == t.artist) {
       score -= kHarmonicSameArtistPenalty;
     }
-    if (dnaOf != null) score += harmonicDnaScore(cur.dna, t.dna);
+    if (dnaOf != null) {
+      score += harmonicDnaScore(cur.dna, t.dna);
+      score += harmonicEnergyScore(
+        cur.dna?.energyLevel,
+        t.dna?.energyLevel,
+        waveUp: up,
+      );
+    }
     return score;
   }
 
@@ -752,6 +857,22 @@ HarmonicOrder _harmonicRest({
     List<int> ids = ageMatters ? scanWindow(4) : indexedWindow(4);
     if (ids.isEmpty) ids = ageMatters ? scanWindow(8) : indexedWindow(8);
     if (ids.isEmpty) ids = ageMatters ? scanWindow(12) : indexedWindow(12);
+    if (dnaOf != null) {
+      final int? lv = current.dna?.energyLevel;
+      if (lv != null) {
+        bool legal(int id) => energyJumpOk(lv, pool[id].dna?.energyLevel);
+        final List<int> inWin = ids.where(legal).toList();
+        if (inWin.isNotEmpty) {
+          ids = inWin;
+        } else {
+          final List<int> all = <int>[
+            for (var i = 0; i < pool.length; i++)
+              if (alive[i] && legal(i)) i,
+          ];
+          if (all.isNotEmpty) ids = all;
+        }
+      }
+    }
     int? pick;
     if (ids.isEmpty) {
       bool along(_Tr t) {
@@ -787,13 +908,24 @@ HarmonicOrder _harmonicRest({
   }
   unknown.shuffle(random);
   order.addAll(unknown);
-  return HarmonicOrder(order, waveUp: up, inWave: inWave);
+  return HarmonicOrder(
+    _repairEnergyChain(order, dnaOf),
+    waveUp: up,
+    inWave: inWave,
+  );
 }
 
 /// Tonalidad del nombre o, si no viene, la guardada en `.gatomix.json`.
 String? harmonicKeyOf(String path) {
   final String? named = camelotFromPath(path);
   if (named != null && named.isNotEmpty) return named;
+  final String? dnaKey = peekTrackDna(path)?.camelot;
+  if (dnaKey != null &&
+      dnaKey.trim().isNotEmpty &&
+      dnaKey.trim() != kCamelotUnknown) {
+    final (int, String)? parsed = _camelot(dnaKey);
+    if (parsed != null) return '${parsed.$1}${parsed.$2}';
+  }
   final String? stored = readStoredCamelot(path);
   if (stored == null) return null;
   final (int, String)? parsed = _camelot(stored);
@@ -808,6 +940,7 @@ String? pickHarmonicNext(
   List<String> candidates,
   double Function(String path) bpmOf, {
   String? Function(String path)? keyOf,
+  HarmonicDna? Function(String path)? dnaOf,
   String? anchor,
   double anchorBpm = 0,
   bool waveUp = true,
@@ -854,6 +987,19 @@ String? pickHarmonicNext(
     final List<String> side = known.where(along).toList();
     cands = <String>[_closest(side.isEmpty ? known : side, bpmOf, cur)];
   }
+  if (dnaOf != null) {
+    final int? lv = dnaOf(anchorPath)?.energyLevel;
+    if (lv != null) {
+      bool legal(String p) => energyJumpOk(lv, dnaOf(p)?.energyLevel);
+      final List<String> inWin = cands.where(legal).toList();
+      if (inWin.isNotEmpty) {
+        cands = inWin;
+      } else {
+        final List<String> all = known.where(legal).toList();
+        if (all.isNotEmpty) cands = all;
+      }
+    }
+  }
   return _pickTop3(
     cands,
     anchorPath,
@@ -865,6 +1011,7 @@ String? pickHarmonicNext(
     recentAge,
     random,
     foldCase,
+    dnaOf: dnaOf,
   );
 }
 

@@ -767,6 +767,10 @@ class TrackDnaEntry {
   final String? lang;
   final int? mtimeMs;
 
+  /// 3.2.37: nivel 1-10 (compuesto) y clave Camelot; van al espejo.
+  final int? energyLevel;
+  final String? camelot;
+
   const TrackDnaEntry({
     this.energy,
     this.bassRatio,
@@ -776,6 +780,8 @@ class TrackDnaEntry {
     this.year,
     this.lang,
     this.mtimeMs,
+    this.energyLevel,
+    this.camelot,
   });
 
   bool get isEmpty =>
@@ -786,7 +792,9 @@ class TrackDnaEntry {
       genre == null &&
       year == null &&
       lang == null &&
-      mtimeMs == null;
+      mtimeMs == null &&
+      energyLevel == null &&
+      camelot == null;
 
   /// [newer] gana campo a campo; lo que trae nulo se conserva.
   TrackDnaEntry mergedWith(TrackDnaEntry newer) => TrackDnaEntry(
@@ -798,6 +806,8 @@ class TrackDnaEntry {
     year: newer.year ?? year,
     lang: newer.lang ?? lang,
     mtimeMs: newer.mtimeMs ?? mtimeMs,
+    energyLevel: newer.energyLevel ?? energyLevel,
+    camelot: newer.camelot ?? camelot,
   );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -809,6 +819,10 @@ class TrackDnaEntry {
     if (year != null && year! > 0) 'year': year,
     if (whisperLangCode(lang) != null) 'lang': whisperLangCode(lang),
     if (mtimeMs != null && mtimeMs! > 0) 'mtimeMs': mtimeMs,
+    if (energyLevel != null && energyLevel! >= 1 && energyLevel! <= 10)
+      'energyLevel': energyLevel,
+    if (camelot != null && camelot!.trim().isNotEmpty)
+      'camelot': camelot!.trim(),
   };
 
   static TrackDnaEntry? fromJson(Object? raw) {
@@ -833,6 +847,14 @@ class TrackDnaEntry {
       year: i('year'),
       lang: whisperLangCode(raw['lang']),
       mtimeMs: i('mtimeMs'),
+      energyLevel: () {
+        final int? n = i('energyLevel');
+        return n != null && n >= 1 && n <= 10 ? n : null;
+      }(),
+      camelot: () {
+        final Object? c = raw['camelot'];
+        return c is String && c.trim().isNotEmpty ? c.trim() : null;
+      }(),
     );
   }
 }
