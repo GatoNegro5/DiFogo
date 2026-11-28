@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -90,7 +91,8 @@ double bpmNormForEnergy(double bpm) {
 }
 
 /// 40% densidad de beat, 15% BPM, 20% brillo, 25% RMS (energy de TrackDna).
-int compositeEnergyLevel({
+/// Valor bruto 0-1; el nivel 1-10 se deriva con [EnergyScale] (deciles).
+double compositeEnergyRaw({
   required double rmsEnergy,
   required double beatDensity,
   required double brightness,
@@ -99,9 +101,27 @@ int compositeEnergyLevel({
   final double e = rmsEnergy.clamp(0.0, 1.0);
   final double d = beatDensity.clamp(0.0, 1.0);
   final double b = brightness.clamp(0.0, 1.0);
-  final double c =
-      0.40 * d + 0.15 * bpmNormForEnergy(bpm) + 0.20 * b + 0.25 * e;
-  return (c * 9.0).round().clamp(0, 9) + 1;
+  return 0.40 * d + 0.15 * bpmNormForEnergy(bpm) + 0.20 * b + 0.25 * e;
+}
+
+/// Mapeo lineal de respaldo (si no hay escala de la biblioteca).
+int linearEnergyLevel(double raw) =>
+    (raw.clamp(0.0, 1.0) * 9.0).round().clamp(0, 9) + 1;
+
+int compositeEnergyLevel({
+  required double rmsEnergy,
+  required double beatDensity,
+  required double brightness,
+  required double bpm,
+  EnergyScale? scale,
+}) {
+  final double raw = compositeEnergyRaw(
+    rmsEnergy: rmsEnergy,
+    beatDensity: beatDensity,
+    brightness: brightness,
+    bpm: bpm,
+  );
+  return scale == null ? linearEnergyLevel(raw) : scale.levelOf(raw);
 }
 
 /// Salto de energia entre dos temas. Subir 1 hacia el pico vale tanto
@@ -149,12 +169,14 @@ String? camelotFromFileName(String path) {
   return all.last.group(1)!.toUpperCase();
 }
 
-/// Necesita relleno si falta el nivel o el mtime no coincide.
 /// Marca de "se intento y no se pudo": no rehacer el decode.
 const String kCamelotUnknown = '-';
 
+/// Necesita relleno (posible decode) si falta el compuesto bruto o el mtime.
+/// Con [energyRaw] fresco no se vuelve a decodificar; el nivel se reasigna
+/// con [relevelLibraryEnergy].
 bool trackEnergyNeedsFill(TrackDnaEntry? cur, int mtimeMs) {
-  if (cur == null || cur.energyLevel == null) return true;
+  if (cur == null || cur.energyRaw == null) return true;
   if (mtimeMs > 0 && cur.mtimeMs != null && cur.mtimeMs != mtimeMs) {
     return true;
   }
@@ -168,17 +190,24 @@ bool trackCamelotNeedsFill(TrackDnaEntry? cur) {
   return true;
 }
 
-int? levelFromStored(TrackDnaEntry? cur, double bpm) {
+double? rawFromStored(TrackDnaEntry? cur, double bpm) {
   if (cur == null) return null;
+  if (cur.energyRaw != null) return cur.energyRaw!.clamp(0.0, 1.0);
   if (cur.energy == null || cur.beatDensity == null || cur.brightness == null) {
     return null;
   }
-  return compositeEnergyLevel(
+  return compositeEnergyRaw(
     rmsEnergy: cur.energy!,
     beatDensity: cur.beatDensity!,
     brightness: cur.brightness!,
     bpm: bpm,
   );
+}
+
+int? levelFromStored(TrackDnaEntry? cur, double bpm, {EnergyScale? scale}) {
+  final double? raw = rawFromStored(cur, bpm);
+  if (raw == null) return null;
+  return scale == null ? linearEnergyLevel(raw) : scale.levelOf(raw);
 }
 
 /// PCM s16le mono -> 12 bins de clase de altura (C..B).
@@ -292,6 +321,105 @@ Future<String?> detectCamelotFromAudio(
 
 /// Rellena energyLevel y camelot en el espejo. Nunca escribe junto al audio.
 /// Si las metricas Rust ya estan frescas, no vuelve a llamar track_dna.
+/// Escala 1-10 por deciles del compuesto bruto de la biblioteca.
+class EnergyScale {
+  const EnergyScale(this.cuts);
+
+  /// Cortes en los percentiles 10, 20, ..., 90 (9 valores, ordenados).
+  final List<double> cuts;
+
+  static EnergyScale? _mem;
+
+  bool get isValid => cuts.length == 9 && cuts.every((double c) => c.isFinite);
+
+  int levelOf(double raw) {
+    if (!isValid) return linearEnergyLevel(raw);
+    final double r = raw.clamp(0.0, 1.0);
+    for (int i = 0; i < cuts.length; i++) {
+      if (r <= cuts[i]) return i + 1;
+    }
+    return 10;
+  }
+
+  static EnergyScale fitDeciles(Iterable<double> raws) {
+    final List<double> xs = <double>[
+      for (final double v in raws)
+        if (v.isFinite) v.clamp(0.0, 1.0),
+    ]..sort();
+    if (xs.length < 10) {
+      return const EnergyScale(<double>[
+        0.1,
+        0.2,
+        0.3,
+        0.4,
+        0.5,
+        0.6,
+        0.7,
+        0.8,
+        0.9,
+      ]);
+    }
+    final List<double> cuts = <double>[
+      for (int p = 10; p <= 90; p += 10) _percentile(xs, p / 100.0),
+    ];
+    return EnergyScale(cuts);
+  }
+
+  static double _percentile(List<double> sorted, double q) {
+    if (sorted.isEmpty) return 0;
+    final double x = q * (sorted.length - 1);
+    final int lo = x.floor().clamp(0, sorted.length - 1);
+    final int hi = x.ceil().clamp(0, sorted.length - 1);
+    if (lo == hi) return sorted[lo];
+    final double t = x - lo;
+    return sorted[lo] * (1 - t) + sorted[hi] * t;
+  }
+
+  static File scaleFile() => File(
+    '${libraryCacheRoot()}${Platform.pathSeparator}energy_scale.gatomix.json',
+  );
+
+  static EnergyScale? peek() => _mem;
+
+  static EnergyScale? load() {
+    if (_mem != null) return _mem;
+    try {
+      final File f = scaleFile();
+      if (!f.existsSync()) return null;
+      _mem = fromJson(jsonDecode(f.readAsStringSync()));
+    } catch (_) {}
+    return _mem;
+  }
+
+  static Future<void> save(EnergyScale scale, {int count = 0}) async {
+    _mem = scale;
+    final File f = scaleFile();
+    await f.parent.create(recursive: true);
+    await f.writeAsString(
+      jsonEncode(<String, Object?>{
+        'schema': 1,
+        'count': count,
+        'cuts': scale.cuts,
+      }),
+    );
+  }
+
+  static EnergyScale? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final Object? c = raw['cuts'];
+    if (c is! List) return null;
+    final List<double> cuts = <double>[
+      for (final Object? v in c)
+        if (v is num && v.isFinite) v.toDouble(),
+    ];
+    final EnergyScale s = EnergyScale(cuts);
+    return s.isValid ? s : null;
+  }
+
+  /// Solo pruebas.
+  static void debugReset() => _mem = null;
+}
+
 Future<TrackDnaEntry?> fillTrackEnergyIfStale(String path) async {
   if (path.isEmpty || isKaraokeAudioPath(path)) return peekTrackDna(path);
   if (!isLibraryPath(path)) return peekTrackDna(path);
@@ -316,7 +444,11 @@ Future<TrackDnaEntry?> fillTrackEnergyIfStale(String path) async {
     }
 
     final double bpm = memoryBpm(path);
-    final int? level = needLevel ? levelFromStored(cur, bpm) : cur?.energyLevel;
+    final double? raw = rawFromStored(cur, bpm);
+    final EnergyScale? scale = EnergyScale.load();
+    final int? level = raw == null
+        ? null
+        : (scale == null ? linearEnergyLevel(raw) : scale.levelOf(raw));
 
     String? camelot = normalizeCamelot(cur?.camelot);
     camelot ??= normalizeCamelot(camelotFromFileName(path));
@@ -328,11 +460,12 @@ Future<TrackDnaEntry?> fillTrackEnergyIfStale(String path) async {
     final String? camelotStamp =
         camelot ?? (needKey ? kCamelotUnknown : cur?.camelot);
 
-    if (level == null && camelotStamp == null) return cur;
+    if (level == null && raw == null && camelotStamp == null) return cur;
 
     final TrackDnaEntry next = (cur ?? const TrackDnaEntry()).mergedWith(
       TrackDnaEntry(
         energyLevel: level,
+        energyRaw: raw,
         camelot: camelotStamp,
         mtimeMs: mtimeMs > 0 ? mtimeMs : cur?.mtimeMs,
       ),
@@ -409,6 +542,85 @@ Future<EnergyBackfillReport> backfillLibraryEnergy({
       inBlock = 0;
       log('progreso: ${r.toString()}');
     }
+  }
+  log('listo: ${r.toString()}');
+  return r;
+}
+
+class EnergyRelevelReport {
+  int scanned = 0;
+  int withRaw = 0;
+  int updated = 0;
+  int missing = 0;
+  final List<int> histogram = List<int>.filled(10, 0);
+  List<double> cuts = const <double>[];
+
+  String histogramLine() {
+    final StringBuffer b = StringBuffer('dist');
+    for (int i = 0; i < 10; i++) {
+      b.write(' E${i + 1}=${histogram[i]}');
+    }
+    return b.toString();
+  }
+
+  @override
+  String toString() =>
+      'scanned=$scanned withRaw=$withRaw updated=$updated missing=$missing '
+      '${histogramLine()}';
+}
+
+/// Recorre el espejo (sin decodificar audio): completa [energyRaw] barato
+/// desde metricas + BPM, ajusta deciles y reescribe [energyLevel].
+Future<EnergyRelevelReport> relevelLibraryEnergy({
+  required String root,
+  required void Function(String line) log,
+}) async {
+  final EnergyRelevelReport r = EnergyRelevelReport();
+  EnergyScale.debugReset();
+  if (root.isEmpty) return r;
+  final List<String> paths = await listLibraryAudioAsync(<String>[root]);
+  paths.sort();
+  log('relevel: ${paths.length} audios bajo $root');
+  final List<(String, double, int?)> pending = <(String, double, int?)>[];
+  for (final String path in paths) {
+    if (isKaraokeAudioPath(path) || !isLibraryPath(path)) continue;
+    r.scanned++;
+    try {
+      await warmTrackDnaDir(File(path).parent.path);
+      final TrackDnaEntry? cur = peekTrackDna(path);
+      final double bpm = memoryBpm(path);
+      final double? raw = rawFromStored(cur, bpm);
+      if (raw == null) {
+        r.missing++;
+        continue;
+      }
+      r.withRaw++;
+      pending.add((path, raw, cur?.mtimeMs));
+      if (cur?.energyRaw == null) {
+        await saveTrackDna(
+          path,
+          TrackDnaEntry(energyRaw: raw, mtimeMs: cur?.mtimeMs),
+        );
+      }
+    } catch (e) {
+      r.missing++;
+      log('relevel fail: $path $e');
+    }
+  }
+  final EnergyScale scale = EnergyScale.fitDeciles(<double>[
+    for (final (String, double, int?) e in pending) e.$2,
+  ]);
+  await EnergyScale.save(scale, count: pending.length);
+  r.cuts = scale.cuts;
+  log('escala cortes=${scale.cuts}');
+  for (final (String path, double raw, int? mtime) in pending) {
+    final int level = scale.levelOf(raw);
+    r.histogram[level - 1]++;
+    await saveTrackDna(
+      path,
+      TrackDnaEntry(energyRaw: raw, energyLevel: level, mtimeMs: mtime),
+    );
+    r.updated++;
   }
   log('listo: ${r.toString()}');
   return r;

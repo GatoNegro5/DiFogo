@@ -59,14 +59,56 @@ void main() {
         log: log,
         blockSize: 25,
       );
+      log('reporte ${r.toString()}');
+      final EnergyRelevelReport rel = await relevelLibraryEnergy(
+        root: root,
+        log: log,
+      );
+      log('relevel ${rel.toString()}');
       await sink.flush();
       await sink.close();
       expect(r.scanned, greaterThan(0));
       // Al menos una parte de la biblioteca queda con nivel.
-      expect(r.withLevel, greaterThan(0));
-      log('reporte ${r.toString()}');
+      expect(r.withLevel + rel.withRaw, greaterThan(0));
     },
     skip: run ? false : 'job: export GMX_ENERGY_BACKFILL=1',
     timeout: const Timeout(Duration(minutes: 60)),
+  );
+
+  final bool relevelOnly = Platform.environment['GMX_ENERGY_RELEVEL'] == '1';
+  test(
+    'relevel deciles del espejo (sin decode)',
+    () async {
+      if (!relevelOnly) return;
+      final String? up = Platform.environment['USERPROFILE'];
+      final String home = Platform.environment['HOME'] ?? '';
+      final String root = Platform.isWindows
+          ? '${up ?? 'C:\\Users'}\\Music\\ReGenial'
+          : '$home/Music/ReGenial';
+      if (!Directory(root).existsSync()) {
+        fail('no esta ReGenial en $root');
+      }
+      final File logFile = File(
+        '${Directory.systemTemp.path}${Platform.pathSeparator}gmx_energy_backfill.log',
+      );
+      final IOSink sink = logFile.openWrite(mode: FileMode.append);
+      void log(String line) {
+        // ignore: avoid_print
+        print(line);
+        sink.writeln(line);
+      }
+
+      log('relevel-only ${DateTime.now().toIso8601String()} root=$root');
+      final EnergyRelevelReport rel = await relevelLibraryEnergy(
+        root: root,
+        log: log,
+      );
+      await sink.flush();
+      await sink.close();
+      expect(rel.withRaw, greaterThan(0));
+      log('relevel ${rel.toString()}');
+    },
+    skip: relevelOnly ? false : 'job: export GMX_ENERGY_RELEVEL=1',
+    timeout: const Timeout(Duration(minutes: 10)),
   );
 }

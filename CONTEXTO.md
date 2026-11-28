@@ -981,3 +981,9 @@ Plataformas (Win | Mac | Android | iPhone): .
   Se mueve/compacta: el explorador de arbol del modo clasico queda detras de las cards; la columna de archivos de la carpeta deja de ocupar la cola.
   Se elimina: el mensaje "Carpeta vacia o sin MP3" y el thumb de 5 px de la barra compacta.
   Riesgo: bajo. Si ReGenial no esta, las cards muestran un vacio claro. El set de carpetas multiples comparte una lista persistente combinada.
+
+- 3.2.39 (pubspec `3.2.39+30239`, fase energia): Pedido: recalibrar la escala 1-10 (cobertura parcial E4=11, E5=176, E6=23, escala comprimida). Causa: el mapeo lineal del compuesto ~0.5 caia casi todo en E5 y el encadenamiento no distinguia suave de fuerte. Cambio: se guarda el compuesto bruto (`energyRaw`) en el espejo; el nivel 1-10 se deriva por deciles (cortes p10..p90) persistidos en `energy_scale.gatomix.json`; si el bruto ya esta, no se vuelve a decodificar el audio; si solo hay metricas+BPM, se recalcula barato y `relevelLibraryEnergy` reasigna niveles. El backfill se retoma con `GMX_ENERGY_BACKFILL=1`; hay pasada barata `GMX_ENERGY_RELEVEL=1`. Prueba: deciles de 100 valores uniformes en E1..E10; fill barato sin decode; relevel de 20 temas reparte y no satura un cubo. Plataformas (Win | Mac | Android | iPhone): Win si (Dart, espejo local) | Mac si (Dart) | Android si (Dart) | iPhone si (Dart); sin validar en equipo.
+  Se conserva: formula del compuesto (40/15/20/25), scoring y salto maximo 2 de 3.2.37, FFI/FRB, Camelot.
+  Se mueve/compacta: `energyLevel` pasa a ser derivado de `energyRaw` + escala de biblioteca (el lineal queda de respaldo).
+  Se elimina: nada.
+  Riesgo: bajo. Hasta que corra el relevel, temas con nivel lineal siguen encadenando; el fill no re-decodea si hay metricas.

@@ -111,6 +111,7 @@ void main() {
   test('TrackDnaEntry json y fill desde metricas en el espejo', () async {
     final Directory tmp = Directory.systemTemp.createTempSync('gmx3237_');
     addTearDown(() {
+      EnergyScale.debugReset();
       debugLibraryRoots = null;
       debugLibraryCacheRoot = null;
       try {
@@ -141,6 +142,7 @@ void main() {
     );
     expect(trackEnergyNeedsFill(peekTrackDna(audio.path), mtime), isTrue);
     final TrackDnaEntry? got = await fillTrackEnergyIfStale(audio.path);
+    expect(got?.energyRaw, closeTo(0.5, 1e-9));
     expect(got?.energyLevel, 6);
     expect(got?.camelot, '8A');
     expect(trackEnergyNeedsFill(peekTrackDna(audio.path), mtime), isFalse);
@@ -157,7 +159,9 @@ void main() {
 
     final Map<String, dynamic> json = got!.toJson();
     expect(json['energyLevel'], 6);
+    expect(json['energyRaw'], closeTo(0.5, 1e-9));
     expect(json['camelot'], '8A');
     expect(TrackDnaEntry.fromJson(json)?.energyLevel, 6);
+    expect(TrackDnaEntry.fromJson(json)?.energyRaw, closeTo(0.5, 1e-9));
   });
 }

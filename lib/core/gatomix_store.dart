@@ -767,9 +767,11 @@ class TrackDnaEntry {
   final String? lang;
   final int? mtimeMs;
 
-  /// 3.2.37: nivel 1-10 (compuesto) y clave Camelot; van al espejo.
+  /// 3.2.37: nivel 1-10 y clave Camelot. 3.2.39: compuesto bruto 0-1
+  /// ([energyRaw]); el nivel se deriva por deciles de la biblioteca.
   final int? energyLevel;
   final String? camelot;
+  final double? energyRaw;
 
   const TrackDnaEntry({
     this.energy,
@@ -782,6 +784,7 @@ class TrackDnaEntry {
     this.mtimeMs,
     this.energyLevel,
     this.camelot,
+    this.energyRaw,
   });
 
   bool get isEmpty =>
@@ -794,7 +797,8 @@ class TrackDnaEntry {
       lang == null &&
       mtimeMs == null &&
       energyLevel == null &&
-      camelot == null;
+      camelot == null &&
+      energyRaw == null;
 
   /// [newer] gana campo a campo; lo que trae nulo se conserva.
   TrackDnaEntry mergedWith(TrackDnaEntry newer) => TrackDnaEntry(
@@ -808,6 +812,7 @@ class TrackDnaEntry {
     mtimeMs: newer.mtimeMs ?? mtimeMs,
     energyLevel: newer.energyLevel ?? energyLevel,
     camelot: newer.camelot ?? camelot,
+    energyRaw: newer.energyRaw ?? energyRaw,
   );
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -823,6 +828,7 @@ class TrackDnaEntry {
       'energyLevel': energyLevel,
     if (camelot != null && camelot!.trim().isNotEmpty)
       'camelot': camelot!.trim(),
+    if (_dnaUnit(energyRaw) != null) 'energyRaw': _dnaUnit(energyRaw),
   };
 
   static TrackDnaEntry? fromJson(Object? raw) {
@@ -855,6 +861,7 @@ class TrackDnaEntry {
         final Object? c = raw['camelot'];
         return c is String && c.trim().isNotEmpty ? c.trim() : null;
       }(),
+      energyRaw: d('energyRaw'),
     );
   }
 }
